@@ -26,7 +26,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 ### 4. Resilient Health Checker
 - **Paced Concurrency**: A dedicated 3-worker fixed thread pool paces health check pings, completely eliminating burst limit exhaustion (`503 ResourceExhausted 16/16`).
 - **1-Token Health Pings (`max_tokens: 1`)**: Pings request exactly 1 token to prevent reasoning models from generating heavy reasoning chains during health checks.
-- **Adaptive Timeout (45s)**: Eliminates false-negative "DOWN" statuses caused by upstream cloud queue delays.
+- **Adaptive Timeout (180s)**: Eliminates false-negative "DOWN" statuses caused by upstream cloud queue delays.
 
 ### 5. Universal Tool Call Normalizer
 - Seamlessly bridges differences between IDE agent schemas (Cline, Cursor, JetBrains) and NVIDIA NIM model outputs.
