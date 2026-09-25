@@ -19,30 +19,6 @@ public class LlmController {
         this.llmService = llmService;
     }
 
-    @PostMapping("/reasoning/generate")
-    public LlmResponse generateReasoning(@RequestBody LlmRequest request) {
-        return handleGenerate(request, false, "Reasoning");
-    }
-    
-    @PostMapping("/coding/generate")
-    public LlmResponse generateCoding(@RequestBody LlmRequest request) {
-        return handleGenerate(request, true, "Coding");
-    }
-
-    private LlmResponse handleGenerate(LlmRequest request, boolean isCoding, String type) {
-        String transactionId = java.util.UUID.randomUUID().toString();
-        String requester = request.requester() != null && !request.requester().isBlank() ? request.requester() : "anonymous";
-        int promptLength = request.prompt() != null ? request.prompt().length() : 0;
-        
-        log.info("[TxID: {}] Received {} LLM request from '{}' (Prompt length: {} chars)", transactionId, type, requester, promptLength);
-        
-        long start = System.currentTimeMillis();
-        LlmResponse response = llmService.generate(request.prompt(), requester, transactionId, isCoding);
-        
-        log.info("[TxID: {}] Request completed in {}ms using model: {}", transactionId, (System.currentTimeMillis() - start), response.modelUsed());
-        return response;
-    }
-    
     @GetMapping("/models/status")
     public List<ModelStatus> getStatus() {
         return llmService.getModelStatuses();
@@ -68,7 +44,7 @@ public class LlmController {
         llmService.resetCircuitBreaker(model);
     }
 
-    @PostMapping("/coding/chat/completions")
+    @PostMapping({"/coding/chat/completions", "/coding/v1/chat/completions"})
     public org.springframework.http.ResponseEntity<?> generateCodingOpenAi(jakarta.servlet.http.HttpServletRequest httpRequest,
                                                               @RequestBody java.util.Map<String, Object> request, 
                                                               @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
@@ -76,16 +52,13 @@ public class LlmController {
         log.info("[TxID: {}] Received OpenAI-compatible Coding proxy request to exact endpoint '{}' from '{}'", transactionId, httpRequest.getRequestURI(), requester);
         
         long start = System.currentTimeMillis();
-        java.util.Map<String, Object> response = llmService.generateOpenAiProxy(request, requester, transactionId, true);
+        java.util.Map<String, Object> response = llmService.generateOpenAiProxy(request, requester, transactionId, "coding");
         log.info("[TxID: {}] Coding proxy request completed in {}ms", transactionId, (System.currentTimeMillis() - start));
         
         return formatOpenAiResponse(request, response);
     }
 
-    @PostMapping({
-        "/reasoning/v1/chat/completions",
-        "/reasoning/chat/completions"
-    })
+    @PostMapping({"/reasoning/chat/completions", "/reasoning/v1/chat/completions"})
     public org.springframework.http.ResponseEntity<?> generateReasoningOpenAi(jakarta.servlet.http.HttpServletRequest httpRequest,
                                                                  @RequestBody java.util.Map<String, Object> request, 
                                                                  @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
@@ -93,8 +66,22 @@ public class LlmController {
         log.info("[TxID: {}] Received OpenAI-compatible Reasoning proxy request to exact endpoint '{}' from '{}'", transactionId, httpRequest.getRequestURI(), requester);
         
         long start = System.currentTimeMillis();
-        java.util.Map<String, Object> response = llmService.generateOpenAiProxy(request, requester, transactionId, false);
+        java.util.Map<String, Object> response = llmService.generateOpenAiProxy(request, requester, transactionId, "reasoning");
         log.info("[TxID: {}] Reasoning proxy request completed in {}ms", transactionId, (System.currentTimeMillis() - start));
+        
+        return formatOpenAiResponse(request, response);
+    }
+
+    @PostMapping({"/vision/chat/completions", "/vision/v1/chat/completions"})
+    public org.springframework.http.ResponseEntity<?> generateVisionOpenAi(jakarta.servlet.http.HttpServletRequest httpRequest,
+                                                              @RequestBody java.util.Map<String, Object> request, 
+                                                              @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
+        String transactionId = java.util.UUID.randomUUID().toString();
+        log.info("[TxID: {}] Received OpenAI-compatible Vision proxy request to exact endpoint '{}' from '{}'", transactionId, httpRequest.getRequestURI(), requester);
+        
+        long start = System.currentTimeMillis();
+        java.util.Map<String, Object> response = llmService.generateOpenAiProxy(request, requester, transactionId, "vision");
+        log.info("[TxID: {}] Vision proxy request completed in {}ms", transactionId, (System.currentTimeMillis() - start));
         
         return formatOpenAiResponse(request, response);
     }
@@ -183,5 +170,32 @@ public class LlmController {
         }
         
         return org.springframework.http.ResponseEntity.ok(response);
+    }
+
+    @ExceptionHandler(org.springframework.web.reactive.function.client.WebClientResponseException.class)
+    public org.springframework.http.ResponseEntity<?> handleWebClientResponseException(org.springframework.web.reactive.function.client.WebClientResponseException e) {
+        String body = e.getResponseBodyAsString();
+        String message = (body != null && !body.isBlank()) ? body : ("Upstream API error: " + e.getStatusCode());
+        Map<String, Object> error = Map.of(
+            "message", message,
+            "type", e.getStatusCode().is4xxClientError() ? "invalid_request_error" : "upstream_error",
+            "code", String.valueOf(e.getStatusCode().value())
+        );
+        return org.springframework.http.ResponseEntity.status(e.getStatusCode())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("error", error));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public org.springframework.http.ResponseEntity<?> handleGeneralException(Exception e) {
+        log.error("Gateway error: {}", e.getMessage(), e);
+        Map<String, Object> error = Map.of(
+            "message", e.getMessage() != null ? e.getMessage() : "Internal Gateway Error",
+            "type", "gateway_error",
+            "code", "model_unavailable"
+        );
+        return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("error", error));
     }
 }

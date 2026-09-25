@@ -116,6 +116,8 @@
         [data-theme="dark"] .category-reasoning { background: rgba(77, 161, 255, 0.15); color: #66b2ff; }
         .category-coding { background: rgba(162, 89, 255, 0.2); color: #7a00cc; }
         [data-theme="dark"] .category-coding { background: rgba(162, 89, 255, 0.15); color: #c480ff; }
+        .category-vision { background: rgba(0, 204, 150, 0.2); color: #008764; }
+        [data-theme="dark"] .category-vision { background: rgba(0, 204, 150, 0.15); color: #00e5a3; }
         
         /* Specific statuses */
         .status-badge {
@@ -196,11 +198,11 @@
                         <select class="form-select form-select-sm w-auto fw-medium text-secondary" id="timeRangeFilter" style="border-radius: 6px; box-shadow: none;">
                             <option value="15">Last 15 Mins</option>
                             <option value="30">Last 30 Mins</option>
-                            <option value="60">Last 1 Hour</option>
+                            <option value="60" selected>Last 1 Hour</option>
                             <option value="180">Last 3 Hours</option>
                             <option value="360">Last 6 Hours</option>
                             <option value="720">Last 12 Hours</option>
-                            <option value="1440" selected>Last 24 Hours</option>
+                            <option value="1440">Last 24 Hours</option>
                         </select>
                     </div>
                     <div style="position: relative; height: 320px; width: 100%;">
@@ -238,6 +240,7 @@
                         <option value="">All Categories</option>
                         <option value="Reasoning">Reasoning</option>
                         <option value="Coding">Coding</option>
+                        <option value="Vision">Vision</option>
                     </select>
                 </div>
                 
@@ -642,7 +645,7 @@
                     case 'uses': valA = a.totalUses; valB = b.totalUses; break;
                     case 'conns': valA = a.activeConnections; valB = b.activeConnections; break;
                     case 'circuit': valA = a.circuitOpen ? 1 : 0; valB = b.circuitOpen ? 1 : 0; break;
-                    case 'error': valA = a.lastError || ''; valB = b.lastError || ''; break;
+                    case 'error': valA = a.errorMessage || ''; valB = b.errorMessage || ''; break;
                     default: valA = a.model; valB = b.model;
                 }
                 
@@ -786,7 +789,7 @@
 
             // Time Range Filter
             const timeRangeSelect = document.getElementById('timeRangeFilter');
-            const rangeMins = timeRangeSelect ? parseInt(timeRangeSelect.value) : 1440;
+            const rangeMins = timeRangeSelect ? parseInt(timeRangeSelect.value) : 60;
             const cutoffTime = Date.now() - (rangeMins * 60 * 1000);
 
             // Latency Chart
@@ -806,7 +809,7 @@
                 return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
             });
             
-            const latencyDatasets = data.filter(d => d.isUp && d.history && d.history.some(h => h.isUp)).map((d, i) => {
+            const latencyDatasets = data.filter(d => d.history && d.history.some(h => h.isUp)).map((d, i) => {
                 const latencyMap = {};
                 d.history.forEach(h => {
                     if (h.isUp && new Date(h.timestamp).getTime() >= cutoffTime) {

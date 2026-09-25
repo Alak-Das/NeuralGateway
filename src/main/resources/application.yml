@@ -9,8 +9,9 @@ nvidia:
   api:
     base-url: "https://integrate.api.nvidia.com/v1"
     key: "${NVIDIA_API_KEY:}"
-  reasoning-models: "moonshotai/kimi-k3,nvidia/nemotron-3-ultra-550b-a55b,z-ai/glm-5.3,z-ai/glm-5.3-flash,deepseek-ai/deepseek-v4.1-flash,nvidia/nemotron-3-super-120b-a12b,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,google/gemma-4-31b-it"
+  reasoning-models: "${NVIDIA_REASONING_MODELS:moonshotai/kimi-k3,nvidia/nemotron-3-ultra-550b-a55b,z-ai/glm-5.3,z-ai/glm-5.3-flash,deepseek-ai/deepseek-v4.1-flash,nvidia/nemotron-3-super-120b-a12b,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,google/gemma-4-31b-it}"
   coding-models: "${NVIDIA_CODING_MODELS:z-ai/glm-5.3,z-ai/glm-5.3-flash,moonshotai/kimi-k3,nvidia/nemotron-3-ultra-550b-a55b,google/gemma-4-31b-it,nvidia/nemotron-3-super-120b-a12b,poolside/laguna-xs-2.1,mistralai/mistral-nemotron}"
+  vision-models: "${NVIDIA_VISION_MODELS:meta/llama-3.2-11b-vision-instruct,meta/llama-3.2-90b-vision-instruct}"
 
 springdoc:
   swagger-ui:
