@@ -147,7 +147,7 @@ public class NvidiaLlmService {
                         isUp = lastPing.isUp();
                         latency = lastPing.latencyMs();
                         lastChecked = lastPing.timestamp() != null ? lastPing.timestamp() : Instant.now();
-                        errorMsg = isUp ? null : "Recovered from Redis history";
+                        errorMsg = isUp ? null : "Recovered from history";
                     }
                 }
             } catch (Exception e) {
