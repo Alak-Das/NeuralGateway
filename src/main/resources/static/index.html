@@ -276,11 +276,12 @@
                                 <th class="py-3 px-4 sortable-col" data-sort="conns" style="cursor: pointer; user-select: none;">Active Conns <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
                                 <th class="py-3 px-4 sortable-col" data-sort="circuit" style="cursor: pointer; user-select: none;">Circuit Breaker <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
                                 <th class="py-3 px-4 sortable-col" data-sort="error" style="cursor: pointer; user-select: none;">Last Error <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
+                                <th class="py-3 px-4 sortable-col" data-sort="updated" style="cursor: pointer; user-select: none;">Last Updated <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
                                 <th class="py-3 px-4">Action</th>
                             </tr>
                         </thead>
                         <tbody id="statusTableBody" class="border-top-0">
-                            <tr class="skeleton skeleton-row"><td colspan="10" style="height: 60px;"></td></tr>
+                            <tr class="skeleton skeleton-row"><td colspan="11" style="height: 60px;"></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -426,14 +427,38 @@
         }
         
         function formatNumber(num) {
-            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-            return num.toString();
+            if (num === null || num === undefined || isNaN(num)) return '0';
+            num = Number(num);
+            if (num >= 1000000000) return (num / 1000000000).toFixed(2).replace(/\.00$/, '').replace(/(\.[0-9])0$/, '$1') + 'B';
+            if (num >= 1000000) return (num / 1000000).toFixed(2).replace(/\.00$/, '').replace(/(\.[0-9])0$/, '$1') + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+            return num.toLocaleString();
         }
         
         function formatLatency(ms) {
             if (ms < 1000) return `${ms}ms`;
             return `${(ms / 1000).toFixed(2)}s`;
+        }
+
+        function formatTimeAgo(isoString) {
+            if (!isoString) return 'Never';
+            const date = new Date(isoString);
+            if (isNaN(date.getTime())) return 'Never';
+            const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+            if (seconds < 5) return 'Just now';
+            if (seconds < 60) return `${seconds}s ago`;
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes}m ago`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours}h ago`;
+            return `${Math.floor(hours / 24)}d ago`;
+        }
+        
+        function formatTimeOnly(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            if (isNaN(date.getTime())) return '';
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         }
         
         function updateLastUpdated() {
@@ -646,6 +671,7 @@
                     case 'conns': valA = a.activeConnections; valB = b.activeConnections; break;
                     case 'circuit': valA = a.circuitOpen ? 1 : 0; valB = b.circuitOpen ? 1 : 0; break;
                     case 'error': valA = a.errorMessage || ''; valB = b.errorMessage || ''; break;
+                    case 'updated': valA = a.lastChecked ? new Date(a.lastChecked).getTime() : 0; valB = b.lastChecked ? new Date(b.lastChecked).getTime() : 0; break;
                     default: valA = a.model; valB = b.model;
                 }
                 
@@ -672,7 +698,7 @@
             if (filtered.length === 0) {
                 statusTableBody.innerHTML = `
                     <tr>
-                        <td colspan="10">
+                        <td colspan="11">
                             <div class="text-center py-5">
                                 <i class="bi bi-search text-muted opacity-50" style="font-size: 4rem;"></i>
                                 <h5 class="fw-bold mt-3 text-secondary">No models match the current filters</h5>
@@ -718,6 +744,10 @@
                         </span>
                     </td>
                     <td class="py-3 px-4">${!d.errorMessage ? '—' : (d.errorMessage === 'Not yet checked' ? '<span class="text-muted opacity-50 small">Not yet checked</span>' : `<span class="error-text fw-medium" style="font-size: 0.8rem;" title="${d.errorMessage.replace(/"/g, '&quot;')}"><i class="bi bi-exclamation-triangle-fill me-1 opacity-75"></i>${formatErrorMessage(d.errorMessage)}</span>`)}</td>
+                    <td class="py-3 px-4 text-nowrap">
+                        <div class="fw-medium" style="font-size: 0.85rem;" title="${d.lastChecked ? new Date(d.lastChecked).toLocaleString() : ''}">${formatTimeAgo(d.lastChecked)}</div>
+                        <div class="text-muted" style="font-size: 0.75rem;">${formatTimeOnly(d.lastChecked)}</div>
+                    </td>
                     <td class="py-3 px-4">
                         <div class="d-flex align-items-center gap-2">
                               <button class="btn btn-sm btn-outline-primary btn-ping-action d-flex align-items-center" data-model="${d.model}" ${d.isUp ? '' : 'disabled'} title="Ping Now">
@@ -900,7 +930,7 @@
                                         const value = context.parsed || 0;
                                         const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                         const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                                        return `${label}: ${value} (${percentage}%)`;
+                                        return `${label}: ${formatNumber(value)} (${value.toLocaleString()} / ${percentage}%)`;
                                     }
                                 }
                             }
@@ -936,23 +966,23 @@
                             
                             if (showHoverData) {
                                 // Draw percentage on hover
-                                ctx.font = 'bold 28px Inter';
+                                ctx.font = 'bold 26px Inter';
                                 ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-primary') || '#1a1a1a';
                                 ctx.fillText(`${percentage}%`, centerX, centerY - 10);
                                 
                                 // Draw label
-                                ctx.font = '14px Inter';
+                                ctx.font = '13px Inter';
                                 ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary') || '#666';
-                                ctx.fillText(label, centerX, centerY + 20);
+                                ctx.fillText(label, centerX, centerY + 18);
                             } else {
-                                // Draw total by default
-                                ctx.font = 'bold 28px Inter';
+                                // Draw formatted total by default
+                                ctx.font = 'bold 26px Inter';
                                 ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-primary') || '#1a1a1a';
-                                ctx.fillText(`${total}`, centerX, centerY - 10);
+                                ctx.fillText(formatNumber(total), centerX, centerY - 10);
                                 
-                                ctx.font = '14px Inter';
+                                ctx.font = '13px Inter';
                                 ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary') || '#666';
-                                ctx.fillText('Total Requests', centerX, centerY + 20);
+                                ctx.fillText('Total Requests', centerX, centerY + 18);
                             }
                             
                             ctx.restore();

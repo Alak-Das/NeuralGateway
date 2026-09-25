@@ -60,7 +60,8 @@ public class NvidiaLlmService {
 
     // SSE Emitters for real-time updates
     private final List<SseEmitter> statusEmitters = new CopyOnWriteArrayList<>();
-    private final java.util.concurrent.ExecutorService pingExecutor = java.util.concurrent.Executors.newFixedThreadPool(3);
+    private final Object pingLock = new Object();
+    private volatile long lastPingEndTime = 0;
 
     private static final int MAX_HISTORY_SIZE = 1440; // 24 hours of 1-minute pings
     private static final int CIRCUIT_BREAKER_THRESHOLD = 2;
@@ -126,18 +127,61 @@ public class NvidiaLlmService {
             if (visionModels.contains(model)) categories.add("Vision");
             if (categories.isEmpty()) categories.add("Unknown");
 
-            latestStatusMap.putIfAbsent(model, new ModelStatus(
+            // Initialize status by restoring history, usage, and circuit breaker from Redis if available
+            List<PingResult> history = new ArrayList<>();
+            boolean isUp = false;
+            long latency = 0L;
+            Instant lastChecked = Instant.now();
+            String errorMsg = "Not yet checked";
+
+            try {
+                List<String> histStrs = redisTemplate.opsForList().range("gateway:model:history:" + model, 0, -1);
+                if (histStrs != null && !histStrs.isEmpty()) {
+                    for (String s : histStrs) {
+                        try {
+                            history.add(objectMapper.readValue(s, PingResult.class));
+                        } catch (Exception ex) {}
+                    }
+                    if (!history.isEmpty()) {
+                        PingResult lastPing = history.get(history.size() - 1);
+                        isUp = lastPing.isUp();
+                        latency = lastPing.latencyMs();
+                        lastChecked = lastPing.timestamp() != null ? lastPing.timestamp() : Instant.now();
+                        errorMsg = isUp ? null : "Recovered from Redis history";
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to restore history from Redis for model {}: {}", model, e.getMessage());
+            }
+
+            long usage = 0L;
+            try {
+                Object usageObj = redisTemplate.opsForHash().get("gateway:model:usage", model);
+                if (usageObj != null) {
+                    usage = Long.parseLong(usageObj.toString());
+                }
+            } catch (Exception e) {}
+
+            boolean circuitOpen = false;
+            try {
+                Object cbObj = redisTemplate.opsForHash().get("gateway:model:circuit", model);
+                if (cbObj != null) {
+                    circuitOpen = Boolean.parseBoolean(cbObj.toString());
+                }
+            } catch (Exception e) {}
+
+            latestStatusMap.put(model, new ModelStatus(
                 model,
                 categories,
-                false,
-                0,
-                Instant.now(),
-                "Not yet checked",
-                new ArrayList<>(),
-                0,
+                isUp,
+                latency,
+                lastChecked,
+                errorMsg,
+                history,
+                usage,
                 0,
                 0.0,
-                false
+                circuitOpen
             ));
         }
 
@@ -147,7 +191,7 @@ public class NvidiaLlmService {
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
 
-        log.info("Initialized NvidiaLlmService with {} models: {}", allModels.size(), allModels);
+        log.info("Initialized NvidiaLlmService with {} models (state restored from Redis): {}", allModels.size(), allModels);
     }
 
     private double getEmaLatency(String model) {
@@ -173,9 +217,11 @@ public class NvidiaLlmService {
 
     private double calculateRoutingScore(String model) {
         double baseLatency = emaLatencyMap.getOrDefault(model, 10000.0);
-        int activeConns = activeConnectionsMap.get(model).get();
+        int activeConns = activeConnectionsMap.get(model) != null ? activeConnectionsMap.get(model).get() : 0;
+        boolean circuitOpen = latestStatusMap.get(model) != null && latestStatusMap.get(model).circuitOpen();
         // Least Connections: add a 300ms simulated penalty for each active connection
-        return baseLatency + (activeConns * 300.0);
+        // Circuit open: add a 50000ms penalty so tripped models are routed last
+        return baseLatency + (activeConns * 300.0) + (circuitOpen ? 50000.0 : 0.0);
     }
 
     public List<String> getTargetModels(String pipeline) {
@@ -206,10 +252,11 @@ public class NvidiaLlmService {
                 .map(ModelStatus::model)
                 .collect(Collectors.toList());
                 
-        // Fallback to DOWN or Open Circuit models if absolutely necessary
+        // Fallback to DOWN or Open Circuit models if absolutely necessary, sorted by lowest score
         List<String> downModels = latestStatusMap.values().stream()
                 .filter(s -> targetModels.contains(s.model()))
                 .filter(status -> !status.isUp() || status.circuitOpen())
+                .sorted(Comparator.comparingDouble(s -> calculateRoutingScore(s.model())))
                 .map(ModelStatus::model)
                 .collect(Collectors.toList());
 
@@ -223,8 +270,10 @@ public class NvidiaLlmService {
             }
         }
         
+        int downAttempts = 0;
+        int maxDownAttempts = upModels.isEmpty() ? 3 : 1;
         for (String model : downModels) {
-            if (++attempts > 4) break;
+            if (++downAttempts > maxDownAttempts) break;
             try {
                 return executeWithTelemetry(model, prompt, "DOWN", requester, transactionId);
             } catch (Exception e) {
@@ -339,6 +388,7 @@ public class NvidiaLlmService {
                 .filter(s -> targetModels.contains(s.model()))
                 .filter(s -> estimatedTokens <= MODEL_CONTEXT_LIMITS.getOrDefault(s.model(), DEFAULT_CONTEXT_LIMIT))
                 .filter(status -> !status.isUp() || status.circuitOpen())
+                .sorted(Comparator.comparingDouble(s -> calculateRoutingScore(s.model())))
                 .map(ModelStatus::model)
                 .collect(Collectors.toList());
 
@@ -358,8 +408,9 @@ public class NvidiaLlmService {
         }
         
         int downAttempts = 0;
+        int maxDownAttempts = upModels.isEmpty() ? 3 : 1; // If no UP models available (cold start or temporary outage), try up to 3 best down models
         for (String model : downModels) {
-            if (++downAttempts > 1) break; // At most 1 hail-mary fallback
+            if (++downAttempts > maxDownAttempts) break;
             try {
                 return executeWithTelemetryOpenAi(model, requestBody, "DOWN", requester, transactionId);
             } catch (org.springframework.web.reactive.function.client.WebClientResponseException e) {
@@ -531,7 +582,20 @@ public class NvidiaLlmService {
                 .map(ModelStatus::model)
                 .collect(Collectors.toList());
 
-        return tryStreamModel(upModels, 0, requestBody, requester, transactionId);
+        List<String> candidates;
+        if (!upModels.isEmpty()) {
+            candidates = upModels;
+        } else {
+            // Cold start or temporary outage: fall back to down models sorted by routing score
+            candidates = latestStatusMap.values().stream()
+                    .filter(s -> targetModels.contains(s.model()))
+                    .filter(s -> estimatedTokens <= MODEL_CONTEXT_LIMITS.getOrDefault(s.model(), DEFAULT_CONTEXT_LIMIT))
+                    .sorted(Comparator.comparingDouble(s -> calculateRoutingScore(s.model())))
+                    .map(ModelStatus::model)
+                    .collect(Collectors.toList());
+        }
+
+        return tryStreamModel(candidates, 0, requestBody, requester, transactionId);
     }
     
     private Flux<String> tryStreamModel(List<String> models, int index, Map<String, Object> requestBody, String requester, String transactionId) {
@@ -540,9 +604,10 @@ public class NvidiaLlmService {
             return Flux.error(new RuntimeException("All backend models failed."));
         }
         String model = models.get(index);
-        return executeWithTelemetryOpenAiStream(model, requestBody, "UP", requester, transactionId)
+        String state = latestStatusMap.get(model) != null && latestStatusMap.get(model).isUp() ? "UP" : "DOWN";
+        return executeWithTelemetryOpenAiStream(model, requestBody, state, requester, transactionId)
             .onErrorResume(e -> {
-                log.warn("[TxID: {}] UP Streaming Proxy Model {} failed to stream. Error: {}. Transparently retrying next model...", transactionId, model, e.getMessage());
+                log.warn("[TxID: {}] {} Streaming Proxy Model {} failed to stream. Error: {}. Transparently retrying next model...", transactionId, state, model, e.getMessage());
                 handleModelError(model, e); // Trip circuit if necessary
                 return tryStreamModel(models, index + 1, requestBody, requester, transactionId);
             });
@@ -661,76 +726,96 @@ public class NvidiaLlmService {
     }
 
     private PingResult pingSingleModelInternal(String model, Instant now) {
-        long startTime = System.currentTimeMillis();
-        boolean isUp = false;
-        long latency = 0;
-        String errorMsg = null;
-
-        try {
-            performPingCall(model);
-            latency = System.currentTimeMillis() - startTime;
-            isUp = true;
-
-            // Successful ping resets the circuit breaker!
-            consecutiveErrorsMap.get(model).set(0);
-            redisTemplate.opsForHash().put("gateway:model:circuit", model, "false");
-
-            final double currentLatency = latency;
-            emaLatencyMap.compute(model, (k, currentEma) -> {
-                if (currentEma == null || currentEma >= 10000.0) {
-                    return currentLatency;
+        synchronized (pingLock) {
+            long timeSinceLastPing = System.currentTimeMillis() - lastPingEndTime;
+            if (lastPingEndTime > 0 && timeSinceLastPing < 5000) {
+                try {
+                    Thread.sleep(5000 - timeSinceLastPing);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
-                double alpha = 0.3;
-                return (alpha * currentLatency) + ((1 - alpha) * currentEma);
-            });
-
-            log.debug("Ping successful for model: {} ({}ms)", model, latency);
-        } catch (Exception e) {
-            latency = System.currentTimeMillis() - startTime;
-            errorMsg = e.getMessage();
-            log.debug("Ping failed for model: {} - {}", model, errorMsg);
-        }
-
-        PingResult result = new PingResult(now, isUp, latency);
-        try {
-            redisTemplate.opsForList().rightPush("gateway:model:history:" + model, objectMapper.writeValueAsString(result));
-            redisTemplate.opsForList().trim("gateway:model:history:" + model, -MAX_HISTORY_SIZE, -1);
-        } catch (JsonProcessingException ex) {}
-
-        List<String> histStrs = redisTemplate.opsForList().range("gateway:model:history:" + model, 0, -1);
-        List<PingResult> history = new ArrayList<>();
-        if (histStrs != null) {
-            for (String s : histStrs) {
-                try { history.add(objectMapper.readValue(s, PingResult.class)); } catch (Exception ex) {}
             }
+
+            long startTime = System.currentTimeMillis();
+            boolean isUp = false;
+            long latency = 0;
+            String errorMsg = null;
+
+            try {
+                performPingCall(model);
+                latency = System.currentTimeMillis() - startTime;
+                isUp = true;
+
+                // Successful ping resets the circuit breaker!
+                consecutiveErrorsMap.get(model).set(0);
+                redisTemplate.opsForHash().put("gateway:model:circuit", model, "false");
+
+                final double currentLatency = latency;
+                emaLatencyMap.compute(model, (k, currentEma) -> {
+                    if (currentEma == null || currentEma >= 10000.0) {
+                        return currentLatency;
+                    }
+                    double alpha = 0.3;
+                    return (alpha * currentLatency) + ((1 - alpha) * currentEma);
+                });
+
+                log.debug("Ping successful for model: {} ({}ms)", model, latency);
+            } catch (Exception e) {
+                latency = System.currentTimeMillis() - startTime;
+                errorMsg = e.getMessage();
+                log.debug("Ping failed for model: {} - {}", model, errorMsg);
+            } finally {
+                lastPingEndTime = System.currentTimeMillis();
+            }
+
+            PingResult result = new PingResult(now, isUp, latency);
+            try {
+                redisTemplate.opsForList().rightPush("gateway:model:history:" + model, objectMapper.writeValueAsString(result));
+                redisTemplate.opsForList().trim("gateway:model:history:" + model, -MAX_HISTORY_SIZE, -1);
+            } catch (JsonProcessingException ex) {}
+
+            List<String> histStrs = redisTemplate.opsForList().range("gateway:model:history:" + model, 0, -1);
+            List<PingResult> history = new ArrayList<>();
+            if (histStrs != null) {
+                for (String s : histStrs) {
+                    try { history.add(objectMapper.readValue(s, PingResult.class)); } catch (Exception ex) {}
+                }
+            }
+            List<String> categories = new ArrayList<>();
+            if (reasoningModels.contains(model)) categories.add("Reasoning");
+            if (codingModels.contains(model)) categories.add("Coding");
+            if (visionModels.contains(model)) categories.add("Vision");
+            if (categories.isEmpty()) categories.add("Unknown");
+
+            latestStatusMap.put(model, new ModelStatus(
+                model, categories, isUp, latency, now, errorMsg, new ArrayList<>(history),
+                redisTemplate.opsForHash().get("gateway:model:usage", model) != null ? Long.parseLong(redisTemplate.opsForHash().get("gateway:model:usage", model).toString()) : 0L,
+                activeConnectionsMap.get(model).get(),
+                tpsMap.get(model),
+                redisTemplate.opsForHash().get("gateway:model:circuit", model) != null ? Boolean.parseBoolean(redisTemplate.opsForHash().get("gateway:model:circuit", model).toString()) : false
+            ));
+
+            return result;
         }
-        List<String> categories = new ArrayList<>();
-        if (reasoningModels.contains(model)) categories.add("Reasoning");
-        if (codingModels.contains(model)) categories.add("Coding");
-        if (visionModels.contains(model)) categories.add("Vision");
-        if (categories.isEmpty()) categories.add("Unknown");
-
-        latestStatusMap.put(model, new ModelStatus(
-            model, categories, isUp, latency, now, errorMsg, new ArrayList<>(history),
-            redisTemplate.opsForHash().get("gateway:model:usage", model) != null ? Long.parseLong(redisTemplate.opsForHash().get("gateway:model:usage", model).toString()) : 0L,
-            activeConnectionsMap.get(model).get(),
-            tpsMap.get(model),
-            redisTemplate.opsForHash().get("gateway:model:circuit", model) != null ? Boolean.parseBoolean(redisTemplate.opsForHash().get("gateway:model:circuit", model).toString()) : false
-        ));
-
-        return result;
     }
 
     @Scheduled(fixedDelay = 60000)
     public void pingModels() {
-        log.debug("Starting scheduled health ping for all models...");
-        Instant now = Instant.now();
-        List<CompletableFuture<Void>> futures = allModels.stream()
-                .map(model -> CompletableFuture.runAsync(() -> pingSingleModelInternal(model, now), pingExecutor))
+        log.debug("Starting scheduled health ping for all models (sequential with 5s gap)...");
+        // Prioritize pings: models with lower historical latency are pinged first
+        // so fast and reliable models are validated immediately.
+        List<String> sortedModels = allModels.stream()
+                .sorted(Comparator.comparingDouble(this::calculateRoutingScore))
                 .collect(Collectors.toList());
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        // Broadcast updates to all connected SSE clients
-        notifyStatusChange();
+
+        for (String model : sortedModels) {
+            try {
+                pingSingleModelInternal(model, Instant.now());
+                notifyStatusChange();
+            } catch (Exception e) {
+                log.error("Failed to ping model {}: {}", model, e.getMessage());
+            }
+        }
     }
     
     public List<ModelStatus> getModelStatuses() {
@@ -789,7 +874,6 @@ public class NvidiaLlmService {
 
     @PreDestroy
     public void cleanup() {
-        pingExecutor.shutdown();
     }
 
     // Reset circuit breaker for a single model

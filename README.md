@@ -21,10 +21,13 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Autonomous Circuit Breaker**: Models returning consecutive server errors (5xx, timeouts) trip an isolated circuit breaker in Redis.
 - **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trip model circuit breakers.
 - **Auto-Recovery**: Tripped circuit breakers automatically reset to closed as soon as background health checks succeed.
+- **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
+- **Resilient Fallback Routing**: During cold-starts or temporary upstream outages, candidate models are sorted by lowest historical EMA score and tried with up to 3 fallback attempts.
 - **Fail-Fast Failover**: Transparently retries candidate models on server-side failures with strict attempt caps to eliminate cascading delays.
 
 ### 4. Resilient Health Checker
-- **Paced Concurrency**: A dedicated 3-worker fixed thread pool paces health check pings, completely eliminating burst limit exhaustion (`503 ResourceExhausted 16/16`).
+- **Prioritized Ping Ordering**: Models are sorted by historical EMA latency prior to health check sweeps, ensuring fast models (`nvidia/nemotron-3-ultra-550b-a55b` ~400ms) are validated immediately rather than waiting behind slower or queue-bound models.
+- **Sequential Execution & Rate Pacing**: Strictly sequential health checking (exactly one model ping at a time) with a guaranteed minimum 5-second gap between pings, completely eliminating burst limit exhaustion (`503 ResourceExhausted 16/16`) and concurrent rate limit spikes.
 - **1-Token Health Pings (`max_tokens: 1`)**: Pings request exactly 1 token to prevent reasoning models from generating heavy reasoning chains during health checks.
 - **Adaptive Timeout (180s)**: Eliminates false-negative "DOWN" statuses caused by upstream cloud queue delays.
 
@@ -37,7 +40,13 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Live Fleet Health**: Real-time status cards, active concurrent connections, global TPS, and average fleet latency.
 - **Server-Sent Events (SSE)**: Instant browser metric updates with zero polling overhead.
 - **Interactive Latency History**: Filterable from 15 minutes to 24 hours (default: 1 hour), retaining historical performance trends.
+- **Compact Metric Formatting**: High request volumes and token totals are automatically formatted into readable units (Hundreds, Thousands `K`, Millions `M`, Billions `B`).
 - **Token Analytics**: Breakdown of prompt and completion token usage by model and by client requester (`X-Requester`).
+
+### 7. Interactive OpenAPI & Swagger UI
+- Fully branded, interactive API documentation available at `http://localhost:9090/swagger-ui.html`.
+- Cleanly tagged and organized into dedicated sections: **Coding Pipeline**, **Reasoning Pipeline**, **Vision Pipeline**, **Fleet Health & Diagnostics**, and **Telemetry**.
+- Compatibility aliases (`/v1/...`) are kept active for IDE clients while hidden from the UI to avoid duplicate clutter.
 
 ---
 
@@ -62,8 +71,10 @@ Neural Gateway is a drop-in replacement for OpenAI API endpoints:
 | **Vision** | `POST /api/vision/chat/completions` | `POST /api/vision/v1/chat/completions` |
 | **Fleet Status** | `GET /api/models/status` | — |
 | **Status Stream** | `GET /api/models/status/stream` (SSE) | — |
+| **Telemetry** | `GET /api/requesters/status` | — |
 | **Manual Ping** | `POST /api/models/ping?model={name}` | — |
 | **Reset Circuit** | `POST /api/models/circuit-reset?model={name}` | — |
+| **Swagger UI** | `GET /swagger-ui.html` | `GET /v3/api-docs` |
 
 ---
 
