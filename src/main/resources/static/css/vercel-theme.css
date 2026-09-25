@@ -1,0 +1,555 @@
+:root {
+    --text-primary: #000000;
+    --text-secondary: #3c3c43;
+    --radius-md: 14px;
+    --radius-lg: 24px;
+    --radius-pill: 9999px;
+    --bg-system: #f2f2f7;
+    --bg-surface: rgba(255, 255, 255, 0.35);
+    --border-color: rgba(255, 255, 255, 0.5);
+    --bg-input: rgba(255, 255, 255, 0.4);
+    --bg-input-focus: rgba(255, 255, 255, 0.8);
+    --bg-nav: rgba(255, 255, 255, 0.65);
+    --bg-card: rgba(255, 255, 255, 0.35);
+    --primary-blue: rgba(0, 122, 255, 0.85);
+    --primary-blue-hover: rgba(0, 122, 255, 0.95);
+    
+    --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.9), inset 0 -1px 1px rgba(255, 255, 255, 0.2);
+    --shadow-glass-inset: inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 0 rgba(255, 255, 255, 0.8);
+    --glass-blur: blur(40px) saturate(200%);
+    --gradient-1: rgba(255, 107, 107, 0.25);
+    --gradient-2: rgba(77, 161, 255, 0.25);
+    --gradient-3: rgba(193, 98, 253, 0.2);
+    --gradient-4: rgba(255, 184, 108, 0.2);
+    --gradient-5: rgba(72, 219, 251, 0.2);
+}
+
+[data-theme="dark"] {
+    --text-primary: #ffffff;
+    --text-secondary: #ebebf5;
+    --bg-system: #000000;
+    --bg-surface: rgba(30, 30, 30, 0.6);
+    --border-color: rgba(255, 255, 255, 0.1);
+    --bg-input: rgba(40, 40, 40, 0.6);
+    --bg-input-focus: rgba(60, 60, 60, 0.8);
+    --bg-nav: rgba(20, 20, 20, 0.7);
+    --bg-card: rgba(30, 30, 30, 0.6);
+    --primary-blue: rgba(10, 132, 255, 0.85);
+    --primary-blue-hover: rgba(10, 132, 255, 0.95);
+    
+    --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.05), inset 0 -1px 1px rgba(0, 0, 0, 0.5);
+    --shadow-glass-inset: inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.05);
+    --gradient-1: rgba(255, 107, 107, 0.1);
+    --gradient-2: rgba(77, 161, 255, 0.1);
+    --gradient-3: rgba(193, 98, 253, 0.1);
+    --gradient-4: rgba(255, 184, 108, 0.1);
+    --gradient-5: rgba(72, 219, 251, 0.1);
+}
+
+/* Modern Toast Classes */
+.toast-modern-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1060;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+}
+.toast-modern {
+    background: var(--bg-surface);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-glass);
+    color: var(--text-primary);
+    border-radius: var(--radius-pill);
+    padding: 12px 24px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: auto;
+}
+.toast-modern.show {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    color: var(--text-primary);
+    margin: 0;
+    overflow-x: hidden;
+    min-height: 100vh;
+    
+    /* Vibrant iOS-style Mesh Gradient Wallpaper */
+    background-color: var(--bg-system); /* iOS system background */
+    background-image: 
+        radial-gradient(at 10% 20%, var(--gradient-1) 0px, transparent 50%),
+        radial-gradient(at 80% 10%, var(--gradient-2) 0px, transparent 50%),
+        radial-gradient(at 40% 60%, var(--gradient-3) 0px, transparent 50%),
+        radial-gradient(at 90% 90%, var(--gradient-4) 0px, transparent 50%),
+        radial-gradient(at 10% 90%, var(--gradient-5) 0px, transparent 50%);
+    background-attachment: fixed;
+    background-size: cover;
+}
+
+/* Reusable Glass Panel Class */
+.glass-panel {
+    background: var(--bg-surface) !important;
+    backdrop-filter: var(--glass-blur) !important;
+    -webkit-backdrop-filter: var(--glass-blur) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-glass);
+}
+
+/* Global Landing Nav */
+.landing-nav {
+    border-bottom: 0.5px solid rgba(0,0,0,0.1);
+    background: var(--bg-nav);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.brand-logo {
+    font-weight: 700;
+    font-size: 1.25rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    letter-spacing: -0.02em;
+}
+
+/* Main Content Styles */
+.main-content {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.content-wrapper {
+    padding: 3rem 1rem;
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+    flex-grow: 1;
+}
+
+/* Form and Card Overrides - The "Glass Plate" */
+.vercel-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-glass);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    padding: 2.5rem;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Form Inputs (Glass Pills) */
+.form-control, .form-select, .input-group-text {
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: var(--radius-pill) !important;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-glass-inset);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    padding: 0.75rem 1.25rem;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus, .form-select:focus {
+    background: var(--bg-input-focus);
+    border-color: rgba(0, 122, 255, 0.5); /* iOS default blue focus */
+    box-shadow: var(--shadow-glass-inset), 0 0 0 4px rgba(0, 122, 255, 0.15);
+    outline: none;
+}
+
+/* Button Overrides (3D Glass Pills) */
+.btn {
+    border-radius: var(--radius-pill);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    transition: all 0.2s ease-out;
+    font-weight: 600;
+    padding: 0.75rem 1.5rem;
+    border: 1px solid transparent;
+}
+
+.btn-vercel-primary {
+    background: var(--primary-blue); /* Authentic iOS System Blue */
+    color: #fff;
+    box-shadow: 
+        0 4px 12px rgba(0, 122, 255, 0.3), 
+        inset 0 1px 1px rgba(255, 255, 255, 0.4);
+    border: 0.5px solid rgba(0, 0, 0, 0.1);
+}
+
+.btn-vercel-primary:hover {
+    background: var(--primary-blue-hover);
+    color: #fff;
+    box-shadow: 0 6px 16px rgba(0, 122, 255, 0.4);
+    transform: scale(0.98); /* iOS button press squish */
+}
+
+.btn-vercel-primary:active {
+    opacity: 0.8;
+    transform: scale(0.95);
+}
+
+.btn-vercel-secondary, .btn-outline-secondary {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 0.5px solid rgba(0,0,0,0.1);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+}
+
+.btn-vercel-secondary:hover, .btn-outline-secondary:hover {
+    background: var(--bg-input-focus);
+    color: var(--text-primary);
+    transform: scale(0.98);
+}
+
+.btn-vercel-secondary:active, .btn-outline-secondary:active {
+    opacity: 0.7;
+    transform: scale(0.95);
+}
+
+/* Tone Selector Radio Buttons */
+.tone-selector .form-check {
+    border: 0.5px solid rgba(0,0,0,0.1);
+    border-radius: var(--radius-md); /* iOS typically uses rounded rects for lists, not pills */
+    background: var(--bg-surface);
+    transition: all 0.2s ease-out;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+    padding: 1rem 1.5rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    backdrop-filter: blur(20px) saturate(150%);
+}
+.tone-selector .form-check-input {
+    margin-right: 1rem;
+    margin-top: 0;
+}
+.tone-selector .form-check:hover {
+    background: var(--bg-input-focus);
+}
+.tone-selector .form-check:has(input:checked) {
+    background: var(--primary-blue);
+    color: white;
+    border-color: rgba(0,0,0,0.1);
+    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+
+.tone-selector .form-check:has(input:checked) .text-muted {
+    color: rgba(255,255,255,0.85) !important;
+}
+
+/* Typography tweaks */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 700;
+    letter-spacing: -0.04em; /* iOS tight tracking */
+    color: var(--text-primary);
+}
+
+/* Loading Overlay */
+#loadingOverlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(242, 242, 247, 0.4); /* iOS modal backdrop */
+    z-index: 999999;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+}
+
+/* Fix progress bar for generating.html */
+.progress {
+    background: rgba(0,0,0,0.08);
+    border-radius: var(--radius-pill);
+    box-shadow: var(--shadow-glass-inset);
+    height: 12px;
+}
+.progress-bar {
+    background: #007aff; /* iOS blue */
+    border-radius: var(--radius-pill);
+}
+
+/* Remove default bootstrap borders */
+.card {
+    background: transparent;
+    border: none;
+}
+
+/* =========================================
+   EXPERT UI POLISH & MICRO-INTERACTIONS
+   ========================================= */
+
+/* 1. Fluid Page Load Animations */
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.vercel-card, .glass-panel {
+    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Staggered animation for tone selectors */
+.tone-selector .form-check:nth-child(1) { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both; }
+.tone-selector .form-check:nth-child(2) { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both; }
+.tone-selector .form-check:nth-child(3) { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both; }
+.tone-selector .form-check:nth-child(4) { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both; }
+
+/* 2. Custom iOS-style Scrollbars */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+/* 3. Premium Text Selection (Highlighting) */
+::selection {
+    background: rgba(0, 122, 255, 0.3); /* iOS Blue */
+    color: inherit;
+}
+
+/* 4. Pulsing Skeleton / Premium Loading State */
+@keyframes pulseGlow {
+    0% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.4); }
+    70% { box-shadow: 0 0 0 15px rgba(0, 122, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0); }
+}
+
+.spinner-border {
+    border-color: rgba(0, 122, 255, 0.2) !important;
+    border-right-color: #007aff !important;
+    border-width: 4px;
+    border-radius: 50%;
+    animation: spinner-border .75s linear infinite, pulseGlow 2s infinite !important;
+}
+
+/* 5. Input Field Tactile Polish */
+.form-control::placeholder {
+    color: rgba(0,0,0,0.4);
+    font-weight: 400;
+}
+.input-group-text {
+    border-right: none !important;
+}
+.form-control {
+    border-left: none !important;
+}
+.input-group:focus-within .input-group-text {
+    border-color: rgba(0, 122, 255, 0.5);
+    background: var(--bg-input-focus);
+}
+
+/* Notification Dropdown Dark Mode */
+.notification-dropdown { background: var(--bg-surface) !important; backdrop-filter: var(--glass-blur); border: 1px solid var(--border-color) !important; }
+.notification-dropdown-header, .notification-dropdown-subheader { background: var(--bg-nav) !important; color: var(--text-primary) !important; }
+.notification-dropdown .text-dark { color: var(--text-primary) !important; }
+
+/* Chat Widget Dark Mode */
+.chat-window { background: var(--bg-system) !important; border: 1px solid var(--border-color) !important; }
+.chat-header { background: var(--bg-surface) !important; backdrop-filter: var(--glass-blur) !important; color: var(--text-primary) !important; border-bottom: 1px solid var(--border-color) !important; }
+.chat-body { background: var(--bg-system) !important; color: var(--text-primary) !important; }
+.chat-message.user { background: var(--bg-input) !important; color: var(--text-primary) !important; }
+.chat-message.assistant { background: var(--bg-surface) !important; color: var(--text-primary) !important; border: 1px solid var(--border-color) !important; }
+.chat-input-area { background: var(--bg-system) !important; border-top: 1px solid var(--border-color) !important; }
+.chat-input-area input { background: var(--bg-input) !important; color: var(--text-primary) !important; border: 1px solid var(--border-color) !important; }
+
+/* Skeleton Shimmer */
+.skeleton { background: linear-gradient(90deg, var(--bg-surface) 25%, var(--bg-input) 50%, var(--bg-surface) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: var(--radius-md); min-height: 20px; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Drop Zone */
+.drop-zone { border: 2px dashed var(--border-color) !important; transition: all 0.2s ease; cursor: pointer; border-radius: var(--radius-md); }
+.drop-zone:hover, .drop-zone.dragover { background: var(--bg-input) !important; border-color: var(--primary-blue) !important; }
+
+/* Page Transition */
+body { animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Accessibility Focus */
+:focus-visible { outline: 3px solid var(--primary-blue); outline-offset: 2px; }
+
+/* UI POLISH 2: iOS Segmented Control (Dark Mode Aware) */
+.ios-segmented-control {
+    display: inline-flex;
+    background: var(--bg-input);
+    border-radius: var(--radius-md);
+    padding: 4px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    margin-bottom: 2rem;
+    position: relative;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.04);
+}
+.ios-segmented-control .nav-link {
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-weight: 600;
+    padding: 0.5rem 1.5rem;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative;
+    z-index: 2;
+}
+.ios-segmented-control .nav-link.active {
+    color: var(--text-primary);
+    background: var(--bg-surface);
+    box-shadow: var(--shadow-glass-inset);
+}
+
+
+
+/* Feature Cards */
+.feature-card { background: var(--bg-surface); backdrop-filter: var(--glass-blur); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 2rem; height: 100%; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.feature-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-glass); }
+.feature-icon { width: 48px; height: 48px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin-bottom: 1.5rem; background: var(--bg-input); border: 1px solid var(--border-color); color: var(--primary-blue); }
+
+/* Nav Pills Overrides */
+.nav-pills .nav-link { color: var(--text-secondary) !important; transition: all 0.3s ease; }
+.nav-pills .nav-link.active { background-color: var(--bg-surface) !important; color: var(--text-primary) !important; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid var(--border-color); }
+/* Chat Widget */
+.chat-widget {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+.chat-window {
+    width: 350px;
+    height: 450px;
+    background: var(--bg-card);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-glass);
+    border: 1px solid var(--border-color);
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    margin-bottom: 15px;
+    transition: opacity 0.3s ease;
+}
+.chat-header {
+    background: var(--bg-nav);
+    color: var(--text-primary);
+    padding: 12px 15px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+}
+.chat-body {
+    flex-grow: 1;
+    padding: 15px;
+    overflow-y: auto;
+    background: transparent;
+    font-size: 0.875rem;
+}
+.chat-message {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    max-width: 85%;
+    word-wrap: break-word;
+}
+.chat-message.user {
+    background: var(--primary-blue);
+    color: #fff;
+    align-self: flex-end;
+    margin-left: auto;
+    border-bottom-right-radius: 2px;
+}
+.chat-message.assistant {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    align-self: flex-start;
+    margin-right: auto;
+    border-bottom-left-radius: 2px;
+}
+.chat-input-area {
+    display: flex;
+    padding: 10px;
+    border-top: 1px solid var(--border-color);
+    background: transparent;
+}
+.chat-input-area input {
+    flex-grow: 1;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: 5px 15px;
+    outline: none;
+    font-size: 0.875rem;
+}
+.chat-input-area input:focus {
+    background: var(--bg-input-focus);
+}
+.chat-input-area button {
+    background: var(--primary-blue);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 34px;
+    height: 34px;
+    margin-left: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.chat-fab {
+    background: var(--primary-blue);
+    color: #fff;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    cursor: pointer;
+    border: none;
+    transition: transform 0.2s;
+}
+.chat-fab:hover {
+    transform: scale(1.05);
+}
+@media print {
+    .chat-widget { display: none !important; }
+}

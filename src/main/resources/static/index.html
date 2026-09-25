@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Gateway by Alak</title>
+    
+    <!-- Premium Google Font: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
+    <link rel="stylesheet" href="/css/vercel-theme.css">
+    
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #fafafa;
+        }
+        
+        [data-theme="dark"] body {
+            background-color: #0a0a0a;
+            color: #ededed;
+        }
+        
+        /* Custom Overrides for Bootstrap in Dark Mode */
+        [data-theme="dark"] .bg-white { background-color: #111 !important; }
+        [data-theme="dark"] .bg-light { background-color: #0a0a0a !important; }
+        [data-theme="dark"] .text-dark { color: #ededed !important; }
+        [data-theme="dark"] .text-muted { color: #a1a1aa !important; }
+        [data-theme="dark"] .card { background-color: #111 !important; border-color: #333 !important; }
+        [data-theme="dark"] .table { color: #ededed !important; }
+        [data-theme="dark"] .table-light { background-color: #1a1a1a !important; color: #ededed !important; border-color: #333 !important; }
+        [data-theme="dark"] .table-hover tbody tr:hover { background-color: #1a1a1a !important; color: #ededed !important; }
+        [data-theme="dark"] .border { border-color: #333 !important; }
+        [data-theme="dark"] .border-bottom { border-color: #333 !important; }
+        [data-theme="dark"] .navbar { background-color: #111 !important; border-bottom: 1px solid #333 !important; }
+        [data-theme="dark"] .nav-pills .nav-link { color: #ededed; }
+        [data-theme="dark"] .nav-pills .nav-link.active { background-color: #333; color: #fff; }
+        [data-theme="dark"] .form-select { background-color: #111; color: #ededed; border-color: #333; }
+        [data-theme="dark"] .btn-outline-secondary { border-color: #333; color: #ededed; }
+        [data-theme="dark"] .btn-outline-secondary:hover { background-color: #333; }
+        [data-theme="dark"] .input-group { border-color: #333 !important; }
+        
+        /* Toast modern style */
+        .toast-modern-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast-modern {
+            background: white;
+            color: #333;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            font-size: 0.875rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideIn 0.3s ease-out forwards;
+            opacity: 0;
+            transform: translateX(100%);
+        }
+        [data-theme="dark"] .toast-modern {
+            background: #222;
+            color: #ededed;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        @keyframes slideIn {
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .toast-modern.fade-out {
+            animation: fadeOut 0.3s ease-in forwards;
+        }
+        @keyframes fadeOut {
+            to { opacity: 0; transform: translateY(-10px); }
+        }
+        .toast-modern.error { border-left: 4px solid #dc3545; }
+        .toast-modern.success { border-left: 4px solid #28a745; }
+        .toast-modern.warning { border-left: 4px solid #ffc107; }
+
+        /* Skeleton animations */
+        .skeleton {
+            background: linear-gradient(90deg, rgba(0,0,0,0.06) 25%, rgba(0,0,0,0.12) 37%, rgba(0,0,0,0.06) 63%);
+            background-size: 400% 100%;
+            animation: skeleton-loading 1.4s ease infinite;
+        }
+        [data-theme="dark"] .skeleton {
+            background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 37%, rgba(255,255,255,0.05) 63%);
+            background-size: 400% 100%;
+        }
+        @keyframes skeleton-loading {
+            0% { background-position: 100% 50%; }
+            100% { background-position: 0 50%; }
+        }
+        
+        /* Category badge */
+        .category-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-right: 4px;
+        }
+        .category-reasoning { background: rgba(77, 161, 255, 0.2); color: #0066cc; }
+        [data-theme="dark"] .category-reasoning { background: rgba(77, 161, 255, 0.15); color: #66b2ff; }
+        .category-coding { background: rgba(162, 89, 255, 0.2); color: #7a00cc; }
+        [data-theme="dark"] .category-coding { background: rgba(162, 89, 255, 0.15); color: #c480ff; }
+        
+        /* Specific statuses */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .status-badge::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .status-up { background: rgba(40, 167, 69, 0.15); color: #28a745; }
+        .status-up::before { background: #28a745; }
+        .status-down { background: rgba(220, 53, 69, 0.15); color: #dc3545; }
+        .status-down::before { background: #dc3545; }
+        .status-tripped { background: rgba(255, 193, 7, 0.15); color: #ffc107; }
+        .status-tripped::before { background: #ffc107; }
+
+        .error-text { color: #dc3545; font-size: 0.85em; font-family: monospace; }
+        .model-name { font-weight: 600; }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm sticky-top" style="z-index: 1040;">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand fw-bolder d-flex align-items-center" href="#">
+                <i class="bi bi-cpu-fill text-primary me-2 fs-4"></i>
+                <span>Neural Gateway</span>
+                <span class="text-secondary fw-normal ms-2" style="font-size: 0.9rem;">by Alak</span>
+            </a>
+            
+            <div class="d-flex align-items-center gap-3">
+                <button class="btn btn-outline-secondary rounded-pill px-3 shadow-sm fw-semibold d-flex align-items-center me-2" id="exportBtn" style="font-size: 0.85rem;"><i class="bi bi-download me-2"></i>Export CSV</button>
+                <div class="connection-status d-flex align-items-center bg-danger bg-opacity-10 px-3 py-1 rounded-pill" id="connectionStatus">
+                    <div class="spinner-grow spinner-grow-sm text-danger me-2" role="status" id="connectionSpinner"></div>
+                    <span id="connectionStatusText" class="fw-bold text-danger" style="font-size: 0.8rem; letter-spacing: 0.5px; text-transform: uppercase;">Disconnected</span>
+                </div>
+                <span class="text-muted small fw-medium d-none d-md-inline" id="lastUpdated">Last updated: never</span>
+                <button class="btn btn-outline-secondary rounded-circle p-2 d-flex align-items-center justify-content-center" id="themeToggle" style="width: 38px; height: 38px;">
+                    <i class="bi bi-moon-stars-fill moon-icon"></i>
+                    <i class="bi bi-sun-fill sun-icon d-none"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+    
+    <div class="toast-modern-container" id="toastContainer" style="position: fixed; top: 80px; right: 20px; z-index: 1050;"></div>
+    
+    <main class="container-fluid px-4 py-5" role="main">
+        
+            
+        
+        <!-- KPI Cards -->
+        <div class="row g-4 mb-5" id="kpiGrid">
+            <!-- These get populated by JS, but currently JS expects #kpiGrid and skeleton divs -->
+            <div class="col-12 col-md-6 col-lg-3"><div class="card border-0 shadow-sm rounded-4 p-4 skeleton skeleton-kpi" style="height: 120px;"></div></div>
+            <div class="col-12 col-md-6 col-lg-3"><div class="card border-0 shadow-sm rounded-4 p-4 skeleton skeleton-kpi" style="height: 120px;"></div></div>
+            <div class="col-12 col-md-6 col-lg-3"><div class="card border-0 shadow-sm rounded-4 p-4 skeleton skeleton-kpi" style="height: 120px;"></div></div>
+            <div class="col-12 col-md-6 col-lg-3"><div class="card border-0 shadow-sm rounded-4 p-4 skeleton skeleton-kpi" style="height: 120px;"></div></div>
+        </div>
+        
+        <!-- Charts Section -->
+        <div class="row g-4 mb-5">
+            <div class="col-12 col-xl-8">
+                <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+                    <h5 class="fw-bold mb-4 d-flex align-items-center"><i class="bi bi-graph-up text-primary me-2 fs-4"></i>Latency History (ms)</h5>
+                    <div style="position: relative; height: 320px; width: 100%;">
+                        <canvas id="latencyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-xl-4">
+                <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+                    <h5 class="fw-bold mb-4 d-flex align-items-center"><i class="bi bi-pie-chart-fill text-primary me-2 fs-4"></i>Usage Distribution</h5>
+                    <div style="position: relative; height: 320px; width: 100%;">
+                        <canvas id="usageChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Toolbar Section -->
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+            <!-- Tabs (Segmented Control style) -->
+            <ul class="nav nav-pills p-1 bg-white border shadow-sm" style="border-radius: 8px;" id="dynamicTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active fw-semibold px-4 tab-btn" style="border-radius: 6px;" id="tab-status" data-tab="status" data-bs-toggle="pill">Model Status</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link fw-semibold px-4 tab-btn text-muted" style="border-radius: 6px;" id="tab-requesters" data-tab="requesters" data-bs-toggle="pill">Requesters</button>
+                </li>
+            </ul>
+
+            <!-- Filters (only visible on Status tab) -->
+            <div class="d-flex gap-2 flex-wrap" id="statusFiltersContainer">
+                <div class="input-group shadow-sm bg-white border" style="border-radius: 8px; overflow: hidden; width: auto;">
+                    <span class="input-group-text bg-transparent border-0"><i class="bi bi-funnel text-muted"></i></span>
+                    <select class="form-select border-0 shadow-none fw-medium" id="categoryFilter" style="background-color: transparent;">
+                        <option value="">All Categories</option>
+                        <option value="Reasoning">Reasoning</option>
+                        <option value="Coding">Coding</option>
+                    </select>
+                </div>
+                
+                <div class="input-group shadow-sm bg-white border" style="border-radius: 8px; overflow: hidden; width: auto;">
+                    <span class="input-group-text bg-transparent border-0"><i class="bi bi-activity text-muted"></i></span>
+                    <select class="form-select border-0 shadow-none fw-medium" id="statusFilter" style="background-color: transparent;">
+                        <option value="">All Statuses</option>
+                        <option value="up">Up</option>
+                        <option value="down">Down</option>
+                        <option value="tripped">Circuit Tripped</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Status Tab -->
+        <div class="tab-panel" id="panel-status">
+            
+            <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-5 position-relative">
+                <div class="table-loading-overlay d-none position-absolute w-100 h-100 bg-white bg-opacity-75 d-flex justify-content-center align-items-center" id="tableLoadingOverlay" style="z-index: 10;">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="statusTable">
+                        <thead class="text-uppercase text-secondary border-bottom" style="font-size: 0.75rem; letter-spacing: 0.5px;">
+                            <tr>
+                                <th class="py-3 px-4">Model</th>
+                                <th class="py-3 px-4">Category</th>
+                                <th class="py-3 px-4">Status</th>
+                                <th class="py-3 px-4">Latency</th>
+                                <th class="py-3 px-4">TPS</th>
+                                <th class="py-3 px-4">Total Uses</th>
+                                <th class="py-3 px-4">Active Conns</th>
+                                <th class="py-3 px-4">Circuit Breaker</th>
+                                <th class="py-3 px-4">Last Error</th>
+                                <th class="py-3 px-4">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="statusTableBody" class="border-top-0">
+                            <tr class="skeleton skeleton-row"><td colspan="10" style="height: 60px;"></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Requesters Tab -->
+        <div class="tab-panel d-none" id="panel-requesters">
+            <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-5 position-relative">
+                <div class="table-loading-overlay d-none position-absolute w-100 h-100 bg-white bg-opacity-75 d-flex justify-content-center align-items-center" id="requestersLoadingOverlay" style="z-index: 10;">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="requestersTable">
+                        <thead class="text-uppercase text-secondary border-bottom" style="font-size: 0.75rem; letter-spacing: 0.5px;">
+                            <tr>
+                                <th class="py-3 px-4">Requester</th>
+                                <th class="py-3 px-4 text-end">Total Requests (Tokens)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="requestersTableBody" class="border-top-0">
+                            <tr class="skeleton skeleton-row"><td colspan="2" style="height: 60px;"></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<script>
+        // ===== STATE =====
+        let latencyChart = null;
+        let usageChart = null;
+        let rawData = [];
+        let requesterData = {};
+        let eventSource = null;
+        let isInitialLoad = true;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 10;
+        const RECONNECT_DELAY_BASE = 1000;
+        
+        // ===== DOM ELEMENTS =====
+        const connectionStatus = document.getElementById('connectionStatus');
+        const connectionStatusText = document.getElementById('connectionStatusText');
+        const lastUpdated = document.getElementById('lastUpdated');
+        const statusTableBody = document.getElementById('statusTableBody');
+        const requestersTableBody = document.getElementById('requestersTableBody');
+        const tableLoadingOverlay = document.getElementById('tableLoadingOverlay');
+        const requestersLoadingOverlay = document.getElementById('requestersLoadingOverlay');
+        const categoryFilter = document.getElementById('categoryFilter');
+        const statusFilter = document.getElementById('statusFilter');
+        const exportBtn = document.getElementById('exportBtn');
+        const kpiGrid = document.getElementById('kpiGrid');
+        
+        const colors = [
+            '#FF6B6B', '#4DA1FF', '#C162FD', '#FFB86C', '#48DBFB',
+            '#6BCB77', '#FF9F1C', '#E056FD', '#00D4AA', '#FF6F91'
+        ];
+        
+        // ===== UTILITIES =====
+        const themeToggle = document.getElementById('themeToggle');
+
+        function setTheme(theme) {
+            document.documentElement.dataset.theme = theme;
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            localStorage.setItem('theme', theme);
+        }
+
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            const theme = savedTheme || systemTheme;
+            setTheme(theme);
+            // Set correct icon on load
+            const moonIcon = themeToggle.querySelector('.moon-icon');
+            const sunIcon = themeToggle.querySelector('.sun-icon');
+            if (moonIcon && sunIcon) {
+                moonIcon.classList.toggle('d-none', theme === 'dark');
+                sunIcon.classList.toggle('d-none', theme !== 'dark');
+            }
+        }
+
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = document.documentElement.dataset.theme;
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            setTheme(newTheme);
+            // Toggle sun/moon icons
+            const moonIcon = themeToggle.querySelector('.moon-icon');
+            const sunIcon = themeToggle.querySelector('.sun-icon');
+            if (moonIcon && sunIcon) {
+                moonIcon.classList.toggle('d-none', newTheme === 'dark');
+                sunIcon.classList.toggle('d-none', newTheme !== 'dark');
+            }
+        });
+
+        initTheme();
+
+        function showToast(message, type = 'info', action = null) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast-modern ${type}`;
+            toast.setAttribute('role', 'alert');
+            toast.setAttribute('aria-live', 'polite');
+            
+            let icon = '';
+            switch(type) {
+                case 'success': icon = '✓'; break;
+                case 'error': icon = '✕'; break;
+                case 'warning': icon = '⚠'; break;
+                default: icon = 'ℹ';
+            }
+            
+            toast.innerHTML = `
+                <span>${icon}</span>
+                <span>${message}</span>
+                ${action ? `<button class="toast-action">${action.label}</button>` : ''}
+            `;
+            
+            if (action) {
+                toast.querySelector('.toast-action').addEventListener('click', () => {
+                    action.callback();
+                    removeToast(toast);
+                });
+            }
+            
+            container.appendChild(toast);
+            requestAnimationFrame(() => toast.classList.add('show'));
+            
+            setTimeout(() => removeToast(toast), 5000);
+        }
+        
+        function removeToast(toast) {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 400);
+        }
+        
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+        
+        function formatLatency(ms) {
+            if (ms < 1000) return `${ms}ms`;
+            return `${(ms / 1000).toFixed(2)}s`;
+        }
+        
+        function updateLastUpdated() {
+            const now = new Date();
+            lastUpdated.textContent = `Last updated: ${now.toLocaleTimeString()}`;
+        }
+        
+        function setConnectionStatus(status) {
+            const texts = {
+                connected: 'Connected (Live)',
+                connecting: 'Connecting...',
+                disconnected: 'Disconnected'
+            };
+            connectionStatus.className = `connection-status d-flex align-items-center px-3 py-1 rounded-pill bg-opacity-10 ${status === 'connected' ? 'bg-success' : (status === 'connecting' ? 'bg-warning' : 'bg-danger')}`;
+            connectionStatusText.className = `fw-bold ${status === 'connected' ? 'text-success' : (status === 'connecting' ? 'text-warning' : 'text-danger')}`;
+            connectionStatusText.textContent = texts[status];
+            
+            const spinner = document.getElementById('connectionSpinner');
+            if (spinner) {
+                spinner.className = `spinner-grow spinner-grow-sm me-2 ${status === 'connected' ? 'text-success d-none' : (status === 'connecting' ? 'text-warning' : 'text-danger')}`;
+            }
+        }
+        
+        function showTableLoading(show) {
+            tableLoadingOverlay.classList.toggle('d-none', !show);
+        }
+        
+        function showRequestersLoading(show) {
+            requestersLoadingOverlay.classList.toggle('d-none', !show);
+        }
+        
+        // ===== SSE CONNECTION =====
+        function connectSSE() {
+            if (eventSource) {
+                eventSource.close();
+            }
+            // Clear polling fallback when SSE reconnects
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+            
+            setConnectionStatus('connecting');
+            
+            eventSource = new EventSource('/api/models/status/stream');
+            
+            eventSource.addEventListener('init', (event) => {
+                const data = JSON.parse(event.data);
+                handleStatusUpdate(data);
+                setConnectionStatus('connected');
+                reconnectAttempts = 0;
+                if (isInitialLoad) {
+                    showToast('Real-time updates connected', 'success');
+                    isInitialLoad = false;
+                }
+            });
+            
+            eventSource.addEventListener('status', (event) => {
+                const data = JSON.parse(event.data);
+                handleStatusUpdate(data);
+            });
+            
+            eventSource.onerror = (err) => {
+                console.error('SSE error:', err);
+                setConnectionStatus('disconnected');
+                eventSource.close();
+                
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    const delay = RECONNECT_DELAY_BASE * Math.pow(2, reconnectAttempts);
+                    reconnectAttempts++;
+                    showToast(`Connection lost. Reconnecting in ${delay/1000}s... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, 'warning');
+                    setTimeout(connectSSE, delay);
+                } else {
+                    showToast('Real-time updates unavailable. Falling back to polling.', 'error', {
+                        label: 'Retry Now',
+                        callback: () => { reconnectAttempts = 0; connectSSE(); }
+                    });
+                    // Fallback to polling
+                    startPollingFallback();
+                }
+            };
+        }
+        
+        // Fallback polling if SSE fails
+        let pollingInterval = null;
+        function startPollingFallback() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            pollingInterval = setInterval(fetchStatusREST, 5000);
+        }
+        
+        async function fetchStatusREST() {
+            try {
+                const response = await fetch('/api/models/status');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                handleStatusUpdate(data);
+            } catch (err) {
+                console.error('Polling fetch failed:', err);
+            }
+        }
+        
+        // ===== DATA HANDLING =====
+        function handleStatusUpdate(data) {
+            rawData = data;
+            updateLastUpdated();
+            updateKPIs(data);
+            renderStatusTable(data);
+            renderCharts(data);
+            showTableLoading(false);
+        }
+        
+        function handleRequesterUpdate(data) {
+            requesterData = data;
+            renderRequestersTable(data);
+            showRequestersLoading(false);
+        }
+        
+        // ===== KPI CARDS =====
+        function updateKPIs(data) {
+            const totalModels = data.length;
+            const upModels = data.filter(d => d.isUp).length;
+            const totalUses = data.reduce((sum, d) => sum + d.totalUses, 0);
+            const avgLatency = data.filter(d => d.isUp).reduce((sum, d) => sum + d.latencyMs, 0) / Math.max(1, upModels);
+            const trippedCount = data.filter(d => d.circuitOpen).length;
+            
+            kpiGrid.innerHTML = `
+            <div class="col-12 col-md-6 col-lg-3"><div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+                <div class="text-secondary fw-semibold mb-2" style="font-size: 0.85rem; letter-spacing: 0.5px; text-transform: uppercase;"><i class="bi bi-box me-2"></i>Total Models</div>
+                <div class="fw-bolder" style="font-size: 2rem;">${totalModels}</div>
+            </div></div>
+            <div class="col-12 col-md-6 col-lg-3"><div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+                <div class="text-secondary fw-semibold mb-2" style="font-size: 0.85rem; letter-spacing: 0.5px; text-transform: uppercase;"><i class="bi bi-heart-pulse text-success me-2"></i>Healthy</div>
+                <div class="fw-bolder text-success" style="font-size: 2rem;">${upModels}</div>
+            </div></div>
+            <div class="col-12 col-md-6 col-lg-3"><div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+                <div class="text-secondary fw-semibold mb-2" style="font-size: 0.85rem; letter-spacing: 0.5px; text-transform: uppercase;"><i class="bi bi-lightning-charge text-warning me-2"></i>Total Requests</div>
+                <div class="fw-bolder" style="font-size: 2rem;">${formatNumber(totalUses)}</div>
+            </div></div>
+            <div class="col-12 col-md-6 col-lg-3"><div class="card border-0 shadow-sm rounded-4 p-4 h-100">
+                <div class="text-secondary fw-semibold mb-2" style="font-size: 0.85rem; letter-spacing: 0.5px; text-transform: uppercase;"><i class="bi bi-stopwatch text-primary me-2"></i>Avg Latency</div>
+                <div class="fw-bolder" style="font-size: 2rem;">${formatLatency(Math.round(avgLatency))}</div>
+            </div></div>
+        `;
+        }
+        
+        // ===== TABLE RENDERING =====
+        
+        function formatErrorMessage(msg) {
+            if (!msg) return '';
+            if (msg === 'Not yet checked') return msg;
+            
+            if (msg.includes('TimeoutException')) return 'Connection Timeout';
+            if (msg.includes('Connection refused')) return 'Connection Refused';
+            if (msg.includes('UnknownHostException')) return 'Unknown Host';
+            if (msg.includes('Broken pipe')) return 'Client Aborted';
+            
+            const httpMatch = msg.match(/^(\d{3}\s+[^f]+)/);
+            if (httpMatch) {
+                return httpMatch[1].trim();
+            }
+            
+            return msg.substring(0, 40) + (msg.length > 40 ? '...' : '');
+        }
+
+        function renderStatusTable(data) {
+            const categoryFilterValue = categoryFilter.value;
+            const statusFilterValue = statusFilter.value;
+            
+            const filtered = data.filter(d => {
+                const catMatch = !categoryFilterValue || d.categories.includes(categoryFilterValue);
+                let statusMatch = true;
+                if (statusFilterValue === 'up') statusMatch = d.isUp && !d.circuitOpen;
+                else if (statusFilterValue === 'down') statusMatch = !d.isUp;
+                else if (statusFilterValue === 'tripped') statusMatch = d.circuitOpen;
+                return catMatch && statusMatch;
+            });
+            
+            if (filtered.length === 0) {
+                statusTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="10">
+                            <div class="text-center py-5">
+                                <i class="bi bi-search text-muted opacity-50" style="font-size: 4rem;"></i>
+                                <h5 class="fw-bold mt-3 text-secondary">No models match the current filters</h5>
+                                <p class="text-muted">Try clearing or adjusting the category and status filters.</p>
+                                <button class="btn btn-outline-secondary btn-sm mt-2 rounded-pill fw-medium" id="clearFiltersBtn">Clear Filters</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                const clearBtn = document.getElementById('clearFiltersBtn');
+                if (clearBtn) {
+                    clearBtn.addEventListener('click', () => {
+                        categoryFilter.value = '';
+                        statusFilter.value = '';
+                        renderStatusTable(rawData);
+                    });
+                }
+                return;
+            }
+            
+            statusTableBody.innerHTML = filtered.map(d => `
+                <tr>
+                    <td class="py-3 px-4">
+                        <span class="model-name fw-bold" title="${d.model}">${d.model}</span>
+                    </td>
+                    <td class="py-3 px-4">
+                        ${d.categories.map(c => `
+                            <span class="category-badge category-${c.toLowerCase()}">${c}</span>
+                        `).join('')}
+                    </td>
+                    <td class="py-3 px-4">
+                        <span class="status-badge ${d.circuitOpen ? 'status-tripped' : (d.isUp ? 'status-up' : 'status-down')}">
+                            ${d.circuitOpen ? 'Tripped' : (d.isUp ? 'Up' : 'Down')}
+                        </span>
+                    </td>
+                    <td class="py-3 px-4">${d.isUp ? formatLatency(d.latencyMs) : '<span class="error-text">N/A</span>'}</td>
+                    <td class="py-3 px-4">${d.tps ? d.tps.toFixed(1) : '—'}</td>
+                    <td class="py-3 px-4">${formatNumber(d.totalUses)}</td>
+                    <td class="py-3 px-4">${d.activeConnections}</td>
+                    <td class="py-3 px-4">
+                        <span class="status-badge ${d.circuitOpen ? 'status-tripped' : 'status-up'}">
+                            ${d.circuitOpen ? 'Open' : 'Closed'}
+                        </span>
+                    </td>
+                    <td class="py-3 px-4">${!d.errorMessage ? '—' : (d.errorMessage === 'Not yet checked' ? '<span class="text-muted opacity-50 small">Not yet checked</span>' : `<span class="error-text fw-medium" style="font-size: 0.8rem;" title="${d.errorMessage.replace(/"/g, '&quot;')}"><i class="bi bi-exclamation-triangle-fill me-1 opacity-75"></i>${formatErrorMessage(d.errorMessage)}</span>`)}</td>
+                    <td class="py-3 px-4">
+                        <div class="d-flex align-items-center gap-2">
+                              <button class="btn btn-sm btn-outline-primary btn-ping-action d-flex align-items-center" data-model="${d.model}" ${d.isUp ? '' : 'disabled'} title="Ping Now">
+                                  <i class="bi bi-activity"></i><span class="d-none d-xl-inline ms-1 fw-medium" style="font-size: 0.75rem;">Ping</span>
+                              </button>
+                              ${d.circuitOpen ? `
+                              <button class="btn btn-sm btn-outline-danger btn-reset-circuit d-flex align-items-center" data-model="${d.model}" title="Reset Circuit">
+                                  <i class="bi bi-arrow-counterclockwise"></i><span class="d-none d-xl-inline ms-1 fw-medium" style="font-size: 0.75rem;">Reset</span>
+                              </button>
+                              ` : ''}
+                          </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Add action listeners
+            statusTableBody.querySelectorAll('.btn-ping-action').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const model = e.target.closest('button').dataset.model;
+                    await pingModel(model);
+                  });
+              });
+
+            statusTableBody.querySelectorAll('.btn-reset-circuit').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const model = e.target.closest('button').dataset.model;
+                    await resetCircuitBreaker(model);
+                });
+            });
+        }
+        
+        function renderRequestersTable(data) {
+            const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
+            
+            if (entries.length === 0) {
+                requestersTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="2">
+                            <div class="text-center py-5">
+                                <i class="bi bi-people text-muted opacity-50" style="font-size: 4rem;"></i>
+                                <h5 class="fw-bold mt-3 text-secondary">No requester data available</h5>
+                                <p class="text-muted">Requesters will appear here when traffic is routed through the service.</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            requestersTableBody.innerHTML = entries.map(([requester, count]) => `
+                <tr>
+                    <td class="py-3 px-4"><strong>${requester}</strong></td>
+                    <td class="py-3 px-4">${formatNumber(count)}</td>
+                </tr>
+            `).join('');
+        }
+        
+        // ===== CHARTS =====
+        function renderCharts(data) {
+            // Latency Chart
+            let labels = [];
+            if (data.length > 0 && data[0].history) {
+                labels = data[0].history.map(h => {
+                    const d = new Date(h.timestamp);
+                    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+                });
+            }
+            
+            const latencyDatasets = data.filter(d => d.isUp && d.history && d.history.some(h => h.isUp)).map((d, i) => ({
+                label: d.model.split('/').pop(),
+                data: d.history.map(h => h.isUp ? h.latencyMs : null),
+                borderColor: colors[i % colors.length],
+                backgroundColor: colors[i % colors.length] + '20',
+                fill: false,
+                tension: 0.3,
+                pointRadius: 3,
+                pointHoverRadius: 5,
+                spanGaps: true
+            }));
+            
+            if (latencyChart) {
+                latencyChart.data.labels = labels;
+                latencyChart.data.datasets = latencyDatasets;
+                latencyChart.update('none');
+            } else {
+                const ctx = document.getElementById('latencyChart').getContext('2d');
+                latencyChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels, datasets: latencyDatasets },
+                    options: {
+                        responsive: true, 
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 6 } }
+                        },
+                        scales: {
+                            y: { grid: { color: 'rgba(0,0,0,0.05)' }, beginAtZero: true },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+            }
+            
+            // Usage Chart
+            const activeModels = data.filter(d => d.totalUses > 0);
+            const fallbackData = data.length > 0 ? [{model: 'No Traffic Yet', totalUses: 1}] : [];
+            const displayData = activeModels.length > 0 ? activeModels : fallbackData;
+            
+            const modelNames = displayData.map(d => d.model.split('/').pop());
+            const usageData = displayData.map(d => d.totalUses);
+            const chartColors = displayData.map(d => {
+                if (d.model === 'No Traffic Yet') return '#8E8E93';
+                const originalIndex = rawData.findIndex(x => x.model === d.model);
+                return colors[originalIndex % colors.length];
+            });
+            
+            if (usageChart) {
+                usageChart.data.labels = modelNames;
+                usageChart.data.datasets[0].data = usageData;
+                usageChart.data.datasets[0].backgroundColor = chartColors;
+                usageChart.update('none');
+            } else {
+                const ctxUsage = document.getElementById('usageChart').getContext('2d');
+                usageChart = new Chart(ctxUsage, {
+                    type: 'doughnut',
+                    data: {
+                        labels: modelNames,
+                        datasets: [{
+                            data: usageData,
+                            backgroundColor: chartColors,
+                            borderWidth: 0,
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true, 
+                        maintainAspectRatio: false,
+                        cutout: '75%',
+                        plugins: {
+                            legend: { position: 'right', labels: { usePointStyle: true, padding: 20 } }
+                        }
+                    }
+                });
+            }
+        }
+        
+                // ===== ACTIONS =====
+        async function pingModel(model) {
+            const btn = statusTableBody.querySelector(`.btn-ping-action[data-model="${model}"]`);
+            if (btn) {
+                btn.disabled = true;
+                const originalHTML = btn.innerHTML;
+                btn.innerHTML = 'Pinging...';
+            }
+            
+            try {
+                const response = await fetch(`/api/models/ping?model=${encodeURIComponent(model)}`, { method: 'POST' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const result = await response.json();
+                
+                if (result.isUp) {
+                    showToast(`${model.split('/').pop()} is up (${formatLatency(result.latencyMs)})`, 'success');
+                } else {
+                    showToast(`${model.split('/').pop()} is down`, 'error');
+                }
+                
+                await fetchStatusREST();
+            } catch (err) {
+                showToast(`Ping failed: ${err.message}`, 'error');
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    renderStatusTable(rawData);
+                }
+            }
+        }
+        
+        async function resetCircuitBreaker(model) {
+            try {
+                const response = await fetch(`/api/models/circuit-reset?model=${encodeURIComponent(model)}`, { method: 'POST' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                showToast(`Circuit breaker reset for ${model.split('/').pop()}`, 'success');
+                await fetchStatusREST();
+            } catch (err) {
+                showToast(`Circuit reset failed: ${err.message}`, 'error');
+            }
+        }
+
+        function exportCSV() {
+            if (rawData.length === 0) {
+                showToast('No data to export', 'warning');
+                return;
+            }
+            
+            const headers = ['Model', 'Categories', 'Status', 'Latency (ms)', 'TPS', 'Total Uses', 'Active Connections', 'Circuit Breaker', 'Last Error', 'Last Checked'];
+            const rows = rawData.map(d => [
+                d.model,
+                d.categories.join('; '),
+                d.circuitOpen ? 'Tripped' : (d.isUp ? 'Up' : 'Down'),
+                d.latencyMs,
+                d.tps ? d.tps.toFixed(1) : '',
+                d.totalUses,
+                d.activeConnections,
+                d.circuitOpen ? 'Open' : 'Closed',
+                d.errorMessage || '',
+                new Date(d.lastChecked).toISOString()
+            ]);
+            
+            const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `llm-model-status-${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+            
+            showToast('CSV exported successfully', 'success');
+        }
+        
+        // ===== TAB HANDLING =====
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => {
+                    b.classList.remove('active');
+                    b.classList.add('text-muted');
+                    b.setAttribute('aria-selected', 'false');
+                });
+                document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('d-none'));
+                
+                btn.classList.add('active');
+                btn.classList.remove('text-muted');
+                btn.setAttribute('aria-selected', 'true');
+                document.getElementById(`panel-${btn.dataset.tab}`).classList.remove('d-none');
+                
+                // Toggle filters
+                const filters = document.getElementById('statusFiltersContainer');
+                if (filters) {
+                    if (btn.dataset.tab === 'status') {
+                        filters.classList.remove('d-none');
+                    } else {
+                        filters.classList.add('d-none');
+                    }
+                }
+            });
+        });
+        
+        // ===== FILTER HANDLING =====
+        categoryFilter.addEventListener('change', () => renderStatusTable(rawData));
+        statusFilter.addEventListener('change', () => renderStatusTable(rawData));
+        
+        // ===== EXPORT BUTTON =====
+        exportBtn.addEventListener('click', exportCSV);
+        
+        // ===== FETCH REQUESTERS =====
+        async function fetchRequesters() {
+            showRequestersLoading(true);
+            try {
+                const response = await fetch('/api/requesters/status');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                handleRequesterUpdate(data);
+            } catch (err) {
+                console.error('Failed to fetch requesters:', err);
+                showRequestersLoading(false);
+                showToast('Failed to load requester data', 'error');
+            }
+        }
+        
+        // ===== INITIALIZATION =====
+        function init() {
+            // Try SSE first
+            connectSSE();
+            
+            // Fetch requesters periodically
+            fetchRequesters();
+            setInterval(fetchRequesters, 30000);
+            
+            // Handle visibility change - reconnect SSE when tab becomes visible
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden && eventSource && eventSource.readyState === EventSource.CLOSED) {
+                    reconnectAttempts = 0;
+                    connectSSE();
+                }
+            });
+            
+            // Handle online/offline
+            window.addEventListener('online', () => {
+                if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+                    reconnectAttempts = 0;
+                    connectSSE();
+                }
+            });
+        }
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>
