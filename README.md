@@ -38,7 +38,9 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - Resolves relative file paths to absolute workspace paths automatically.
 
 ### 6. Real-Time Observability Dashboard
-- **Live Fleet Health**: Real-time status cards, active concurrent connections, global TPS, and average fleet latency.
+- **Live Fleet Health & KPI Cards**: Real-time fleet health counter, global throughput (TPS), active model indicator, concurrent stream counters, and average fleet latency.
+- **Active Model Indicator**: Real-time center KPI card dynamically displaying the model currently serving inference requests. When multiple models process concurrent streams, the card smoothly cycles across active models every 1.8 seconds; returns to an idle placeholder (`______`) when traffic ceases.
+- **Last Updated Status Timestamps**: Model fleet table displays real-time timestamps indicating when each model was last pinged or verified.
 - **Server-Sent Events (SSE)**: Instant browser metric updates with zero polling overhead.
 - **Interactive Latency History**: Filterable from 15 minutes to 24 hours (default: 1 hour), retaining historical performance trends.
 - **Compact Metric Formatting**: High request volumes and token totals are automatically formatted into readable units (Hundreds, Thousands `K`, Millions `M`, Billions `B`).
