@@ -26,6 +26,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -292,9 +293,11 @@ public class NvidiaLlmService {
         updateLatestStatus(model);
         
         long start = System.currentTimeMillis();
+        boolean connectionActive = true;
+        long timeTaken = 0;
         try {
             LlmCallResult result = performLlmCall(model, prompt);
-            long timeTaken = System.currentTimeMillis() - start;
+            timeTaken = System.currentTimeMillis() - start;
             
             // Success: Update usage and TPS
             redisTemplate.opsForHash().increment("gateway:model:usage", model, result.totalTokens());
@@ -305,34 +308,38 @@ public class NvidiaLlmService {
                 tpsMap.compute(model, (k, oldTps) -> oldTps == 0.0 ? currentTps : (0.2 * currentTps + 0.8 * oldTps));
             }
             
-            // Reset Circuit Breaker
-            consecutiveErrorsMap.get(model).set(0);
-            redisTemplate.opsForHash().put("gateway:model:circuit", model, "false");
-            
+            activeConnectionsMap.get(model).decrementAndGet();
+            connectionActive = false;
+            recordModelSuccess(model, timeTaken);
             
             log.info("[TxID: {}] Successfully generated response using {} model: {} in {}ms", transactionId, state, model, timeTaken);
             return new LlmResponse(transactionId, model, result.content());
             
         } catch (org.springframework.web.reactive.function.client.WebClientResponseException e) {
+            timeTaken = System.currentTimeMillis() - start;
+            if (connectionActive) {
+                activeConnectionsMap.get(model).decrementAndGet();
+                connectionActive = false;
+            }
             if (!e.getStatusCode().is4xxClientError()) {
-                int errors = consecutiveErrorsMap.get(model).incrementAndGet();
-                if (errors >= CIRCUIT_BREAKER_THRESHOLD) {
-                    redisTemplate.opsForHash().put("gateway:model:circuit", model, "true");
-                    log.error("[TxID: {}] CIRCUIT BREAKER TRIPPED for model: {} after {} errors", transactionId, model, errors);
-                }
+                recordModelFailure(model, timeTaken, e);
+            } else {
+                updateLatestStatus(model);
             }
             throw e;
         } catch (Exception e) {
-            // Failure: Increment errors and potentially trip circuit
-            int errors = consecutiveErrorsMap.get(model).incrementAndGet();
-            if (errors >= CIRCUIT_BREAKER_THRESHOLD) {
-                redisTemplate.opsForHash().put("gateway:model:circuit", model, "true");
-                log.error("[TxID: {}] CIRCUIT BREAKER TRIPPED for model: {} after {} errors", transactionId, model, errors);
+            timeTaken = System.currentTimeMillis() - start;
+            if (connectionActive) {
+                activeConnectionsMap.get(model).decrementAndGet();
+                connectionActive = false;
             }
+            recordModelFailure(model, timeTaken, e);
             throw e;
         } finally {
-            activeConnectionsMap.get(model).decrementAndGet();
-            updateLatestStatus(model);
+            if (connectionActive) {
+                activeConnectionsMap.get(model).decrementAndGet();
+                updateLatestStatus(model);
+            }
         }
     }
     
@@ -434,6 +441,8 @@ public class NvidiaLlmService {
         updateLatestStatus(model);
         
         long start = System.currentTimeMillis();
+        boolean connectionActive = true;
+        long timeTaken = 0;
         try {
             Map<String, Object> overrideBody = new java.util.HashMap<>(requestBody);
             overrideBody.put("model", model);
@@ -497,7 +506,7 @@ public class NvidiaLlmService {
                     .timeout(java.time.Duration.ofSeconds(75))
                     .block();
                     
-            long timeTaken = System.currentTimeMillis() - start;
+            timeTaken = System.currentTimeMillis() - start;
             long totalTokens = 0;
             
             if (response != null && response.containsKey("usage")) {
@@ -515,9 +524,9 @@ public class NvidiaLlmService {
                 tpsMap.compute(model, (k, oldTps) -> oldTps == 0.0 ? currentTps : (0.2 * currentTps + 0.8 * oldTps));
             }
             
-            consecutiveErrorsMap.get(model).set(0);
-            redisTemplate.opsForHash().put("gateway:model:circuit", model, "false");
-            
+            activeConnectionsMap.get(model).decrementAndGet();
+            connectionActive = false;
+            recordModelSuccess(model, timeTaken);
             
             log.info("[TxID: {}] Successfully proxied response using {} model: {} in {}ms", transactionId, state, model, timeTaken);
             
@@ -529,25 +538,31 @@ public class NvidiaLlmService {
             return response;
             
         } catch (org.springframework.web.reactive.function.client.WebClientResponseException e) {
+            timeTaken = System.currentTimeMillis() - start;
+            if (connectionActive) {
+                activeConnectionsMap.get(model).decrementAndGet();
+                connectionActive = false;
+            }
             log.error("[TxID: {}] Nvidia API returned {}: {}", transactionId, e.getStatusCode(), e.getResponseBodyAsString());
             if (!e.getStatusCode().is4xxClientError()) {
-                int errors = consecutiveErrorsMap.get(model).incrementAndGet();
-                if (errors >= CIRCUIT_BREAKER_THRESHOLD) {
-                    redisTemplate.opsForHash().put("gateway:model:circuit", model, "true");
-                    log.error("[TxID: {}] CIRCUIT BREAKER TRIPPED for model: {} after {} errors", transactionId, model, errors);
-                }
+                recordModelFailure(model, timeTaken, e);
+            } else {
+                updateLatestStatus(model);
             }
             throw e;
         } catch (Exception e) {
-            int errors = consecutiveErrorsMap.get(model).incrementAndGet();
-            if (errors >= CIRCUIT_BREAKER_THRESHOLD) {
-                redisTemplate.opsForHash().put("gateway:model:circuit", model, "true");
-                log.error("[TxID: {}] CIRCUIT BREAKER TRIPPED for model: {} after {} errors", transactionId, model, errors);
+            timeTaken = System.currentTimeMillis() - start;
+            if (connectionActive) {
+                activeConnectionsMap.get(model).decrementAndGet();
+                connectionActive = false;
             }
+            recordModelFailure(model, timeTaken, e);
             throw e;
         } finally {
-            activeConnectionsMap.get(model).decrementAndGet();
-            updateLatestStatus(model);
+            if (connectionActive) {
+                activeConnectionsMap.get(model).decrementAndGet();
+                updateLatestStatus(model);
+            }
         }
     }
     
@@ -582,17 +597,19 @@ public class NvidiaLlmService {
                 .map(ModelStatus::model)
                 .collect(Collectors.toList());
 
-        List<String> candidates;
-        if (!upModels.isEmpty()) {
-            candidates = upModels;
-        } else {
-            // Cold start or temporary outage: fall back to down models sorted by routing score
-            candidates = latestStatusMap.values().stream()
-                    .filter(s -> targetModels.contains(s.model()))
-                    .filter(s -> estimatedTokens <= MODEL_CONTEXT_LIMITS.getOrDefault(s.model(), DEFAULT_CONTEXT_LIMIT))
-                    .sorted(Comparator.comparingDouble(s -> calculateRoutingScore(s.model())))
-                    .map(ModelStatus::model)
-                    .collect(Collectors.toList());
+        List<String> downModels = latestStatusMap.values().stream()
+                .filter(s -> targetModels.contains(s.model()))
+                .filter(s -> estimatedTokens <= MODEL_CONTEXT_LIMITS.getOrDefault(s.model(), DEFAULT_CONTEXT_LIMIT))
+                .filter(status -> !status.isUp() || status.circuitOpen())
+                .sorted(Comparator.comparingDouble(s -> calculateRoutingScore(s.model())))
+                .map(ModelStatus::model)
+                .collect(Collectors.toList());
+
+        List<String> candidates = new ArrayList<>(upModels);
+        for (String dm : downModels) {
+            if (!candidates.contains(dm)) {
+                candidates.add(dm);
+            }
         }
 
         return tryStreamModel(candidates, 0, requestBody, requester, transactionId);
@@ -608,21 +625,9 @@ public class NvidiaLlmService {
         return executeWithTelemetryOpenAiStream(model, requestBody, state, requester, transactionId)
             .onErrorResume(e -> {
                 log.warn("[TxID: {}] {} Streaming Proxy Model {} failed to stream. Error: {}. Transparently retrying next model...", transactionId, state, model, e.getMessage());
-                handleModelError(model, e); // Trip circuit if necessary
                 return tryStreamModel(models, index + 1, requestBody, requester, transactionId);
             });
     }
-    
-    private void handleModelError(String model, Throwable e) {
-        log.warn("Model {} encountered an error: {}", model, e.getMessage());
-        int errors = consecutiveErrorsMap.get(model).incrementAndGet();
-        if (errors >= CIRCUIT_BREAKER_THRESHOLD) {
-            redisTemplate.opsForHash().put("gateway:model:circuit", model, "true");
-            log.error("CIRCUIT BREAKER TRIPPED for model: {} after {} errors", model, errors);
-        }
-        updateLatestStatus(model);
-    }
-
 
     private Flux<String> executeWithTelemetryOpenAiStream(String model, Map<String, Object> requestBody, String state, String requester, String transactionId) {
         log.debug("[TxID: {}] Routing streaming proxy request to {} model: {} (Score: {})", transactionId, state, model, calculateRoutingScore(model));
@@ -635,20 +640,41 @@ public class NvidiaLlmService {
         overrideBody.put("stream", true); // Request true streaming from the backend
 
         long start = System.currentTimeMillis();
+        AtomicBoolean connectionActive = new AtomicBoolean(true);
         Flux<String> contentFlux = webClient.post()
                 .uri("/chat/completions")
                 .bodyValue(overrideBody)
                 .retrieve()
                 .bodyToFlux(String.class)
                 .timeout(java.time.Duration.ofSeconds(180))
+                .doOnComplete(() -> {
+                    long timeTaken = System.currentTimeMillis() - start;
+                    if (connectionActive.compareAndSet(true, false)) {
+                        activeConnectionsMap.get(model).decrementAndGet();
+                    }
+                    recordModelSuccess(model, timeTaken);
+                })
+                .doOnError(e -> {
+                    long timeTaken = System.currentTimeMillis() - start;
+                    if (connectionActive.compareAndSet(true, false)) {
+                        activeConnectionsMap.get(model).decrementAndGet();
+                    }
+                    if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException wce) {
+                        if (!wce.getStatusCode().is4xxClientError()) {
+                            recordModelFailure(model, timeTaken, e);
+                        } else {
+                            updateLatestStatus(model);
+                        }
+                    } else {
+                        recordModelFailure(model, timeTaken, e);
+                    }
+                })
                 .doFinally(signal -> {
                     long timeTaken = System.currentTimeMillis() - start;
-                    activeConnectionsMap.get(model).decrementAndGet();
-                    if (SignalType.ON_COMPLETE.equals(signal)) {
-                        consecutiveErrorsMap.get(model).set(0);
-                        redisTemplate.opsForHash().put("gateway:model:circuit", model, "false");
+                    if (connectionActive.compareAndSet(true, false)) {
+                        activeConnectionsMap.get(model).decrementAndGet();
+                        updateLatestStatus(model);
                     }
-                    updateLatestStatus(model);
                     log.debug("[TxID: {}] Streaming request to {} model: {} finished in {}ms with signal: {}",
                             transactionId, state, model, timeTaken, signal);
                 });
@@ -725,6 +751,93 @@ public class NvidiaLlmService {
                 .block();
     }
 
+    public void recordModelSuccess(String model, long latencyMs) {
+        consecutiveErrorsMap.get(model).set(0);
+        redisTemplate.opsForHash().put("gateway:model:circuit", model, "false");
+
+        final double currentLatency = latencyMs;
+        emaLatencyMap.compute(model, (k, currentEma) -> {
+            if (currentEma == null || currentEma >= 10000.0) {
+                return currentLatency;
+            }
+            double alpha = 0.3;
+            return (alpha * currentLatency) + ((1 - alpha) * currentEma);
+        });
+
+        ModelStatus prev = latestStatusMap.get(model);
+        boolean wasDown = prev != null && (!prev.isUp() || prev.circuitOpen());
+
+        updateModelStatusInternal(model, true, latencyMs, null);
+
+        if (wasDown) {
+            log.info("Model {} successfully processed request/ping. Status automatically RECOVERED to UP ({}ms)!", model, latencyMs);
+        }
+    }
+
+    public void recordModelFailure(String model, long latencyMs, Throwable error) {
+        int errors = consecutiveErrorsMap.get(model).incrementAndGet();
+        if (errors >= CIRCUIT_BREAKER_THRESHOLD) {
+            redisTemplate.opsForHash().put("gateway:model:circuit", model, "true");
+            log.error("CIRCUIT BREAKER TRIPPED for model: {} after {} consecutive errors", model, errors);
+        }
+
+        emaLatencyMap.put(model, 10000.0);
+
+        ModelStatus prev = latestStatusMap.get(model);
+        boolean wasUp = prev != null && prev.isUp();
+        String errorMsg = error != null ? error.getMessage() : "Unknown error";
+
+        updateModelStatusInternal(model, false, latencyMs, errorMsg);
+
+        if (wasUp) {
+            log.warn("Model {} failed request/ping. Status automatically marked as DOWN ({}ms) - {}", model, latencyMs, errorMsg);
+        }
+    }
+
+    private List<String> getModelCategories(String model) {
+        List<String> categories = new ArrayList<>();
+        if (reasoningModels.contains(model)) categories.add("Reasoning");
+        if (codingModels.contains(model)) categories.add("Coding");
+        if (visionModels.contains(model)) categories.add("Vision");
+        if (categories.isEmpty()) categories.add("Unknown");
+        return categories;
+    }
+
+    private void updateModelStatusInternal(String model, boolean isUp, long latencyMs, String errorMsg) {
+        Instant now = Instant.now();
+        PingResult result = new PingResult(now, isUp, latencyMs);
+        try {
+            redisTemplate.opsForList().rightPush("gateway:model:history:" + model, objectMapper.writeValueAsString(result));
+            redisTemplate.opsForList().trim("gateway:model:history:" + model, -MAX_HISTORY_SIZE, -1);
+        } catch (JsonProcessingException ex) {}
+
+        List<String> histStrs = redisTemplate.opsForList().range("gateway:model:history:" + model, 0, -1);
+        List<PingResult> history = new ArrayList<>();
+        if (histStrs != null) {
+            for (String s : histStrs) {
+                try {
+                    history.add(objectMapper.readValue(s, PingResult.class));
+                } catch (Exception ex) {}
+            }
+        }
+
+        List<String> categories = getModelCategories(model);
+        Object usageObj = redisTemplate.opsForHash().get("gateway:model:usage", model);
+        long usage = usageObj != null ? Long.parseLong(usageObj.toString()) : 0L;
+        Object cbObj = redisTemplate.opsForHash().get("gateway:model:circuit", model);
+        boolean circuitOpen = cbObj != null && Boolean.parseBoolean(cbObj.toString());
+
+        latestStatusMap.put(model, new ModelStatus(
+            model, categories, isUp, latencyMs, now, errorMsg, new ArrayList<>(history),
+            usage,
+            activeConnectionsMap.get(model).get(),
+            tpsMap.get(model),
+            circuitOpen
+        ));
+
+        notifyStatusChange();
+    }
+
     private PingResult pingSingleModelInternal(String model, Instant now) {
         synchronized (pingLock) {
             long timeSinceLastPing = System.currentTimeMillis() - lastPingEndTime;
@@ -739,63 +852,22 @@ public class NvidiaLlmService {
             long startTime = System.currentTimeMillis();
             boolean isUp = false;
             long latency = 0;
-            String errorMsg = null;
 
             try {
                 performPingCall(model);
                 latency = System.currentTimeMillis() - startTime;
                 isUp = true;
-
-                // Successful ping resets the circuit breaker!
-                consecutiveErrorsMap.get(model).set(0);
-                redisTemplate.opsForHash().put("gateway:model:circuit", model, "false");
-
-                final double currentLatency = latency;
-                emaLatencyMap.compute(model, (k, currentEma) -> {
-                    if (currentEma == null || currentEma >= 10000.0) {
-                        return currentLatency;
-                    }
-                    double alpha = 0.3;
-                    return (alpha * currentLatency) + ((1 - alpha) * currentEma);
-                });
-
+                recordModelSuccess(model, latency);
                 log.info("Ping successful for model: {} ({}ms)", model, latency);
             } catch (Exception e) {
                 latency = System.currentTimeMillis() - startTime;
-                errorMsg = e.getMessage();
-                log.warn("Ping failed for model: {} after {}ms - {}", model, latency, errorMsg);
+                recordModelFailure(model, latency, e);
+                log.warn("Ping failed for model: {} after {}ms - {}", model, latency, e.getMessage());
             } finally {
                 lastPingEndTime = System.currentTimeMillis();
             }
 
-            PingResult result = new PingResult(now, isUp, latency);
-            try {
-                redisTemplate.opsForList().rightPush("gateway:model:history:" + model, objectMapper.writeValueAsString(result));
-                redisTemplate.opsForList().trim("gateway:model:history:" + model, -MAX_HISTORY_SIZE, -1);
-            } catch (JsonProcessingException ex) {}
-
-            List<String> histStrs = redisTemplate.opsForList().range("gateway:model:history:" + model, 0, -1);
-            List<PingResult> history = new ArrayList<>();
-            if (histStrs != null) {
-                for (String s : histStrs) {
-                    try { history.add(objectMapper.readValue(s, PingResult.class)); } catch (Exception ex) {}
-                }
-            }
-            List<String> categories = new ArrayList<>();
-            if (reasoningModels.contains(model)) categories.add("Reasoning");
-            if (codingModels.contains(model)) categories.add("Coding");
-            if (visionModels.contains(model)) categories.add("Vision");
-            if (categories.isEmpty()) categories.add("Unknown");
-
-            latestStatusMap.put(model, new ModelStatus(
-                model, categories, isUp, latency, now, errorMsg, new ArrayList<>(history),
-                redisTemplate.opsForHash().get("gateway:model:usage", model) != null ? Long.parseLong(redisTemplate.opsForHash().get("gateway:model:usage", model).toString()) : 0L,
-                activeConnectionsMap.get(model).get(),
-                tpsMap.get(model),
-                redisTemplate.opsForHash().get("gateway:model:circuit", model) != null ? Boolean.parseBoolean(redisTemplate.opsForHash().get("gateway:model:circuit", model).toString()) : false
-            ));
-
-            return result;
+            return new PingResult(now, isUp, latency);
         }
     }
 
