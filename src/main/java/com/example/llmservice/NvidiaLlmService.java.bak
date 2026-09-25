@@ -56,20 +56,7 @@ public class NvidiaLlmService {
     private final List<SseEmitter> statusEmitters = new CopyOnWriteArrayList<>();
 
     private static final int MAX_HISTORY_SIZE = 1440; // 24 hours of 1-minute pings
-    private static final int CIRCUIT_BREAKER_THRESHOLD = 2;
-
-    private static final Map<String, Integer> MODEL_CONTEXT_LIMITS = Map.of(
-        "moonshotai/kimi-k3", 128000,
-        "nvidia/nemotron-3-ultra-550b-a55b", 32000,
-        "z-ai/glm-5.3", 128000,
-        "z-ai/glm-5.3-flash", 128000,
-        "deepseek-ai/deepseek-v4.1-flash", 128000,
-        "deepseek-ai/deepseek-coder-v4.1", 128000,
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", 8000,
-        "google/gemma-4-31b-it", 8000
-    );
-    private static final int DEFAULT_CONTEXT_LIMIT = 8000;
- // Trip after 2 consecutive errors
+    private static final int CIRCUIT_BREAKER_THRESHOLD = 2; // Trip after 2 consecutive errors
 
     public NvidiaLlmService(
             StringRedisTemplate redisTemplate,
@@ -168,7 +155,7 @@ public class NvidiaLlmService {
                 .filter(s -> targetModels.contains(s.model()))
                 .filter(ModelStatus::isUp)
                 .filter(s -> !s.circuitOpen())
-                .sorted((a, b) -> Double.compare(calculateRoutingScore(b.model()), calculateRoutingScore(a.model())))
+                .sorted((a, b) -> Double.compare(calculateRoutingScore(a.model()), calculateRoutingScore(b.model())))
                 .map(ModelStatus::model)
                 .collect(Collectors.toList());
                 
@@ -240,31 +227,14 @@ public class NvidiaLlmService {
         }
     }
     
-    
-    private int estimateTokens(Map<String, Object> requestBody) {
-        if (requestBody == null || !requestBody.containsKey("messages")) return 0;
-        try {
-            List<Map<String, Object>> messages = (List<Map<String, Object>>) requestBody.get("messages");
-            int chars = 0;
-            for (Map<String, Object> m : messages) {
-                if (m.get("content") != null) chars += m.get("content").toString().length();
-            }
-            return chars / 4; // roughly 4 chars per token
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
     public Map<String, Object> generateOpenAiProxy(Map<String, Object> requestBody, String requester, String transactionId, boolean isCoding) {
         List<String> targetModels = isCoding ? codingModels : reasoningModels;
-        final int estimatedTokens = estimateTokens(requestBody);
         
         List<String> upModels = latestStatusMap.values().stream()
                 .filter(s -> targetModels.contains(s.model()))
-                .filter(s -> estimatedTokens <= MODEL_CONTEXT_LIMITS.getOrDefault(s.model(), DEFAULT_CONTEXT_LIMIT))
                 .filter(ModelStatus::isUp)
                 .filter(s -> !s.circuitOpen())
-                .sorted((a, b) -> Double.compare(calculateRoutingScore(b.model()), calculateRoutingScore(a.model()))) // Descending score
+                .sorted((a, b) -> Double.compare(calculateRoutingScore(a.model()), calculateRoutingScore(b.model())))
                 .map(ModelStatus::model)
                 .collect(Collectors.toList());
                 
@@ -411,44 +381,26 @@ public class NvidiaLlmService {
      */
     public Flux<String> generateOpenAiProxyStream(Map<String, Object> requestBody, String requester, String transactionId, boolean isCoding) {
         List<String> targetModels = isCoding ? codingModels : reasoningModels;
-        final int estimatedTokens = estimateTokens(requestBody);
 
         List<String> upModels = latestStatusMap.values().stream()
                 .filter(s -> targetModels.contains(s.model()))
-                .filter(s -> estimatedTokens <= MODEL_CONTEXT_LIMITS.getOrDefault(s.model(), DEFAULT_CONTEXT_LIMIT))
                 .filter(ModelStatus::isUp)
                 .filter(s -> !s.circuitOpen())
-                .sorted((a, b) -> Double.compare(calculateRoutingScore(b.model()), calculateRoutingScore(a.model())))
+                .sorted((a, b) -> Double.compare(calculateRoutingScore(a.model()), calculateRoutingScore(b.model())))
                 .map(ModelStatus::model)
                 .collect(Collectors.toList());
 
-        return tryStreamModel(upModels, 0, requestBody, requester, transactionId);
-    }
-    
-    private Flux<String> tryStreamModel(List<String> models, int index, Map<String, Object> requestBody, String requester, String transactionId) {
-        if (index >= models.size() || index >= 3) { // Max 3 retries
-            log.error("[TxID: {}] All available models failed to stream the proxy request.", transactionId);
-            return Flux.error(new RuntimeException("All backend models failed."));
+        for (String model : upModels) {
+            try {
+                return executeWithTelemetryOpenAiStream(model, requestBody, "UP", requester, transactionId);
+            } catch (Exception e) {
+                log.warn("[TxID: {}] UP Streaming Proxy Model {} failed to initialize. Error: {}", transactionId, model, e.getMessage());
+            }
         }
-        String model = models.get(index);
-        return executeWithTelemetryOpenAiStream(model, requestBody, "UP", requester, transactionId)
-            .onErrorResume(e -> {
-                log.warn("[TxID: {}] UP Streaming Proxy Model {} failed to stream. Error: {}. Transparently retrying next model...", transactionId, model, e.getMessage());
-                handleModelError(model, e); // Trip circuit if necessary
-                return tryStreamModel(models, index + 1, requestBody, requester, transactionId);
-            });
-    }
-    
-    private void handleModelError(String model, Throwable e) {
-        log.warn("Model {} encountered an error: {}", model, e.getMessage());
-        int errors = consecutiveErrorsMap.get(model).incrementAndGet();
-        if (errors >= CIRCUIT_BREAKER_THRESHOLD) {
-            redisTemplate.opsForHash().put("gateway:model:circuit", model, "true");
-            log.error("CIRCUIT BREAKER TRIPPED for model: {} after {} errors", model, errors);
-        }
-        updateLatestStatus(model);
-    }
 
+        log.error("[TxID: {}] All available models failed to initialize the streaming proxy request.", transactionId);
+        return Flux.error(new RuntimeException("All backend models failed."));
+    }
 
     private Flux<String> executeWithTelemetryOpenAiStream(String model, Map<String, Object> requestBody, String state, String requester, String transactionId) {
         log.debug("[TxID: {}] Routing streaming proxy request to {} model: {} (Score: {})", transactionId, state, model, calculateRoutingScore(model));

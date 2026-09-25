@@ -1,8 +1,11 @@
 package com.example.llmservice;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -18,29 +21,23 @@ public class LlmController {
 
     @PostMapping("/reasoning/generate")
     public LlmResponse generateReasoning(@RequestBody LlmRequest request) {
-        String transactionId = java.util.UUID.randomUUID().toString();
-        String requester = request.requester() != null && !request.requester().isBlank() ? request.requester() : "anonymous";
-        int promptLength = request.prompt() != null ? request.prompt().length() : 0;
-        
-        log.info("[TxID: {}] Received Reasoning LLM request from '{}' (Prompt length: {} chars)", transactionId, requester, promptLength);
-        
-        long start = System.currentTimeMillis();
-        LlmResponse response = llmService.generate(request.prompt(), requester, transactionId, false); // isCoding = false
-        
-        log.info("[TxID: {}] Request completed in {}ms using model: {}", transactionId, (System.currentTimeMillis() - start), response.modelUsed());
-        return response;
+        return handleGenerate(request, false, "Reasoning");
     }
     
     @PostMapping("/coding/generate")
     public LlmResponse generateCoding(@RequestBody LlmRequest request) {
+        return handleGenerate(request, true, "Coding");
+    }
+
+    private LlmResponse handleGenerate(LlmRequest request, boolean isCoding, String type) {
         String transactionId = java.util.UUID.randomUUID().toString();
         String requester = request.requester() != null && !request.requester().isBlank() ? request.requester() : "anonymous";
         int promptLength = request.prompt() != null ? request.prompt().length() : 0;
         
-        log.info("[TxID: {}] Received Coding LLM request from '{}' (Prompt length: {} chars)", transactionId, requester, promptLength);
+        log.info("[TxID: {}] Received {} LLM request from '{}' (Prompt length: {} chars)", transactionId, type, requester, promptLength);
         
         long start = System.currentTimeMillis();
-        LlmResponse response = llmService.generate(request.prompt(), requester, transactionId, true); // isCoding = true
+        LlmResponse response = llmService.generate(request.prompt(), requester, transactionId, isCoding);
         
         log.info("[TxID: {}] Request completed in {}ms using model: {}", transactionId, (System.currentTimeMillis() - start), response.modelUsed());
         return response;
@@ -71,11 +68,7 @@ public class LlmController {
         llmService.resetCircuitBreaker(model);
     }
 
-    @PostMapping({
-        "/coding/v1/chat/completions",
-        "/coding/chat/completions",
-        "/v1/chat/completions"
-    })
+    @PostMapping("/coding/chat/completions")
     public org.springframework.http.ResponseEntity<?> generateCodingOpenAi(jakarta.servlet.http.HttpServletRequest httpRequest,
                                                               @RequestBody java.util.Map<String, Object> request, 
                                                               @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {

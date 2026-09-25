@@ -191,7 +191,18 @@
         <div class="row g-4 mb-5">
             <div class="col-12 col-xl-8">
                 <div class="card border-0 shadow-sm rounded-4 p-4 h-100">
-                    <h5 class="fw-bold mb-4 d-flex align-items-center"><i class="bi bi-graph-up text-primary me-2 fs-4"></i>Latency History (ms)</h5>
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h5 class="fw-bold mb-0 d-flex align-items-center"><i class="bi bi-graph-up text-primary me-2 fs-4"></i>Latency History (ms)</h5>
+                        <select class="form-select form-select-sm w-auto fw-medium text-secondary" id="timeRangeFilter" style="border-radius: 6px; box-shadow: none;">
+                            <option value="15">Last 15 Mins</option>
+                            <option value="30">Last 30 Mins</option>
+                            <option value="60">Last 1 Hour</option>
+                            <option value="180">Last 3 Hours</option>
+                            <option value="360">Last 6 Hours</option>
+                            <option value="720">Last 12 Hours</option>
+                            <option value="1440" selected>Last 24 Hours</option>
+                        </select>
+                    </div>
                     <div style="position: relative; height: 320px; width: 100%;">
                         <canvas id="latencyChart"></canvas>
                     </div>
@@ -252,16 +263,16 @@
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0" id="statusTable">
                         <thead class="text-uppercase text-secondary border-bottom" style="font-size: 0.75rem; letter-spacing: 0.5px;">
-                            <tr>
-                                <th class="py-3 px-4">Model</th>
-                                <th class="py-3 px-4">Category</th>
-                                <th class="py-3 px-4">Status</th>
-                                <th class="py-3 px-4">Latency</th>
-                                <th class="py-3 px-4">TPS</th>
-                                <th class="py-3 px-4">Total Uses</th>
-                                <th class="py-3 px-4">Active Conns</th>
-                                <th class="py-3 px-4">Circuit Breaker</th>
-                                <th class="py-3 px-4">Last Error</th>
+                            <tr id="statusTableHeader">
+                                <th class="py-3 px-4 sortable-col" data-sort="model" style="cursor: pointer; user-select: none;">Model <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
+                                <th class="py-3 px-4 sortable-col" data-sort="category" style="cursor: pointer; user-select: none;">Category <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
+                                <th class="py-3 px-4 sortable-col" data-sort="status" style="cursor: pointer; user-select: none;">Status <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
+                                <th class="py-3 px-4 sortable-col" data-sort="latency" style="cursor: pointer; user-select: none;">Latency <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
+                                <th class="py-3 px-4 sortable-col" data-sort="tps" style="cursor: pointer; user-select: none;">TPS <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
+                                <th class="py-3 px-4 sortable-col" data-sort="uses" style="cursor: pointer; user-select: none;">Total Uses <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
+                                <th class="py-3 px-4 sortable-col" data-sort="conns" style="cursor: pointer; user-select: none;">Active Conns <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
+                                <th class="py-3 px-4 sortable-col" data-sort="circuit" style="cursor: pointer; user-select: none;">Circuit Breaker <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
+                                <th class="py-3 px-4 sortable-col" data-sort="error" style="cursor: pointer; user-select: none;">Last Error <i class="bi bi-arrow-down-up ms-1 opacity-50 sort-icon"></i></th>
                                 <th class="py-3 px-4">Action</th>
                             </tr>
                         </thead>
@@ -302,7 +313,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <script>
-        // ===== STATE =====
+        
+        let currentSortCol = 'model';
+        let currentSortDir = 'asc';
+// ===== STATE =====
         let latencyChart = null;
         let usageChart = null;
         let rawData = [];
@@ -594,6 +608,45 @@
                 return catMatch && statusMatch;
             });
             
+            // Apply sorting
+            filtered.sort((a, b) => {
+                let valA, valB;
+                switch (currentSortCol) {
+                    case 'model': valA = a.model; valB = b.model; break;
+                    case 'category': valA = a.categories[0] || ''; valB = b.categories[0] || ''; break;
+                    case 'status': 
+                        valA = a.circuitOpen ? 2 : (!a.isUp ? 1 : 0); 
+                        valB = b.circuitOpen ? 2 : (!b.isUp ? 1 : 0); 
+                        break;
+                    case 'latency': valA = a.latencyMs; valB = b.latencyMs; break;
+                    case 'tps': valA = a.tps; valB = b.tps; break;
+                    case 'uses': valA = a.totalUses; valB = b.totalUses; break;
+                    case 'conns': valA = a.activeConnections; valB = b.activeConnections; break;
+                    case 'circuit': valA = a.circuitOpen ? 1 : 0; valB = b.circuitOpen ? 1 : 0; break;
+                    case 'error': valA = a.lastError || ''; valB = b.lastError || ''; break;
+                    default: valA = a.model; valB = b.model;
+                }
+                
+                if (valA < valB) return currentSortDir === 'asc' ? -1 : 1;
+                if (valA > valB) return currentSortDir === 'asc' ? 1 : -1;
+                return 0;
+            });
+            
+            // Update Sort Icons
+            document.querySelectorAll('.sortable-col').forEach(th => {
+                const icon = th.querySelector('.sort-icon');
+                if (!icon) return;
+                
+                if (th.getAttribute('data-sort') === currentSortCol) {
+                    icon.className = currentSortDir === 'asc' ? 'bi bi-arrow-up ms-1 text-primary sort-icon' : 'bi bi-arrow-down ms-1 text-primary sort-icon';
+                    th.classList.add('text-primary');
+                } else {
+                    icon.className = 'bi bi-arrow-down-up ms-1 opacity-50 sort-icon';
+                    th.classList.remove('text-primary');
+                }
+            });
+
+            
             if (filtered.length === 0) {
                 statusTableBody.innerHTML = `
                     <tr>
@@ -704,26 +757,59 @@
         
         // ===== CHARTS =====
         function renderCharts(data) {
-            // Latency Chart
-            let labels = [];
-            if (data.length > 0 && data[0].history) {
-                labels = data[0].history.map(h => {
-                    const d = new Date(h.timestamp);
-                    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-                });
+            // Build consistent color map based on rawData to match Usage and Latency charts perfectly
+            const modelColorMap = {};
+            if (typeof rawData !== 'undefined' && rawData) {
+                rawData.forEach((d, i) => { modelColorMap[d.model] = colors[i % colors.length]; });
+            } else {
+                data.forEach((d, i) => { modelColorMap[d.model] = colors[i % colors.length]; });
             }
+
+            // Time Range Filter
+            const timeRangeSelect = document.getElementById('timeRangeFilter');
+            const rangeMins = timeRangeSelect ? parseInt(timeRangeSelect.value) : 1440;
+            const cutoffTime = Date.now() - (rangeMins * 60 * 1000);
+
+            // Latency Chart
+            let allTimestamps = new Set();
+            data.forEach(d => {
+                if (d.history) {
+                    d.history.forEach(h => {
+                        if (new Date(h.timestamp).getTime() >= cutoffTime) {
+                            allTimestamps.add(h.timestamp);
+                        }
+                    });
+                }
+            });
+            let sortedTimestamps = Array.from(allTimestamps).sort((a, b) => new Date(a) - new Date(b));
+            let labels = sortedTimestamps.map(ts => {
+                const d = new Date(ts);
+                return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+            });
             
-            const latencyDatasets = data.filter(d => d.isUp && d.history && d.history.some(h => h.isUp)).map((d, i) => ({
-                label: d.model.split('/').pop(),
-                data: d.history.map(h => h.isUp ? h.latencyMs : null),
-                borderColor: colors[i % colors.length],
-                backgroundColor: colors[i % colors.length] + '20',
-                fill: false,
-                tension: 0.3,
-                pointRadius: 3,
-                pointHoverRadius: 5,
-                spanGaps: true
-            }));
+            const latencyDatasets = data.filter(d => d.isUp && d.history && d.history.some(h => h.isUp)).map((d, i) => {
+                const latencyMap = {};
+                d.history.forEach(h => {
+                    if (h.isUp && new Date(h.timestamp).getTime() >= cutoffTime) {
+                        latencyMap[h.timestamp] = h.latencyMs;
+                    }
+                });
+                const alignedData = sortedTimestamps.map(ts => latencyMap[ts] !== undefined ? latencyMap[ts] : null);
+                
+                const myColor = modelColorMap[d.model] || colors[i % colors.length];
+                
+                return {
+                    label: d.model.split('/').pop(),
+                    data: alignedData,
+                    borderColor: myColor,
+                    backgroundColor: myColor + '20',
+                    fill: false,
+                    tension: 0.3,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    spanGaps: true
+                };
+            });
             
             if (latencyChart) {
                 latencyChart.data.labels = labels;
@@ -758,8 +844,7 @@
             const usageData = displayData.map(d => d.totalUses);
             const chartColors = displayData.map(d => {
                 if (d.model === 'No Traffic Yet') return '#8E8E93';
-                const originalIndex = rawData.findIndex(x => x.model === d.model);
-                return colors[originalIndex % colors.length];
+                return modelColorMap[d.model] || colors[0];
             });
             
             if (usageChart) {
@@ -785,9 +870,72 @@
                         maintainAspectRatio: false,
                         cutout: '75%',
                         plugins: {
-                            legend: { position: 'right', labels: { usePointStyle: true, padding: 20 } }
+                            legend: { position: 'right', labels: { usePointStyle: true, padding: 20 } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.parsed || 0;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                        return `${label}: ${value} (${percentage}%)`;
+                                    }
+                                }
+                            }
                         }
-                    }
+                    },
+                    plugins: [{
+                        id: 'centerPercentage',
+                        beforeDraw: function(chart) {
+                            const ctx = chart.ctx;
+                            const centerX = (chart.chartArea.left + chart.chartArea.right) / 2;
+                            const centerY = (chart.chartArea.top + chart.chartArea.bottom) / 2;
+                            
+                            const dataset = chart.data.datasets[0];
+                            const total = dataset.data.reduce((a, b) => a + b, 0);
+                            
+                            ctx.save();
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            
+                            // Check if tooltip is active (hover)
+                            const tooltip = chart.tooltip;
+                            let showHoverData = false;
+                            let percentage = 0;
+                            let label = '';
+                            
+                            if (tooltip && tooltip._active && tooltip._active.length > 0) {
+                                const activeElement = tooltip._active[0];
+                                const value = dataset.data[activeElement.index];
+                                percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                label = chart.data.labels[activeElement.index];
+                                showHoverData = true;
+                            }
+                            
+                            if (showHoverData) {
+                                // Draw percentage on hover
+                                ctx.font = 'bold 28px Inter';
+                                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-primary') || '#1a1a1a';
+                                ctx.fillText(`${percentage}%`, centerX, centerY - 10);
+                                
+                                // Draw label
+                                ctx.font = '14px Inter';
+                                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary') || '#666';
+                                ctx.fillText(label, centerX, centerY + 20);
+                            } else {
+                                // Draw total by default
+                                ctx.font = 'bold 28px Inter';
+                                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-primary') || '#1a1a1a';
+                                ctx.fillText(`${total}`, centerX, centerY - 10);
+                                
+                                ctx.font = '14px Inter';
+                                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary') || '#666';
+                                ctx.fillText('Total Requests', centerX, centerY + 20);
+                            }
+                            
+                            ctx.restore();
+                        }
+                    }]
                 });
             }
         }
@@ -897,6 +1045,13 @@
         categoryFilter.addEventListener('change', () => renderStatusTable(rawData));
         statusFilter.addEventListener('change', () => renderStatusTable(rawData));
         
+        const timeRangeFilter = document.getElementById('timeRangeFilter');
+        if (timeRangeFilter) {
+            timeRangeFilter.addEventListener('change', () => {
+                if (rawData && rawData.length > 0) renderCharts(rawData);
+            });
+        }
+        
         // ===== EXPORT BUTTON =====
         exportBtn.addEventListener('click', exportCSV);
         
@@ -917,6 +1072,20 @@
         
         // ===== INITIALIZATION =====
         function init() {
+            // Table Header Sorting Listeners
+            document.querySelectorAll('.sortable-col').forEach(th => {
+                th.addEventListener('click', () => {
+                    const sortCol = th.getAttribute('data-sort');
+                    if (currentSortCol === sortCol) {
+                        currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSortCol = sortCol;
+                        currentSortDir = 'asc';
+                    }
+                    if (rawData) renderStatusTable(rawData);
+                });
+            });
+
             // Try SSE first
             connectSSE();
             

@@ -1,8 +1,20 @@
 version: '3.8'
 services:
-  llm-service:
+  neural-gateway:
+    container_name: NeuralGateway
     build: .
     ports:
       - "9090:8080"
     environment:
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - SPRING_DATA_REDIS_HOST=redis
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: NeuralGateway-Redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
