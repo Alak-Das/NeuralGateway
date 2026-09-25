@@ -759,11 +759,11 @@ public class NvidiaLlmService {
                     return (alpha * currentLatency) + ((1 - alpha) * currentEma);
                 });
 
-                log.debug("Ping successful for model: {} ({}ms)", model, latency);
+                log.info("Ping successful for model: {} ({}ms)", model, latency);
             } catch (Exception e) {
                 latency = System.currentTimeMillis() - startTime;
                 errorMsg = e.getMessage();
-                log.debug("Ping failed for model: {} - {}", model, errorMsg);
+                log.warn("Ping failed for model: {} after {}ms - {}", model, latency, errorMsg);
             } finally {
                 lastPingEndTime = System.currentTimeMillis();
             }
@@ -799,15 +799,15 @@ public class NvidiaLlmService {
         }
     }
 
-    @Scheduled(fixedDelay = 60000)
+    @Scheduled(fixedDelay = 300000)
     public void pingModels() {
-        log.debug("Starting scheduled health ping for all models (sequential with 5s gap)...");
         // Prioritize pings: models with lower historical latency are pinged first
         // so fast and reliable models are validated immediately.
         List<String> sortedModels = allModels.stream()
                 .sorted(Comparator.comparingDouble(this::calculateRoutingScore))
                 .collect(Collectors.toList());
 
+        log.info("Starting scheduled health ping sweep for {} models (sequential with 5s gap)...", sortedModels.size());
         for (String model : sortedModels) {
             try {
                 pingSingleModelInternal(model, Instant.now());
@@ -816,6 +816,7 @@ public class NvidiaLlmService {
                 log.error("Failed to ping model {}: {}", model, e.getMessage());
             }
         }
+        log.info("Completed scheduled health ping sweep for {} models. Next sweep will run in 5 minutes.", sortedModels.size());
     }
     
     public List<ModelStatus> getModelStatuses() {
@@ -867,6 +868,7 @@ public class NvidiaLlmService {
 
     // Manual ping for a single model
     public PingResult pingModel(String model) {
+        log.info("Manual on-demand ping requested for model: {}", model);
         PingResult result = pingSingleModelInternal(model, Instant.now());
         notifyStatusChange();
         return result;

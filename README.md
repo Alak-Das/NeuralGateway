@@ -26,6 +26,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Fail-Fast Failover**: Transparently retries candidate models on server-side failures with strict attempt caps to eliminate cascading delays.
 
 ### 4. Resilient Health Checker
+- **5-Minute Sweep Frequency**: Automated health check sweeps run every 5 minutes (`fixedDelay = 300000ms`), refreshing model statuses without placing continuous load on upstream providers.
 - **Prioritized Ping Ordering**: Models are sorted by historical EMA latency prior to health check sweeps, ensuring fast models (`nvidia/nemotron-3-ultra-550b-a55b` ~400ms) are validated immediately rather than waiting behind slower or queue-bound models.
 - **Sequential Execution & Rate Pacing**: Strictly sequential health checking (exactly one model ping at a time) with a guaranteed minimum 5-second gap between pings, completely eliminating burst limit exhaustion (`503 ResourceExhausted 16/16`) and concurrent rate limit spikes.
 - **1-Token Health Pings (`max_tokens: 1`)**: Pings request exactly 1 token to prevent reasoning models from generating heavy reasoning chains during health checks.
