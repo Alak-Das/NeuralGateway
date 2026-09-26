@@ -6,6 +6,7 @@ import com.example.llmservice.domain.model.Model;
 import com.example.llmservice.domain.model.Model.Pipeline;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Lazy;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,7 +36,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
     private final Map<String, ModelStatus> statusCache = new ConcurrentHashMap<>();
 
     public ModelStatusService(RedisPersistenceService redisPersistence,
-                              RoutingService routingService,
+                              @Lazy RoutingService routingService,
                               CircuitBreakerService circuitBreakerService,
                               ModelRegistry modelRegistry,
                               ObjectMapper objectMapper) {

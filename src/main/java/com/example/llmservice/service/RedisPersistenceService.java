@@ -28,6 +28,7 @@ public class RedisPersistenceService {
     private final ObjectMapper objectMapper;
     private final int maxHistorySize;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public RedisPersistenceService(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
         this(redisTemplate, objectMapper, 1440); // Default 24 hours of 1-minute pings
     }
