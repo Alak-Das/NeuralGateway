@@ -59,7 +59,8 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Framework**: Spring Boot 3.3.4 (Java 21 with Virtual Threads)
 - **Reactive Engine**: Spring WebFlux (`WebClient`) with 16 MB in-memory buffer
 - **Data & Telemetry**: Redis 7 Alpine (persistent volume)
-- **Frontend**: Vanilla JS, Bootstrap 5, Chart.js, Bootstrap Icons
+- **Frontend**: React 18, TypeScript, Vite, Chart.js, Bootstrap Icons
+- **Backend**: Spring Boot 3.3.4 (Java 21 with Virtual Threads), Spring WebFlux, Redis 7 Alpine
 - **Packaging & Orchestration**: Multi-stage Docker build, Docker Compose
 
 ---
