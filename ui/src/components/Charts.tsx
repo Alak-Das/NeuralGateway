@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ModelStatus } from '../types';
 import {
   Chart as ChartJS,
@@ -36,29 +36,45 @@ interface ChartsProps {
 }
 
 export default function Charts({ data }: ChartsProps) {
-  const [rangeMins, setRangeMins] = useState(60);
+  const [latencyRangeMins, setLatencyRangeMins] = useState(15);
+  const [usageRangeMins, setUsageRangeMins] = useState(15);
 
   const formatNumber = (num: number) => {
+    if (isNaN(num) || num == null) return '0';
     if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
     if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
+    return (num || 0).toLocaleString();
   };
 
-  const { latencyData, latencyOptions, usageData, usageOptions, totalRequests, displayData, bgColors } = useMemo(() => {
+  const getModelRequestsForRange = (d: ModelStatus, rangeMins: number) => {
+    if (rangeMins === 0) {
+      return d.totalUses || (d.history ? d.history.length : 0);
+    }
+    if (!d.history || d.history.length === 0) return 0;
+    const cutoff = Date.now() - (rangeMins * 60 * 1000);
+    return d.history.filter(h => {
+      if (!h.timestamp) return false;
+      const t = new Date(h.timestamp).getTime();
+      return !isNaN(t) && t >= cutoff;
+    }).length;
+  };
+
+  const { latencyData, latencyOptions, usageData, usageOptions, totalRequests, displayData, bgColors, activeModels } = useMemo(() => {
     // Model Color Map
     const modelColorMap: Record<string, string> = {};
     data.forEach((d, i) => { modelColorMap[d.model] = colors[i % colors.length]; });
 
-    // Latency Chart
-    const cutoffTime = Date.now() - (rangeMins * 60 * 1000);
+    // 1. Latency History Chart
+    const latencyCutoffTime = Date.now() - (latencyRangeMins * 60 * 1000);
     const allTimestamps = new Set<number>();
     
     data.forEach(d => {
       if (d.history) {
         d.history.forEach(h => {
+          if (!h.timestamp) return;
           const time = new Date(h.timestamp).getTime();
-          if (time >= cutoffTime) {
+          if (!isNaN(time) && time >= latencyCutoffTime) {
             const bucketedTime = Math.floor(time / 60000) * 60000;
             allTimestamps.add(bucketedTime);
           }
@@ -75,34 +91,36 @@ export default function Charts({ data }: ChartsProps) {
     const latencyDatasets = data
       .filter(d => d.history && d.history.some(h => {
         const isUp = h.up !== undefined ? h.up : h.isUp;
-        return isUp && new Date(h.timestamp).getTime() >= cutoffTime;
+        return isUp && h.timestamp && new Date(h.timestamp).getTime() >= latencyCutoffTime;
       }))
       .map((d, i) => {
         const latencyMap: Record<number, number> = {};
         d.history.forEach(h => {
           const isUp = h.up !== undefined ? h.up : h.isUp;
-          const time = new Date(h.timestamp).getTime();
-          if (isUp && time >= cutoffTime) {
-            const bucketedTime = Math.floor(time / 60000) * 60000;
-            latencyMap[bucketedTime] = h.latencyMs;
+          if (isUp && h.timestamp) {
+            const time = new Date(h.timestamp).getTime();
+            if (!isNaN(time) && time >= latencyCutoffTime) {
+              const bucketedTime = Math.floor(time / 60000) * 60000;
+              latencyMap[bucketedTime] = h.latencyMs;
+            }
           }
         });
         
         const alignedData = sortedTimestamps.map(ts => latencyMap[ts] !== undefined ? latencyMap[ts] : null);
         const myColor = modelColorMap[d.model] || colors[i % colors.length];
       
-      return {
-        label: d.model.split('/').pop() || d.model,
-        data: alignedData,
-        borderColor: myColor,
-        backgroundColor: myColor + '20',
-        fill: false,
-        tension: 0.3,
-        pointRadius: 3,
-        pointHoverRadius: 5,
-        spanGaps: true
-      };
-    });
+        return {
+          label: d.model.split('/').pop() || d.model,
+          data: alignedData,
+          borderColor: myColor,
+          backgroundColor: myColor + '20',
+          fill: false,
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          spanGaps: true
+        };
+      });
 
     const latencyOptionsObj = {
       responsive: true, 
@@ -117,20 +135,25 @@ export default function Charts({ data }: ChartsProps) {
       }
     };
 
-    // Usage Chart
-    const activeModels = data.filter(d => d.totalUses > 0);
-    const fallbackData = data.length > 0 ? [{ model: 'No Traffic Yet', totalUses: 1 }] : [];
-    const displayData = activeModels.length > 0 ? activeModels : fallbackData;
+    // 2. Usage Distribution Chart
+    const modelsWithUsage = data.map(d => ({
+      model: d.model,
+      uses: getModelRequestsForRange(d, usageRangeMins)
+    }));
+
+    const activeModelsList = modelsWithUsage.filter(d => d.uses > 0);
+    const fallbackData = [{ model: 'No Traffic in Period', uses: 1 }];
+    const displayDataList = activeModelsList.length > 0 ? activeModelsList : (data.length > 0 ? fallbackData : []);
     
-    const modelNames = displayData.map(d => d.model.split('/').pop() || d.model);
-    const usageValues = displayData.map(d => d.totalUses);
-    const bgColors = displayData.map((d, i) => modelColorMap[d.model] || colors[i % colors.length]);
+    const modelNames = displayDataList.map(d => d.model.split('/').pop() || d.model);
+    const usageValues = displayDataList.map(d => d.uses);
+    const bgColorsList = displayDataList.map((d, i) => activeModelsList.length > 0 ? (modelColorMap[d.model] || colors[i % colors.length]) : '#64748b40');
     
-    const totalRequestsVal = activeModels.length > 0 ? usageValues.reduce((a, b) => a + b, 0) : 0;
+    const totalRequestsVal = activeModelsList.length > 0 ? activeModelsList.reduce((sum, d) => sum + d.uses, 0) : 0;
 
     const usageDatasets = [{
       data: usageValues,
-      backgroundColor: bgColors,
+      backgroundColor: bgColorsList,
       borderWidth: 0,
       hoverOffset: 4
     }];
@@ -144,7 +167,7 @@ export default function Charts({ data }: ChartsProps) {
         tooltip: {
           callbacks: {
             label: function(context: any) {
-              if (activeModels.length === 0) return ' No traffic yet';
+              if (activeModelsList.length === 0) return ' No traffic yet in selected period';
               let label = context.label || '';
               if (label) {
                 label += ': ';
@@ -165,50 +188,22 @@ export default function Charts({ data }: ChartsProps) {
       usageData: { labels: modelNames, datasets: usageDatasets },
       usageOptions: usageOptionsObj,
       totalRequests: totalRequestsVal,
-      displayData,
-      bgColors
+      displayData: displayDataList,
+      bgColors: bgColorsList,
+      activeModels: activeModelsList
     };
-  }, [data, rangeMins]);
-
-  const doughnutPlugins = useMemo(() => {
-    return [{
-      id: 'centerText',
-      beforeDraw(chart: any) {
-        const { ctx, chartArea } = chart;
-        if (!chartArea) return;
-        const { top, width, height, left } = chartArea;
-        ctx.save();
-        
-        const centerX = left + width / 2;
-        const centerY = top + height / 2 - 5;
-        
-        ctx.font = 'bolder 24px Inter, sans-serif';
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'center';
-        
-        const style = getComputedStyle(document.body);
-        ctx.fillStyle = style.getPropertyValue('--text-main').trim() || '#e2e8f0';
-        
-        ctx.fillText(formatNumber(totalRequests), centerX, centerY);
-        
-        ctx.font = '12px Inter, sans-serif';
-        ctx.fillStyle = style.getPropertyValue('--text-muted').trim() || '#94a3b8';
-        ctx.fillText('Total Requests', centerX, centerY + 20);
-        
-        ctx.restore();
-      }
-    }];
-  }, [totalRequests]);
+  }, [data, latencyRangeMins, usageRangeMins]);
 
   return (
     <div className="row g-4 mb-4">
+      {/* Latency History */}
       <div className="col-12 col-xl-8">
         <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
           <div className="d-flex justify-content-between align-items-center mb-4">
             <div className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
               <i className="bi bi-graph-up text-primary me-2"></i>Latency History (ms)
             </div>
-            <select className="form-select form-select-sm w-auto rounded-pill" value={rangeMins} onChange={e => setRangeMins(Number(e.target.value))}>
+            <select className="form-select form-select-sm w-auto rounded-pill" value={latencyRangeMins} onChange={e => setLatencyRangeMins(Number(e.target.value))}>
               <option value={15}>Last 15 Mins</option>
               <option value={60}>Last 1 Hour</option>
               <option value={360}>Last 6 Hours</option>
@@ -221,25 +216,56 @@ export default function Charts({ data }: ChartsProps) {
         </div>
       </div>
       
+      {/* Usage Distribution */}
       <div className="col-12 col-xl-4">
         <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
-          <div className="text-secondary fw-semibold mb-4" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-            <i className="bi bi-pie-chart-fill text-primary me-2"></i>Usage Distribution
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <div className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+              <i className="bi bi-pie-chart-fill text-primary me-2"></i>Usage Distribution
+            </div>
+            <select className="form-select form-select-sm w-auto rounded-pill" value={usageRangeMins} onChange={e => setUsageRangeMins(Number(e.target.value))}>
+              <option value={15}>Last 15 Mins</option>
+              <option value={60}>Last 1 Hour</option>
+              <option value={360}>Last 6 Hours</option>
+              <option value={1440}>Last 24 Hours</option>
+              <option value={0}>All Time</option>
+            </select>
           </div>
           <div className="d-flex flex-wrap flex-xl-nowrap justify-content-center align-items-center w-100" style={{ minHeight: '280px' }}>
-            <div className="position-relative flex-shrink-0" style={{ width: '240px', height: '240px' }}>
-              <Doughnut data={usageData} options={usageOptions} plugins={doughnutPlugins} />
+            <div className="position-relative flex-shrink-0 d-flex align-items-center justify-content-center" style={{ width: '240px', height: '240px' }}>
+              <Doughnut data={usageData} options={usageOptions} />
+              <div 
+                className="position-absolute d-flex flex-column align-items-center justify-content-center text-center" 
+                style={{ pointerEvents: 'none', width: '130px', height: '130px' }}
+              >
+                <span className="fw-bolder text-main" style={{ fontSize: '1.6rem', lineHeight: '1.2' }}>
+                  {formatNumber(totalRequests)}
+                </span>
+                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '2px', letterSpacing: '0.3px' }}>
+                  Total Requests
+                </span>
+              </div>
             </div>
-            <div className="d-flex flex-column justify-content-center ms-4" style={{ flex: '1', minWidth: '150px', maxWidth: '200px', maxHeight: '240px', overflowY: 'auto' }}>
-              {displayData.map((d: any, i: number) => {
-                const name = d.model.split('/').pop() || d.model;
-                return (
-                  <div key={d.model} className="d-flex align-items-center mb-2" style={{ fontSize: '0.8rem' }}>
-                    <span className="rounded-circle me-2 flex-shrink-0 shadow-sm" style={{ width: '10px', height: '10px', backgroundColor: bgColors[i] }}></span>
-                    <span className="text-muted text-truncate fw-medium" title={name}>{name}</span>
-                  </div>
-                );
-              })}
+            <div className="d-flex flex-column justify-content-center ms-4" style={{ flex: '1', minWidth: '150px', maxWidth: '210px', maxHeight: '240px', overflowY: 'auto' }}>
+              {activeModels.length === 0 ? (
+                <div className="text-muted text-center py-4 small">
+                  <i className="bi bi-clock-history d-block mb-1 fs-5 opacity-50"></i>
+                  No requests in this time window
+                </div>
+              ) : (
+                displayData.map((d: any, i: number) => {
+                  const name = d.model.split('/').pop() || d.model;
+                  return (
+                    <div key={d.model} className="d-flex align-items-center justify-content-between mb-2" style={{ fontSize: '0.8rem' }}>
+                      <div className="d-flex align-items-center text-truncate me-2">
+                        <span className="rounded-circle me-2 flex-shrink-0 shadow-sm" style={{ width: '10px', height: '10px', backgroundColor: bgColors[i] }}></span>
+                        <span className="text-muted text-truncate fw-medium" title={name}>{name}</span>
+                      </div>
+                      <span className="text-secondary fw-semibold font-monospace small">{formatNumber(d.uses)}</span>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
@@ -247,4 +273,3 @@ export default function Charts({ data }: ChartsProps) {
     </div>
   );
 }
-
