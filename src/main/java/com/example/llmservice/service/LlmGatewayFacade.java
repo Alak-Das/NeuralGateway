@@ -63,6 +63,7 @@ public class LlmGatewayFacade {
                                                      String transactionId, 
                                                      String pipelineName) {
         Pipeline pipeline = Pipeline.valueOf(pipelineName.toUpperCase());
+        sanitizeRequest(requestBody);
         
         // Estimate tokens for context window validation
         int estimatedTokens = estimateTokens(requestBody);
@@ -149,6 +150,7 @@ public class LlmGatewayFacade {
                                                  String transactionId, 
                                                  String pipelineName) {
         Pipeline pipeline = Pipeline.valueOf(pipelineName.toUpperCase());
+        sanitizeRequest(requestBody);
         int estimatedTokens = estimateTokens(requestBody);
         
         List<Model> candidates = routingService.selectModels(pipeline, estimatedTokens);
@@ -263,6 +265,25 @@ public class LlmGatewayFacade {
     /**
      * Estimate token count from request body.
      */
+        /**
+     * Sanitizes incoming requests to prevent 400 Bad Request errors from non-standard parameters.
+     */
+    private void sanitizeRequest(Map<String, Object> requestBody) {
+        if (requestBody == null) return;
+        
+        // Cline / OpenAI compat clients often send 'thinking_effort' or 'reasoning_effort' = 'xhigh'
+        // Some models (like Kimi K3) strictly reject 'xhigh', requiring 'low', 'high', or 'max'.
+        String[] effortKeys = {"thinking_effort", "reasoning_effort"};
+        for (String key : effortKeys) {
+            if (requestBody.containsKey(key)) {
+                Object effort = requestBody.get(key);
+                if ("xhigh".equals(effort)) {
+                    requestBody.put(key, "max"); // Map to highest supported equivalent
+                }
+            }
+        }
+    }
+
     private int estimateTokens(Map<String, Object> requestBody) {
         if (requestBody == null || !requestBody.containsKey("messages")) return 0;
         try {
