@@ -197,7 +197,7 @@ export default function Charts({ data }: ChartsProps) {
   return (
     <div className="row g-4 mb-4">
       {/* Latency History */}
-      <div className="col-12 col-xl-8">
+      <div className="col-12 col-xl-7">
         <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
           <div className="d-flex justify-content-between align-items-center mb-4">
             <div className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
@@ -217,7 +217,7 @@ export default function Charts({ data }: ChartsProps) {
       </div>
       
       {/* Usage Distribution */}
-      <div className="col-12 col-xl-4">
+      <div className="col-12 col-xl-5">
         <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
           <div className="d-flex justify-content-between align-items-center mb-4">
             <div className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
@@ -231,14 +231,14 @@ export default function Charts({ data }: ChartsProps) {
               <option value={0}>All Time</option>
             </select>
           </div>
-          <div className="d-flex flex-wrap flex-xl-nowrap justify-content-center align-items-center w-100" style={{ minHeight: '280px' }}>
-            <div className="position-relative flex-shrink-0 d-flex align-items-center justify-content-center" style={{ width: '240px', height: '240px' }}>
+          <div className="d-flex flex-wrap flex-sm-nowrap justify-content-center align-items-center w-100" style={{ minHeight: '280px' }}>
+            <div className="position-relative flex-shrink-0 d-flex align-items-center justify-content-center" style={{ width: '210px', height: '210px' }}>
               <Doughnut data={usageData} options={usageOptions} />
               <div 
                 className="position-absolute d-flex flex-column align-items-center justify-content-center text-center" 
-                style={{ pointerEvents: 'none', width: '130px', height: '130px' }}
+                style={{ pointerEvents: 'none', width: '120px', height: '120px' }}
               >
-                <span className="fw-bolder text-main" style={{ fontSize: '1.6rem', lineHeight: '1.2' }}>
+                <span className="fw-bolder text-main" style={{ fontSize: '1.5rem', lineHeight: '1.2' }}>
                   {formatNumber(totalRequests)}
                 </span>
                 <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '2px', letterSpacing: '0.3px' }}>
@@ -246,9 +246,12 @@ export default function Charts({ data }: ChartsProps) {
                 </span>
               </div>
             </div>
-            <div className="d-flex flex-column justify-content-center ms-4" style={{ flex: '1', minWidth: '150px', maxWidth: '210px', maxHeight: '240px', overflowY: 'auto' }}>
+            <div 
+              className="d-flex flex-column justify-content-start ms-sm-4 mt-3 mt-sm-0 custom-scroll pe-2" 
+              style={{ flex: '1', minWidth: '180px', maxHeight: '250px', overflowY: 'auto' }}
+            >
               {activeModels.length === 0 ? (
-                <div className="text-muted text-center py-4 small">
+                <div className="text-muted text-center py-4 small my-auto">
                   <i className="bi bi-clock-history d-block mb-1 fs-5 opacity-50"></i>
                   No requests in this time window
                 </div>
@@ -256,12 +259,18 @@ export default function Charts({ data }: ChartsProps) {
                 displayData.map((d: any, i: number) => {
                   const name = d.model.split('/').pop() || d.model;
                   return (
-                    <div key={d.model} className="d-flex align-items-center justify-content-between mb-2" style={{ fontSize: '0.8rem' }}>
-                      <div className="d-flex align-items-center text-truncate me-2">
+                    <div 
+                      key={d.model} 
+                      className="d-flex align-items-center justify-content-between mb-2 py-1 px-2 rounded-2" 
+                      style={{ fontSize: '0.82rem', backgroundColor: 'rgba(255,255,255,0.03)' }}
+                    >
+                      <div className="d-flex align-items-center text-truncate me-2" style={{ minWidth: 0 }}>
                         <span className="rounded-circle me-2 flex-shrink-0 shadow-sm" style={{ width: '10px', height: '10px', backgroundColor: bgColors[i] }}></span>
-                        <span className="text-muted text-truncate fw-medium" title={name}>{name}</span>
+                        <span className="text-main text-truncate fw-medium" title={d.model}>{name}</span>
                       </div>
-                      <span className="text-secondary fw-semibold font-monospace small">{formatNumber(d.uses)}</span>
+                      <span className="badge bg-secondary bg-opacity-25 text-main font-monospace px-2 py-1 flex-shrink-0" style={{ fontSize: '0.75rem' }}>
+                        {formatNumber(d.uses)}
+                      </span>
                     </div>
                   );
                 })
