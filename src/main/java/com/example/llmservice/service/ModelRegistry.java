@@ -2,8 +2,10 @@ package com.example.llmservice.service;
 
 import com.example.llmservice.domain.model.Model;
 import com.example.llmservice.domain.model.Model.Pipeline;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -21,11 +23,30 @@ public class ModelRegistry {
 
     private final Map<String, Model> modelCatalog = new HashMap<>();
 
-    public ModelRegistry(List<String> reasoningModels, List<String> codingModels, List<String> visionModels,
-                         Map<String, Integer> modelContextLimits) {
+    public ModelRegistry(@Value("${nvidia.reasoning-models:}") String reasoningModelsStr,
+                         @Value("${nvidia.coding-models:}") String codingModelsStr,
+                         @Value("${nvidia.vision-models:}") String visionModelsStr) {
+        
+        List<String> reasoningModels = parseModels(reasoningModelsStr);
+        List<String> codingModels = parseModels(codingModelsStr);
+        List<String> visionModels = parseModels(visionModelsStr);
+        
+        // Mock context limits for now or inject via config if needed
+        Map<String, Integer> modelContextLimits = new HashMap<>();
+
         initializeModelCatalog(reasoningModels, Pipeline.REASONING, modelContextLimits);
         initializeModelCatalog(codingModels, Pipeline.CODING, modelContextLimits);
         initializeModelCatalog(visionModels, Pipeline.VISION, modelContextLimits);
+    }
+    
+    private List<String> parseModels(String modelsStr) {
+        if (modelsStr == null || modelsStr.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(modelsStr.split(","))
+                     .map(String::trim)
+                     .filter(s -> !s.isEmpty())
+                     .collect(Collectors.toList());
     }
 
     private void initializeModelCatalog(List<String> models, Pipeline pipeline, Map<String, Integer> contextLimits) {
