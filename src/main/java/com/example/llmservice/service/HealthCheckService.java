@@ -38,7 +38,7 @@ public class HealthCheckService {
     private final ModelStatusUpdater modelStatusUpdater;
 
     // Thread pool for parallel health checks to avoid blocking the scheduler thread
-    private final ExecutorService healthCheckExecutor = Executors.newFixedThreadPool(10);
+    private final ExecutorService healthCheckExecutor;
 
     // Model prioritization cache
     private final Map<String, Double> modelPriorityCache = new ConcurrentHashMap<>();
@@ -54,14 +54,15 @@ public class HealthCheckService {
         this.routingService = routingService;
         this.circuitBreakerService = circuitBreakerService;
         this.modelStatusUpdater = modelStatusUpdater;
+        this.healthCheckExecutor = Executors.newFixedThreadPool(properties.getThreadPoolSize() > 0 ? properties.getThreadPoolSize() : 10);
     }
 
     /**
      * Scheduled health check sweep - runs at configured interval.
      * Executes concurrently so one slow model doesn't block the rest.
      */
-    @Scheduled(initialDelayString = "${llm.health-check.initialDelayMs:5000}", fixedDelayString = "${llm.health-check.intervalMs:180000}")
-    @SchedulerLock(name = "HealthCheckService_performHealthCheckSweep", lockAtLeastFor = "10s", lockAtMostFor = "3m")
+    @Scheduled(initialDelayString = "${llm.health-check.initialDelayMs:5000}", fixedDelayString = "${llm.health-check.intervalMs:240000}")
+    @SchedulerLock(name = "HealthCheckService_performHealthCheckSweep", lockAtLeastFor = "${llm.health-check.lock-at-least-for:10s}", lockAtMostFor = "${llm.health-check.lock-at-most-for:4m}")
     public void performHealthCheckSweep() {
         if (!properties.isEnabled()) {
             return;

@@ -21,25 +21,25 @@ public class CircuitBreakerProperties {
      */
     @Positive
     @Max(10)
-    private int failureThreshold = 2;
+    private int failureThreshold;
 
     /**
      * Time in milliseconds before a tripped circuit transitions to HALF_OPEN state.
      */
     @Positive
-    private long resetTimeoutMs = 300000; // 5 minutes
+    private long resetTimeoutMs;
 
     /**
      * Number of successful requests in HALF_OPEN state before closing the circuit.
      */
     @Positive
     @Max(10)
-    private int successThreshold = 2;
+    private int successThreshold;
 
     /**
      * Enable/disable automatic circuit recovery.
      */
-    private boolean autoRecoveryEnabled = true;
+    private boolean autoRecoveryEnabled;
 
     public int getFailureThreshold() {
         return failureThreshold;

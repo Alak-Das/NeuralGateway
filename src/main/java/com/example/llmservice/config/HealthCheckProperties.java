@@ -20,36 +20,32 @@ public class HealthCheckProperties {
      * Interval between health check sweeps in milliseconds.
      */
     @Positive
-    private long intervalMs = 300000; // 5 minutes
+    private long intervalMs;
 
     /**
      * Timeout for individual model ping in milliseconds.
      */
     @Positive
-    private long pingTimeoutMs = 180000; // 180 seconds
+    private long pingTimeoutMs;
 
     /**
      * Minimum gap between consecutive pings in milliseconds (rate pacing).
      */
     @Positive
-    private long minPingGapMs = 5000; // 5 seconds
+    private long minPingGapMs;
 
-    /**
-     * Maximum tokens to request in health check ping (1 = minimal).
-     */
     @Min(1)
     @Max(10)
-    private int pingMaxTokens = 1;
+    private int pingMaxTokens;
 
-    /**
-     * Enable/disable health check scheduling.
-     */
-    private boolean enabled = true;
+    private boolean enabled;
+    private boolean prioritizeByEma;
 
-    /**
-     * Prioritize models by EMA latency for ping ordering.
-     */
-    private boolean prioritizeByEma = true;
+    @Positive
+    private int threadPoolSize;
+
+    private String lockAtLeastFor;
+    private String lockAtMostFor;
 
     public long getIntervalMs() {
         return intervalMs;
@@ -97,5 +93,29 @@ public class HealthCheckProperties {
 
     public void setPrioritizeByEma(boolean prioritizeByEma) {
         this.prioritizeByEma = prioritizeByEma;
+    }
+
+    public int getThreadPoolSize() {
+        return threadPoolSize;
+    }
+
+    public void setThreadPoolSize(int threadPoolSize) {
+        this.threadPoolSize = threadPoolSize;
+    }
+
+    public String getLockAtLeastFor() {
+        return lockAtLeastFor;
+    }
+
+    public void setLockAtLeastFor(String lockAtLeastFor) {
+        this.lockAtLeastFor = lockAtLeastFor;
+    }
+
+    public String getLockAtMostFor() {
+        return lockAtMostFor;
+    }
+
+    public void setLockAtMostFor(String lockAtMostFor) {
+        this.lockAtMostFor = lockAtMostFor;
     }
 }

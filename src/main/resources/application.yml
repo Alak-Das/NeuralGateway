@@ -17,10 +17,7 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
-llm:
-  logging:
-    payload-mode: "${LLM_LOGGING_PAYLOAD_MODE:SUMMARY}"
-    preview-max-chars: ${LLM_LOGGING_PREVIEW_MAX_CHARS:120}
+
 
 
 spring:
@@ -40,3 +37,30 @@ resilience4j.retry:
       waitDuration: 500ms
       enableExponentialBackoff: true
       exponentialBackoffMultiplier: 2
+
+
+
+llm:
+  logging:
+    payload-mode: "${LLM_LOGGING_PAYLOAD_MODE:SUMMARY}"
+    preview-max-chars: ${LLM_LOGGING_PREVIEW_MAX_CHARS:120}
+
+  health-check:
+    enabled: true
+    initialDelayMs: 5000      # 5 seconds before first sweep on startup
+    intervalMs: 240000        # 4 minutes between sweeps
+    pingTimeoutMs: 120000     # 2 minutes max per ping
+    minPingGapMs: 5000        # 5 seconds pacing between starting pings
+    pingMaxTokens: 1          # 1 token for minimal overhead
+    prioritizeByEma: true     # Ping historically faster models first
+    thread-pool-size: 10      # Number of parallel pings
+    lock-at-least-for: "10s"  # Minimum ShedLock duration
+    lock-at-most-for: "4m"    # Maximum ShedLock duration
+
+  circuit-breaker:
+    failureThreshold: 2       # Open after 2 consecutive failures
+    resetTimeoutMs: 300000    # Wait 5 minutes before entering HALF_OPEN
+    successThreshold: 2       # Require 2 successes in HALF_OPEN to CLOSE
+    autoRecoveryEnabled: true # Allow transitioning back to CLOSED
+
+
