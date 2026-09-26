@@ -1,8 +1,15 @@
 package com.example.llmservice;
 
+import com.example.llmservice.domain.health.HealthCheckResult;
+import com.example.llmservice.domain.ModelStatus;
+import com.example.llmservice.domain.routing.RoutingScore;
+import com.example.llmservice.service.LlmGatewayFacade;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -13,17 +20,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @RestController
 @RequestMapping("/api")
 public class LlmController {
     
-    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
-    private final NvidiaLlmService llmService;
+    private final LlmGatewayFacade gatewayFacade;
 
-    public LlmController(NvidiaLlmService llmService) {
-        this.llmService = llmService;
+    public LlmController(LlmGatewayFacade gatewayFacade) {
+        this.gatewayFacade = gatewayFacade;
     }
 
     // ==========================================
@@ -41,7 +48,7 @@ public class LlmController {
             @RequestBody Map<String, Object> request, 
             @Parameter(description = "Identifier of calling agent/client", example = "cline-proxy")
             @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
-        return processProxyRequest(httpRequest, request, requester, "coding");
+        return processRequest(httpRequest, request, requester, "coding");
     }
 
     @Hidden
@@ -68,7 +75,7 @@ public class LlmController {
             @RequestBody Map<String, Object> request, 
             @Parameter(description = "Identifier of calling agent/client", example = "cline-proxy")
             @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
-        return processProxyRequest(httpRequest, request, requester, "reasoning");
+        return processRequest(httpRequest, request, requester, "reasoning");
     }
 
     @Hidden
@@ -95,7 +102,7 @@ public class LlmController {
             @RequestBody Map<String, Object> request, 
             @Parameter(description = "Identifier of calling agent/client", example = "cline-proxy")
             @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
-        return processProxyRequest(httpRequest, request, requester, "vision");
+        return processRequest(httpRequest, request, requester, "vision");
     }
 
     @Hidden
@@ -118,7 +125,7 @@ public class LlmController {
     )
     @GetMapping("/models/status")
     public List<ModelStatus> getStatus() {
-        return llmService.getModelStatuses();
+        return gatewayFacade.getModelStatuses();
     }
 
     @Operation(
@@ -128,7 +135,7 @@ public class LlmController {
     )
     @GetMapping(value = "/models/status/stream", produces = "text/event-stream")
     public SseEmitter streamModelStatus() {
-        return llmService.subscribeToStatusUpdates();
+        return gatewayFacade.subscribeToStatusUpdates();
     }
 
     @Operation(
@@ -137,10 +144,10 @@ public class LlmController {
         tags = {"Fleet Health & Diagnostics"}
     )
     @PostMapping("/models/ping")
-    public PingResult pingModel(
+    public HealthCheckResult pingModel(
             @Parameter(description = "Exact name of model to ping", example = "moonshotai/kimi-k3")
             @RequestParam String model) {
-        return llmService.pingModel(model);
+        return gatewayFacade.pingModel(model);
     }
 
     @Operation(
@@ -152,7 +159,7 @@ public class LlmController {
     public void resetCircuitBreaker(
             @Parameter(description = "Exact name of model to reset", example = "moonshotai/kimi-k3")
             @RequestParam String model) {
-        llmService.resetCircuitBreaker(model);
+        gatewayFacade.resetCircuitBreaker(model);
     }
 
     // ==========================================
@@ -165,15 +172,15 @@ public class LlmController {
         tags = {"Telemetry"}
     )
     @GetMapping("/requesters/status")
-    public Map<String, Long> getRequesterStatus() {
-        return llmService.getRequesterUsage();
+    public List<Map<String, Object>> getRequesterStatus() {
+        return gatewayFacade.getRequesterTelemetry();
     }
 
     // ==========================================
     // Internal Helper & Formatting
     // ==========================================
 
-    private ResponseEntity<?> processProxyRequest(
+    private ResponseEntity<?> processRequest(
             jakarta.servlet.http.HttpServletRequest httpRequest,
             Map<String, Object> request,
             String requester,
@@ -183,7 +190,7 @@ public class LlmController {
                 transactionId, pipeline, httpRequest.getRequestURI(), requester);
 
         long start = System.currentTimeMillis();
-        Map<String, Object> response = llmService.generateOpenAiProxy(request, requester, transactionId, pipeline);
+        Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, transactionId, pipeline);
         log.info("[TxID: {}] {} proxy request completed in {}ms", transactionId, pipeline, (System.currentTimeMillis() - start));
 
         return formatOpenAiResponse(request, response);
@@ -194,7 +201,7 @@ public class LlmController {
             try {
                 List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
                 Map<String, Object> message = (choices != null && !choices.isEmpty()) ? (Map<String, Object>) choices.get(0).get("message") : null;
-                com.fasterxml.jackson.databind.ObjectMapper mapper = MAPPER;
+                ObjectMapper mapper = new ObjectMapper();
                 
                 // Chunk 1: Content & Tool Calls
                 Map<String, Object> delta = new HashMap<>();

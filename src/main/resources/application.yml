@@ -28,3 +28,12 @@ spring:
     redis:
       host: ""
       port: 6379
+
+
+resilience4j.retry:
+  instances:
+    nvidiaApi:
+      maxAttempts: 3
+      waitDuration: 500ms
+      enableExponentialBackoff: true
+      exponentialBackoffMultiplier: 2
