@@ -8,8 +8,8 @@
         <version>3.3.4</version>
         <relativePath/>
     </parent>
-    <groupId>com.example</groupId>
-    <artifactId>llm-service</artifactId>
+    <groupId>com.alak</groupId>
+    <artifactId>neural-gateway</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>neural-gateway</name>
     <description>Neural Gateway by Alak</description>

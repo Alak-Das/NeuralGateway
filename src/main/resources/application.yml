@@ -1,25 +1,11 @@
 server:
   port: 8080
-
 logging:
   level:
-    com.example.llmservice: DEBUG
-
-nvidia:
-  api:
-    base-url: "https://integrate.api.nvidia.com/v1"
-    key: "${NVIDIA_API_KEY:}"
-  reasoning-models: "${NVIDIA_REASONING_MODELS:moonshotai/kimi-k3,nvidia/nemotron-3-ultra-550b-a55b,z-ai/glm-5.3,z-ai/glm-5.3-flash,deepseek-ai/deepseek-v4.1-flash,nvidia/nemotron-3-super-120b-a12b,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning,google/gemma-4-31b-it}"
-  coding-models: "${NVIDIA_CODING_MODELS:z-ai/glm-5.3,z-ai/glm-5.3-flash,moonshotai/kimi-k3,nvidia/nemotron-3-ultra-550b-a55b,google/gemma-4-31b-it,nvidia/nemotron-3-super-120b-a12b,poolside/laguna-xs-2.1,mistralai/mistral-nemotron}"
-  vision-models: "${NVIDIA_VISION_MODELS:meta/llama-3.2-11b-vision-instruct,meta/llama-3.2-90b-vision-instruct}"
-
+    com.alak.neuralgateway: DEBUG
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
-
-
-
-
 spring:
   threads:
     virtual:
@@ -28,8 +14,6 @@ spring:
     redis:
       host: ""
       port: 6379
-
-
 resilience4j.retry:
   instances:
     nvidiaApi:
@@ -37,30 +21,27 @@ resilience4j.retry:
       waitDuration: 500ms
       enableExponentialBackoff: true
       exponentialBackoffMultiplier: 2
-
-
-
 llm:
   logging:
-    payload-mode: "${LLM_LOGGING_PAYLOAD_MODE:SUMMARY}"
+    payload-mode: ${LLM_LOGGING_PAYLOAD_MODE:SUMMARY}
     preview-max-chars: ${LLM_LOGGING_PREVIEW_MAX_CHARS:120}
-
-  health-check:
-    enabled: true
-    initialDelayMs: 5000      # 5 seconds before first sweep on startup
-    intervalMs: 240000        # 4 minutes between sweeps
-    pingTimeoutMs: 120000     # 2 minutes max per ping
-    minPingGapMs: 5000        # 5 seconds pacing between starting pings
-    pingMaxTokens: 1          # 1 token for minimal overhead
-    prioritizeByEma: true     # Ping historically faster models first
-    thread-pool-size: 10      # Number of parallel pings
-    lock-at-least-for: "10s"  # Minimum ShedLock duration
-    lock-at-most-for: "4m"    # Maximum ShedLock duration
-
-  circuit-breaker:
-    failureThreshold: 2       # Open after 2 consecutive failures
-    resetTimeoutMs: 300000    # Wait 5 minutes before entering HALF_OPEN
-    successThreshold: 2       # Require 2 successes in HALF_OPEN to CLOSE
-    autoRecoveryEnabled: true # Allow transitioning back to CLOSED
-
-
+  providers:
+    nvidia:
+      base-url: https://integrate.api.nvidia.com/v1
+      rate-limit-rpm: 40
+      keys:
+        - ${NVIDIA_API_KEY_1:}
+        - ${NVIDIA_API_KEY_2:}
+      models:
+        - { id: "nvidia/nemotron-3-super-120b-a12b", priority: 10, pipelines: [REASONING, CODING] }
+        - { id: "nvidia/nemotron-3-ultra-550b-a55b", priority: 9,  pipelines: [REASONING, CODING] }
+        - { id: "meta/llama-3.2-90b-vision-instruct", priority: 8,  pipelines: [VISION] }
+        - { id: "moonshotai/kimi-k3",                 priority: 8,  pipelines: [REASONING, CODING] }
+        - { id: "z-ai/glm-5.3",                       priority: 7,  pipelines: [REASONING, CODING] }
+        - { id: "poolside/laguna-xs-2.1",             priority: 7,  pipelines: [CODING] }
+        - { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", priority: 6, pipelines: [REASONING] }
+        - { id: "google/gemma-4-31b-it",              priority: 6,  pipelines: [REASONING, CODING] }
+        - { id: "mistralai/mistral-nemotron",         priority: 6,  pipelines: [CODING] }
+        - { id: "z-ai/glm-5.3-flash",                 priority: 5,  pipelines: [REASONING, CODING] }
+        - { id: "deepseek-ai/deepseek-v4.1-flash",    priority: 5,  pipelines: [REASONING] }
+        - { id: "meta/llama-3.2-11b-vision-instruct", priority: 3,  pipelines: [VISION] }

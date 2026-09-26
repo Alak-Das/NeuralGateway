@@ -19,6 +19,8 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 
 ### 3. High Availability & Circuit Breaking
 - **Resilience4j Circuit Breaker**: Models returning consecutive server errors (5xx, timeouts, or premature close exceptions) automatically trip an isolated sliding-window circuit breaker. Circuit state transitions are intercepted and synced globally to Redis.
+- **Dynamic API Key Cooldown**: When an upstream provider responds with HTTP 429 Too Many Requests, the offending API key is immediately isolated with a 30-second cooldown, rotating traffic instantly to healthy keys.
+- **Emergency Degraded Mode**: If all model circuits in a pipeline trip during upstream provider incidents, the gateway automatically falls back to highest-priority models ordered by lowest latency, eliminating 100% gateway blackouts and enabling traffic-driven self-healing.
 - **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trip model circuit breakers.
 - **Auto-Recovery**: Tripped circuit breakers automatically reset to closed as soon as background health checks succeed.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
@@ -41,6 +43,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 ### 6. Real-Time Observability Dashboard
 - **Live Fleet Health & KPI Cards**: Real-time fleet health counter, global throughput (TPS), active model indicator, concurrent stream counters, and average fleet latency.
 - **Active Model Indicator**: Real-time center KPI card dynamically displaying the model currently serving inference requests. When multiple models process concurrent streams, the card smoothly cycles across active models every 1.8 seconds; returns to an idle placeholder (`______`) when traffic ceases.
+- **Requester Telemetry**: Tabbed telemetry dashboard showing total token usage and request counts per calling client/agent (`X-Requester`, e.g. Cline, Cursor, automated test suites).
 - **Last Updated Status Timestamps**: Model fleet table displays real-time timestamps indicating when each model was last pinged or verified.
 - **Redis Pub/Sub Server-Sent Events (SSE)**: Instant browser metric updates with zero polling overhead. State changes publish to a Redis topic, triggering real-time SSE broadcasts across all active gateway nodes.
 - **Interactive Latency History**: Filterable from 15 minutes to 24 hours (default: 1 hour), retaining historical performance trends.
@@ -57,10 +60,10 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 ## 🛠️ Tech Stack
 
 - **Framework**: Spring Boot 3.3.4 (Java 21 with Virtual Threads)
-- **Reactive Engine**: Spring WebFlux (`WebClient`) with 16 MB in-memory buffer
-- **Data & Telemetry**: Redis 7 Alpine (persistent volume)
-- **Frontend**: React 18, TypeScript, Vite, Chart.js, Bootstrap Icons
-- **Backend**: Spring Boot 3.3.4 (Java 21 with Virtual Threads), Spring WebFlux, Redis 7 Alpine
+- **Reactive Engine**: Spring WebFlux (`WebClient`) with Connection Pooling & Keep-Alive
+- **Resilience & Fault Tolerance**: Resilience4j CircuitBreaker, ShedLock Distributed Locking
+- **Data & Telemetry**: Redis 7 Alpine (persistent volume, Pub/Sub SSE)
+- **Frontend**: React 19, TypeScript, Vite, Chart.js, Bootstrap Icons
 - **Packaging & Orchestration**: Multi-stage Docker build, Docker Compose
 
 ---
@@ -71,12 +74,12 @@ Neural Gateway is a drop-in replacement for OpenAI API endpoints:
 
 | Pipeline | Direct Endpoint | OpenAI `/v1` Compatible Endpoint |
 |---|---|---|
-| **Coding** | `POST /api/coding/chat/completions` | `POST /api/coding/v1/chat/completions` |
+| **Coding** | `POST /api/coding/chat/completions` | `POST /v1/chat/completions`, `POST /chat/completions` |
 | **Reasoning** | `POST /api/reasoning/chat/completions` | `POST /api/reasoning/v1/chat/completions` |
 | **Vision** | `POST /api/vision/chat/completions` | `POST /api/vision/v1/chat/completions` |
-| **Fleet Status** | `GET /api/models/status` | — |
+| **Fleet Status** | `GET /api/models/status` | `GET /models/status` |
 | **Status Stream** | `GET /api/models/status/stream` (SSE) | — |
-| **Telemetry** | `GET /api/requesters/status` | — |
+| **Requester Telemetry** | `GET /api/requesters/status` | `GET /requesters/status` |
 | **Manual Ping** | `POST /api/models/ping?model={name}` | — |
 | **Reset Circuit** | `POST /api/models/circuit-reset?model={name}` | — |
 | **Swagger UI** | `GET /swagger-ui.html` | `GET /v3/api-docs` |
