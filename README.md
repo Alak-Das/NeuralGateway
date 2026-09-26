@@ -18,15 +18,16 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Context-Aware Window Validation**: Automatically filters out models whose context windows cannot accommodate the estimated payload tokens (preventing truncation and 400 Bad Request errors).
 
 ### 3. High Availability & Circuit Breaking
-- **Autonomous Circuit Breaker**: Models returning consecutive server errors (5xx, timeouts) trip an isolated circuit breaker in Redis.
+- **Resilience4j Circuit Breaker**: Models returning consecutive server errors (5xx, timeouts, or premature close exceptions) automatically trip an isolated sliding-window circuit breaker. Circuit state transitions are intercepted and synced globally to Redis.
 - **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trip model circuit breakers.
 - **Auto-Recovery**: Tripped circuit breakers automatically reset to closed as soon as background health checks succeed.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
 - **Resilient Fallback Routing**: During cold-starts or temporary upstream outages, candidate models are sorted by lowest historical EMA score and tried with up to 3 fallback attempts.
 - **Fail-Fast Failover**: Transparently retries candidate models on server-side failures with strict attempt caps to eliminate cascading delays.
 
-### 4. Resilient Health Checker
-- **5-Minute Sweep Frequency**: Automated health check sweeps run every 5 minutes (`fixedDelay = 300000ms`), refreshing model statuses without placing continuous load on upstream providers.
+### 4. Resilient Distributed Health Checker
+- **ShedLock Distributed Scheduling**: Prevents redundant health check sweeps across horizontally scaled gateway instances by utilizing a Redis-backed distributed lock.
+- **3-Minute Sweep Frequency**: Automated health check sweeps run every 3 minutes (`fixedDelay = 180000ms`), refreshing model statuses without placing continuous load on upstream providers.
 - **Prioritized Ping Ordering**: Models are sorted by historical EMA latency prior to health check sweeps, ensuring fast models (`nvidia/nemotron-3-ultra-550b-a55b` ~400ms) are validated immediately rather than waiting behind slower or queue-bound models.
 - **Sequential Execution & Rate Pacing**: Strictly sequential health checking (exactly one model ping at a time) with a guaranteed minimum 5-second gap between pings, completely eliminating burst limit exhaustion (`503 ResourceExhausted 16/16`) and concurrent rate limit spikes.
 - **1-Token Health Pings (`max_tokens: 1`)**: Pings request exactly 1 token to prevent reasoning models from generating heavy reasoning chains during health checks.
@@ -41,7 +42,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Live Fleet Health & KPI Cards**: Real-time fleet health counter, global throughput (TPS), active model indicator, concurrent stream counters, and average fleet latency.
 - **Active Model Indicator**: Real-time center KPI card dynamically displaying the model currently serving inference requests. When multiple models process concurrent streams, the card smoothly cycles across active models every 1.8 seconds; returns to an idle placeholder (`______`) when traffic ceases.
 - **Last Updated Status Timestamps**: Model fleet table displays real-time timestamps indicating when each model was last pinged or verified.
-- **Server-Sent Events (SSE)**: Instant browser metric updates with zero polling overhead.
+- **Redis Pub/Sub Server-Sent Events (SSE)**: Instant browser metric updates with zero polling overhead. State changes publish to a Redis topic, triggering real-time SSE broadcasts across all active gateway nodes.
 - **Interactive Latency History**: Filterable from 15 minutes to 24 hours (default: 1 hour), retaining historical performance trends.
 - **Compact Metric Formatting**: High request volumes and token totals are automatically formatted into readable units (Hundreds, Thousands `K`, Millions `M`, Billions `B`).
 - **Token Analytics**: Breakdown of prompt and completion token usage by model and by client requester (`X-Requester`).
@@ -55,7 +56,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 
 ## 🛠️ Tech Stack
 
-- **Framework**: Spring Boot 3.3.4 (Java 17)
+- **Framework**: Spring Boot 3.3.4 (Java 21 with Virtual Threads)
 - **Reactive Engine**: Spring WebFlux (`WebClient`) with 16 MB in-memory buffer
 - **Data & Telemetry**: Redis 7 Alpine (persistent volume)
 - **Frontend**: Vanilla JS, Bootstrap 5, Chart.js, Bootstrap Icons
@@ -172,3 +173,4 @@ curl -X POST http://localhost:9090/api/vision/chat/completions \
 This project is licensed under the MIT License.
 
 *Created and maintained by Alak Das.*
+

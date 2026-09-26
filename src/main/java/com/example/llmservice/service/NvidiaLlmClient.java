@@ -16,7 +16,7 @@ import java.util.Map;
  * Handles authentication, request/response formatting, and error mapping.
  */
 @Service
-public class NvidiaLlmClient {
+public class NvidiaLlmClient implements LlmProviderClient {
 
     private final WebClient webClient;
     private final String apiKey;
@@ -91,25 +91,9 @@ public class NvidiaLlmClient {
         if (e.getStatusCode().is4xxClientError()) {
             return new IllegalArgumentException(message);
         } else if (e.getStatusCode().is5xxServerError()) {
-            return new UpstreamServiceException(message, e.getStatusCode().value());
+            return new LlmProviderClient.UpstreamServiceException(message, e.getStatusCode().value());
         }
         
         return new RuntimeException(message);
-    }
-
-    /**
-     * Exception for upstream service failures (5xx).
-     */
-    public static class UpstreamServiceException extends RuntimeException {
-        private final int statusCode;
-
-        public UpstreamServiceException(String message, int statusCode) {
-            super(message);
-            this.statusCode = statusCode;
-        }
-
-        public int getStatusCode() {
-            return statusCode;
-        }
     }
 }

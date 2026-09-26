@@ -4,7 +4,9 @@ import com.example.llmservice.domain.health.HealthCheckResult;
 import com.example.llmservice.domain.ModelStatus;
 import com.example.llmservice.domain.model.Model;
 import com.example.llmservice.domain.model.Model.Pipeline;
+import com.example.llmservice.event.ModelStatusChangedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Lazy;
 import jakarta.annotation.PostConstruct;
@@ -15,8 +17,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Collections;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -32,6 +32,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
     private final CircuitBreakerService circuitBreakerService;
     private final ModelRegistry modelRegistry;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     // In-memory status cache for fast reads
     private final Map<String, ModelStatus> statusCache = new ConcurrentHashMap<>();
@@ -40,12 +41,14 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                               @Lazy RoutingService routingService,
                               CircuitBreakerService circuitBreakerService,
                               ModelRegistry modelRegistry,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              ApplicationEventPublisher eventPublisher) {
         this.redisPersistence = redisPersistence;
         this.routingService = routingService;
         this.circuitBreakerService = circuitBreakerService;
         this.modelRegistry = modelRegistry;
         this.objectMapper = objectMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -104,6 +107,11 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
         );
 
         statusCache.put(modelId, status);
+        
+        // Publish event to trigger SSE broadcast
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new ModelStatusChangedEvent(this, status));
+        }
     }
 
     @Override
@@ -138,6 +146,9 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
         );
 
         statusCache.put(modelId, updated);
+        
+        // Publish event to trigger SSE broadcast instantly
+        eventPublisher.publishEvent(new ModelStatusChangedEvent(this, updated));
     }
 
     @Override

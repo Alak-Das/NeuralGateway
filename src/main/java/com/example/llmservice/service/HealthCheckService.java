@@ -12,39 +12,44 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
 /**
  * Service responsible for periodic health checks of all models.
- * Performs sequential pings with rate pacing to avoid burst limits.
+ * Performs fully asynchronous, parallel pings to ensure timely status updates
+ * and avoid head-of-line blocking if a model hangs.
  */
 @Service
 public class HealthCheckService {
 
     private final HealthCheckProperties properties;
     private final ModelRegistry modelRegistry;
-    private final NvidiaLlmClient nvidiaLlmClient;
+    private final LlmProviderClient llmProviderClient;
     private final RedisPersistenceService redisPersistence;
     private final RoutingService routingService;
     private final CircuitBreakerService circuitBreakerService;
     private final ModelStatusUpdater modelStatusUpdater;
 
-    // Rate limiting for sequential pings
-    private final Object pingLock = new Object();
-    private final AtomicLong lastPingEndTime = new AtomicLong(0);
+    // Thread pool for parallel health checks to avoid blocking the scheduler thread
+    private final ExecutorService healthCheckExecutor = Executors.newFixedThreadPool(10);
 
     // Model prioritization cache
     private final Map<String, Double> modelPriorityCache = new ConcurrentHashMap<>();
 
     public HealthCheckService(HealthCheckProperties properties, ModelRegistry modelRegistry,
-                              NvidiaLlmClient nvidiaLlmClient, RedisPersistenceService redisPersistence,
+                              LlmProviderClient llmProviderClient, RedisPersistenceService redisPersistence,
                               RoutingService routingService, CircuitBreakerService circuitBreakerService,
                               ModelStatusUpdater modelStatusUpdater) {
         this.properties = properties;
         this.modelRegistry = modelRegistry;
-        this.nvidiaLlmClient = nvidiaLlmClient;
+        this.llmProviderClient = llmProviderClient;
         this.redisPersistence = redisPersistence;
         this.routingService = routingService;
         this.circuitBreakerService = circuitBreakerService;
@@ -53,8 +58,10 @@ public class HealthCheckService {
 
     /**
      * Scheduled health check sweep - runs at configured interval.
+     * Executes concurrently so one slow model doesn't block the rest.
      */
-    @Scheduled(initialDelayString = "${llm.health-check.initialDelayMs:5000}", fixedDelayString = "${llm.health-check.intervalMs:300000}")
+    @Scheduled(initialDelayString = "${llm.health-check.initialDelayMs:5000}", fixedDelayString = "${llm.health-check.intervalMs:180000}")
+    @SchedulerLock(name = "HealthCheckService_performHealthCheckSweep", lockAtLeastFor = "10s", lockAtMostFor = "3m")
     public void performHealthCheckSweep() {
         if (!properties.isEnabled()) {
             return;
@@ -63,70 +70,63 @@ public class HealthCheckService {
         List<Model> modelsToPing = getPrioritizedModels();
         
         for (Model model : modelsToPing) {
-            try {
-                HealthCheckResult result = pingSingleModel(model.getId());
-                updateModelStatusFromResult(model.getId(), result);
-            } catch (Exception e) {
-                // Log but continue with other models
-            }
+            // Fire off checks concurrently
+            CompletableFuture.supplyAsync(() -> performActualPing(model.getId()), healthCheckExecutor)
+                // Wait up to the configured timeout (e.g. 3 minutes)
+                .orTimeout(properties.getPingTimeoutMs(), TimeUnit.MILLISECONDS)
+                .handle((result, ex) -> {
+                    if (ex != null) {
+                        return new HealthCheckResult(model.getId(), false, properties.getPingTimeoutMs(), Instant.now(), "Timeout/Error: " + ex.getMessage());
+                    }
+                    return result;
+                })
+                .thenAccept(result -> updateModelStatusFromResult(model.getId(), result));
         }
     }
 
     /**
-     * Perform a manual health check for a single model.
+     * Perform a manual health check for a single model (synchronous for caller).
      */
     public HealthCheckResult pingModel(String modelId) {
-        return pingSingleModel(modelId);
+        return performActualPing(modelId);
     }
 
     /**
-     * Ping a single model with rate pacing.
+     * Performs the actual ping logic without blocking synchronization.
      */
-    private HealthCheckResult pingSingleModel(String modelId) {
-        // Rate pacing - ensure minimum gap between pings
-        synchronized (pingLock) {
-            long timeSinceLastPing = System.currentTimeMillis() - lastPingEndTime.get();
-            if (lastPingEndTime.get() > 0 && timeSinceLastPing < properties.getMinPingGapMs()) {
-                try {
-                    Thread.sleep(properties.getMinPingGapMs() - timeSinceLastPing);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
+    private HealthCheckResult performActualPing(String modelId) {
+        long startTime = System.currentTimeMillis();
+        boolean isUp = false;
+        long latency = 0;
+        String errorMessage = null;
 
-            long startTime = System.currentTimeMillis();
-            boolean isUp = false;
-            long latency = 0;
-            String errorMessage = null;
-
-            try {
-                performPingCall(modelId);
-                latency = System.currentTimeMillis() - startTime;
-                isUp = true;
-            } catch (Exception e) {
-                latency = System.currentTimeMillis() - startTime;
-                errorMessage = e.getMessage();
-            } finally {
-                lastPingEndTime.set(System.currentTimeMillis());
-            }
-
-            return new HealthCheckResult(modelId, isUp, latency, Instant.now(), errorMessage);
+        try {
+            performPingCall(modelId);
+            latency = System.currentTimeMillis() - startTime;
+            isUp = true;
+        } catch (Exception e) {
+            latency = System.currentTimeMillis() - startTime;
+            errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
+            System.err.println("Health check failed for model " + modelId + ":");
+            e.printStackTrace();
         }
+
+        return new HealthCheckResult(modelId, isUp, latency, Instant.now(), errorMessage);
     }
 
     /**
-     * Perform the actual ping call to the NVIDIA API.
+     * Perform the actual ping call to the LLM API.
      */
     private void performPingCall(String modelId) {
-        // Create a minimal request with max_tokens=1
-        Map<String, Object> pingRequest = Map.of(
+        // Create a minimal request with max_tokens=1. Must be mutable for the client.
+        Map<String, Object> pingRequest = new java.util.HashMap<>(Map.of(
                 "model", modelId,
                 "messages", List.of(Map.of("role", "user", "content", "ping")),
                 "max_tokens", properties.getPingMaxTokens(),
                 "stream", false
-        );
+        ));
         
-        nvidiaLlmClient.call(modelId, pingRequest);
+        llmProviderClient.call(modelId, pingRequest);
     }
 
     /**
@@ -162,7 +162,7 @@ public class HealthCheckService {
         // Persist to Redis
         redisPersistence.saveHealthCheckResult(modelId, result);
 
-        // Update in-memory status
+        // Update in-memory status (which now instantly fires SSE broadcast)
         modelStatusUpdater.updateStatus(modelId, result);
     }
 }

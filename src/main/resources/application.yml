@@ -24,6 +24,9 @@ llm:
 
 
 spring:
+  threads:
+    virtual:
+      enabled: true
   data:
     redis:
       host: ""

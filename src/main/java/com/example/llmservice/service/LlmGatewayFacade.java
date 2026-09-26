@@ -26,7 +26,7 @@ public class LlmGatewayFacade {
     private final RoutingService routingService;
     private final CircuitBreakerService circuitBreakerService;
     private final HealthCheckService healthCheckService;
-    private final NvidiaLlmClient nvidiaLlmClient;
+    private final LlmProviderClient LlmProviderClient;
     private final ToolCallNormalizer toolCallNormalizer;
     private final PayloadTelemetryService payloadTelemetryService;
     private final ModelStatusService modelStatusService;
@@ -37,7 +37,7 @@ public class LlmGatewayFacade {
                             RoutingService routingService,
                             CircuitBreakerService circuitBreakerService,
                             HealthCheckService healthCheckService,
-                            NvidiaLlmClient nvidiaLlmClient,
+                            LlmProviderClient LlmProviderClient,
                             ToolCallNormalizer toolCallNormalizer,
                             PayloadTelemetryService payloadTelemetryService,
                             ModelStatusService modelStatusService,
@@ -47,7 +47,7 @@ public class LlmGatewayFacade {
         this.routingService = routingService;
         this.circuitBreakerService = circuitBreakerService;
         this.healthCheckService = healthCheckService;
-        this.nvidiaLlmClient = nvidiaLlmClient;
+        this.LlmProviderClient = LlmProviderClient;
         this.toolCallNormalizer = toolCallNormalizer;
         this.payloadTelemetryService = payloadTelemetryService;
         this.modelStatusService = modelStatusService;
@@ -100,11 +100,11 @@ public class LlmGatewayFacade {
                 
                 Map<String, Object> response;
                 if (isStream) {
-                    List<Map<String, Object>> streamChunks = nvidiaLlmClient.callStream(model.getId(), requestBody);
+                    List<Map<String, Object>> streamChunks = LlmProviderClient.callStream(model.getId(), requestBody);
                     // For streaming, we return the collected chunks - controller handles SSE formatting
                     response = Map.of("stream_chunks", streamChunks);
                 } else {
-                    response = nvidiaLlmClient.call(model.getId(), requestBody);
+                    response = LlmProviderClient.call(model.getId(), requestBody);
                 }
                 
                 long latency = System.currentTimeMillis() - startTime;
@@ -121,7 +121,7 @@ public class LlmGatewayFacade {
                 
                 return response;
                 
-            } catch (NvidiaLlmClient.UpstreamServiceException e) {
+            } catch (LlmProviderClient.UpstreamServiceException e) {
                 // 5xx errors - failover to next model
                 lastException = e;
                 routingService.decrementActiveConnections(model.getId());
@@ -169,7 +169,7 @@ public class LlmGatewayFacade {
                     throw new IllegalStateException("Circuit breaker OPEN for model: " + model.getId());
                 }
 
-                List<Map<String, Object>> streamChunks = nvidiaLlmClient.callStream(model.getId(), requestBody);
+                List<Map<String, Object>> streamChunks = LlmProviderClient.callStream(model.getId(), requestBody);
                 
                 // Convert to SSE format
                 String sse = convertToSseFormat(streamChunks, model.getId());
@@ -179,7 +179,7 @@ public class LlmGatewayFacade {
                 
                 return sse;
                 
-            } catch (NvidiaLlmClient.UpstreamServiceException e) {
+            } catch (LlmProviderClient.UpstreamServiceException e) {
                 circuitBreakerService.recordFailure(model.getId(), e);
                 routingService.decrementActiveConnections(model.getId());
                 continue;
@@ -241,7 +241,6 @@ public class LlmGatewayFacade {
     public HealthCheckResult pingModel(String modelId) {
         HealthCheckResult result = healthCheckService.pingModel(modelId);
         modelStatusService.updateStatus(modelId, result);
-        sseNotificationService.broadcast(modelStatusService.getAllStatuses());
         return result;
     }
 
@@ -251,7 +250,6 @@ public class LlmGatewayFacade {
     public void resetCircuitBreaker(String modelId) {
         circuitBreakerService.resetCircuit(modelId);
         modelStatusService.initializeModel(modelId);
-        sseNotificationService.broadcast(modelStatusService.getAllStatuses());
     }
 
     /**
