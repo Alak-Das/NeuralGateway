@@ -7,6 +7,7 @@ import com.example.llmservice.domain.model.Model.Pipeline;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Lazy;
+import jakarta.annotation.PostConstruct;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -50,6 +51,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
     /**
      * Initialize status for all models from Redis.
      */
+    @PostConstruct
     public void initializeAllModels() {
         for (String modelId : modelRegistry.getAllModelIds()) {
             initializeModel(modelId);
@@ -96,8 +98,8 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 errorMessage,
                 history,
                 usage,
-                routingService.getActiveConnections(modelId),
-                routingService.getTps(modelId),
+                0, // activeConnections is 0 on startup
+                0.0, // tps is 0.0 on startup
                 circuitOpen
         );
 

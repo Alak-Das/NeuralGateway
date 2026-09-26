@@ -54,7 +54,7 @@ public class HealthCheckService {
     /**
      * Scheduled health check sweep - runs at configured interval.
      */
-    @Scheduled(fixedDelayString = "${llm.health-check.intervalMs:300000}")
+    @Scheduled(initialDelayString = "${llm.health-check.initialDelayMs:5000}", fixedDelayString = "${llm.health-check.intervalMs:300000}")
     public void performHealthCheckSweep() {
         if (!properties.isEnabled()) {
             return;
