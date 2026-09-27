@@ -173,8 +173,13 @@ curl -X POST http://localhost:9090/api/vision/chat/completions \
 
 ---
 
+## 📚 Documentation
+- **[Product Requirements Document (PRD)](PRD.md)** — Product vision, problem statement, and requirements.
+- **[Design Document](DESIGN.md)** — Architecture overview, system layers, and technical design.
+
+---
+
 ## 📄 License
 This project is licensed under the MIT License.
 
 *Created and maintained by Alak Das.*
-

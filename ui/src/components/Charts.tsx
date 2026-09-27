@@ -232,7 +232,7 @@ export default function Charts({ data }: ChartsProps) {
             </select>
           </div>
           <div className="d-flex flex-wrap flex-sm-nowrap justify-content-center align-items-center w-100" style={{ minHeight: '280px' }}>
-            <div className="position-relative flex-shrink-0 d-flex align-items-center justify-content-center" style={{ width: '210px', height: '210px' }}>
+            <div className="position-relative flex-shrink-0 d-flex align-items-center justify-content-center" style={{ flex: '0 0 40%', maxWidth: '40%', minWidth: '150px', height: '210px' }}>
               <Doughnut data={usageData} options={usageOptions} />
               <div 
                 className="position-absolute d-flex flex-column align-items-center justify-content-center text-center" 
@@ -248,7 +248,7 @@ export default function Charts({ data }: ChartsProps) {
             </div>
             <div 
               className="d-flex flex-column justify-content-start ms-sm-4 mt-3 mt-sm-0 custom-scroll pe-2" 
-              style={{ flex: '1', minWidth: '180px', maxHeight: '250px', overflowY: 'auto' }}
+              style={{ flex: '1', minWidth: '180px', maxWidth: '60%', maxHeight: '250px', overflowY: 'auto' }}
             >
               {activeModels.length === 0 ? (
                 <div className="text-muted text-center py-4 small my-auto">

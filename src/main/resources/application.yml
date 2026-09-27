@@ -32,10 +32,10 @@ llm:
       keys:
         - ${NVIDIA_API_KEY_1:}
         - ${NVIDIA_API_KEY_2:}
+        - ${NVIDIA_API_KEY_3:}
       models:
         - { id: "nvidia/nemotron-3-super-120b-a12b", priority: 10, pipelines: [REASONING, CODING] }
         - { id: "nvidia/nemotron-3-ultra-550b-a55b", priority: 9,  pipelines: [REASONING, CODING] }
-        - { id: "meta/llama-3.2-90b-vision-instruct", priority: 8,  pipelines: [VISION] }
         - { id: "moonshotai/kimi-k3",                 priority: 8,  pipelines: [REASONING, CODING] }
         - { id: "z-ai/glm-5.3",                       priority: 7,  pipelines: [REASONING, CODING] }
         - { id: "poolside/laguna-xs-2.1",             priority: 7,  pipelines: [CODING] }
