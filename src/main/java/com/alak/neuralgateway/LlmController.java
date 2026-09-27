@@ -42,12 +42,12 @@ public class LlmController {
         description = "OpenAI-compatible chat completions optimized for coding tasks. Routes to the fastest healthy coding model, normalizes IDE tool calls, and supports streaming (SSE).",
         tags = {"Coding Pipeline"}
     )
-    @PostMapping({"/coding/chat/completions", "/chat/completions", "/v1/chat/completions"})
+    @PostMapping({"/coding/chat/completions"})
     public ResponseEntity<?> generateCodingOpenAi(
             jakarta.servlet.http.HttpServletRequest httpRequest,
             @RequestBody Map<String, Object> request, 
-            @Parameter(description = "Identifier of calling agent/client", example = "cline-proxy")
-            @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
+            @Parameter(description = "Identifier of calling agent/client", example = "Mr. X")
+            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
         return processRequest(httpRequest, request, requester, "coding");
     }
 
@@ -56,7 +56,7 @@ public class LlmController {
     public ResponseEntity<?> generateCodingOpenAiAlias(
             jakarta.servlet.http.HttpServletRequest httpRequest,
             @RequestBody Map<String, Object> request, 
-            @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
+            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
         return generateCodingOpenAi(httpRequest, request, requester);
     }
 
@@ -69,12 +69,12 @@ public class LlmController {
         description = "OpenAI-compatible chat completions tuned for deep analytical reasoning, math, and architecture planning. Enforces context window checks and EMA latency routing.",
         tags = {"Reasoning Pipeline"}
     )
-    @PostMapping("/reasoning/chat/completions")
+    @PostMapping({"/reasoning/chat/completions", "/chat/completions", "/v1/chat/completions"})
     public ResponseEntity<?> generateReasoningOpenAi(
             jakarta.servlet.http.HttpServletRequest httpRequest,
             @RequestBody Map<String, Object> request, 
-            @Parameter(description = "Identifier of calling agent/client", example = "cline-proxy")
-            @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
+            @Parameter(description = "Identifier of calling agent/client", example = "Mr. X")
+            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
         return processRequest(httpRequest, request, requester, "reasoning");
     }
 
@@ -83,7 +83,7 @@ public class LlmController {
     public ResponseEntity<?> generateReasoningOpenAiAlias(
             jakarta.servlet.http.HttpServletRequest httpRequest,
             @RequestBody Map<String, Object> request, 
-            @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
+            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
         return generateReasoningOpenAi(httpRequest, request, requester);
     }
 
@@ -100,8 +100,8 @@ public class LlmController {
     public ResponseEntity<?> generateVisionOpenAi(
             jakarta.servlet.http.HttpServletRequest httpRequest,
             @RequestBody Map<String, Object> request, 
-            @Parameter(description = "Identifier of calling agent/client", example = "cline-proxy")
-            @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
+            @Parameter(description = "Identifier of calling agent/client", example = "Mr. X")
+            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
         return processRequest(httpRequest, request, requester, "vision");
     }
 
@@ -110,7 +110,7 @@ public class LlmController {
     public ResponseEntity<?> generateVisionOpenAiAlias(
             jakarta.servlet.http.HttpServletRequest httpRequest,
             @RequestBody Map<String, Object> request, 
-            @RequestHeader(value = "X-Requester", defaultValue = "cline-proxy") String requester) {
+            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
         return generateVisionOpenAi(httpRequest, request, requester);
     }
 
@@ -218,14 +218,22 @@ public class LlmController {
             String requester,
             String pipeline) {
         String transactionId = java.util.UUID.randomUUID().toString();
-        log.info("[TxID: {}] Received OpenAI-compatible {} proxy request to exact endpoint '{}' from '{}'",
-                transactionId, pipeline, httpRequest.getRequestURI(), requester);
+        
+        org.slf4j.MDC.put("txId", transactionId);
+        org.slf4j.MDC.put("requester", requester);
+        
+        try {
+            log.info("Received OpenAI-compatible {} proxy request to exact endpoint '{}'",
+                    pipeline, httpRequest.getRequestURI());
 
-        long start = System.currentTimeMillis();
-        Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, transactionId, pipeline);
-        log.info("[TxID: {}] {} proxy request completed in {}ms", transactionId, pipeline, (System.currentTimeMillis() - start));
+            long start = System.currentTimeMillis();
+            Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, transactionId, pipeline);
+            log.info("{} proxy request completed in {}ms", pipeline, (System.currentTimeMillis() - start));
 
-        return formatOpenAiResponse(request, response);
+            return formatOpenAiResponse(request, response);
+        } finally {
+            org.slf4j.MDC.clear();
+        }
     }
 
     private ResponseEntity<?> formatOpenAiResponse(Map<String, Object> request, Map<String, Object> response) {

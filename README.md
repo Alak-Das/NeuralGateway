@@ -30,30 +30,21 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 ### 4. Resilient Distributed Health Checker
 - **ShedLock Distributed Scheduling**: Prevents redundant health check sweeps across horizontally scaled gateway instances by utilizing a Redis-backed distributed lock.
 - **3-Minute Sweep Frequency**: Automated health check sweeps run every 3 minutes (`fixedDelay = 180000ms`), refreshing model statuses without placing continuous load on upstream providers.
-- **Prioritized Ping Ordering**: Models are sorted by historical EMA latency prior to health check sweeps, ensuring fast models (`nvidia/nemotron-3-ultra-550b-a55b` ~400ms) are validated immediately rather than waiting behind slower or queue-bound models.
-- **Sequential Execution & Rate Pacing**: Strictly sequential health checking (exactly one model ping at a time) with a guaranteed minimum 5-second gap between pings, completely eliminating burst limit exhaustion (`503 ResourceExhausted 16/16`) and concurrent rate limit spikes.
-- **1-Token Health Pings (`max_tokens: 1`)**: Pings request exactly 1 token to prevent reasoning models from generating heavy reasoning chains during health checks.
-- **Adaptive Timeout (180s)**: Eliminates false-negative "DOWN" statuses caused by upstream cloud queue delays.
+- **Prioritized Ping Ordering**: Models are sorted by historical EMA latency (fastest first), ensuring the most responsive models are verified earliest during each sweep.
+- **Jittered Concurrency**: Each sweep pings up to 10 models in parallel with configurable jitter (`±5s`) to prevent thundering herd patterns against providers.
+- **Redis State Persistence**: Health results (UP/DOWN, latency, failure counts, circuit state) are persisted to Redis with TTL and published via Pub/Sub for real-time dashboard updates.
 
-### 5. Universal Tool Call Normalizer
-- Seamlessly bridges differences between IDE agent schemas (Cline, Cursor, JetBrains) and NVIDIA NIM model outputs.
-- Translates camelCase properties (`newText`, `filePath`) to strict snake_case parameters (`path`, `new_text`, `old_text`, `insert_line`).
-- Resolves relative file paths to absolute workspace paths automatically.
+### 5. Requester Telemetry & Observability
+- **Per-Requester Analytics**: Tracks request counts, token usage (prompt/completion/total), and latency percentiles (p50/p95/p99) grouped by the `X-Requester` header.
+- **Real-Time SSE Dashboard**: Live Server-Sent Events stream at `/api/models/status/stream` and `/api/requesters/status/stream` push updates to the React frontend without polling.
+- **Structured Logging with MDC**: Every request carries a transaction ID and requester identity through MDC (Mapped Diagnostic Context) for end-to-end traceability.
+- **Swagger/OpenAPI Documentation**: Interactive API explorer available at `/swagger-ui.html` and `/v3/api-docs`.
 
-### 6. Real-Time Observability Dashboard
-- **Live Fleet Health & KPI Cards**: Real-time fleet health counter, global throughput (TPS), active model indicator, concurrent stream counters, and average fleet latency.
-- **Active Model Indicator**: Real-time center KPI card dynamically displaying the model currently serving inference requests. When multiple models process concurrent streams, the card smoothly cycles across active models every 1.8 seconds; returns to an idle placeholder (`______`) when traffic ceases.
-- **Requester Telemetry**: Tabbed telemetry dashboard showing total token usage and request counts per calling client/agent (`X-Requester`, e.g. Cline, Cursor, automated test suites).
-- **Last Updated Status Timestamps**: Model fleet table displays real-time timestamps indicating when each model was last pinged or verified.
-- **Redis Pub/Sub Server-Sent Events (SSE)**: Instant browser metric updates with zero polling overhead. State changes publish to a Redis topic, triggering real-time SSE broadcasts across all active gateway nodes.
-- **Interactive Latency History**: Filterable from 15 minutes to 24 hours (default: 1 hour), retaining historical performance trends.
-- **Compact Metric Formatting**: High request volumes and token totals are automatically formatted into readable units (Hundreds, Thousands `K`, Millions `M`, Billions `B`).
-- **Token Analytics**: Breakdown of prompt and completion token usage by model and by client requester (`X-Requester`).
-
-### 7. Interactive OpenAPI & Swagger UI
-- Fully branded, interactive API documentation available at `http://localhost:9090/swagger-ui.html`.
-- Cleanly tagged and organized into dedicated sections: **Coding Pipeline**, **Reasoning Pipeline**, **Vision Pipeline**, **Fleet Health & Diagnostics**, and **Telemetry**.
-- Compatibility aliases (`/v1/...`) are kept active for IDE clients while hidden from the UI to avoid duplicate clutter.
+### 6. Open WebUI Integration
+- **Built-in Chat Interface**: Includes Open WebUI as a companion service in Docker Compose, providing a full-featured chat interface at `http://localhost:3000`.
+- **OpenAI API Compatibility**: Open WebUI connects to Neural Gateway via the OpenAI-compatible `/v1` endpoints, enabling seamless model switching and pipeline routing through a familiar UI.
+- **No Authentication Required**: Configured with `WEBUI_AUTH=False` for immediate access in development environments.
+- **Persistent Data**: Chat history, settings, and uploaded files persisted in `./open-webui-data/` volume.
 
 ---
 
@@ -64,6 +55,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Resilience & Fault Tolerance**: Resilience4j CircuitBreaker, ShedLock Distributed Locking
 - **Data & Telemetry**: Redis 7 Alpine (persistent volume, Pub/Sub SSE)
 - **Frontend**: React 19, TypeScript, Vite, Chart.js, Bootstrap Icons
+- **UI Integration**: Open WebUI (ghcr.io/open-webui/open-webui:main)
 - **Packaging & Orchestration**: Multi-stage Docker build, Docker Compose
 
 ---
@@ -83,6 +75,8 @@ Neural Gateway is a drop-in replacement for OpenAI API endpoints:
 | **Manual Ping** | `POST /api/models/ping?model={name}` | — |
 | **Reset Circuit** | `POST /api/models/circuit-reset?model={name}` | — |
 | **Swagger UI** | `GET /swagger-ui.html` | `GET /v3/api-docs` |
+
+**Note on endpoint routing**: The OpenAI-compatible `/v1/chat/completions` and `/chat/completions` aliases route to the **Reasoning** pipeline by default, ensuring maximum capability for general-purpose chat clients. The Coding pipeline is available via its dedicated `/api/coding/chat/completions` endpoint.
 
 ---
 
@@ -105,17 +99,21 @@ Neural Gateway is a drop-in replacement for OpenAI API endpoints:
    ```env
    NVIDIA_API_KEY=nvapi-your-key-here
    ```
+   You can also configure multiple keys (`NVIDIA_API_KEY_1`, `NVIDIA_API_KEY_2`, `NVIDIA_API_KEY_3`) for automatic rotation and rate-limit distribution.
 
 3. **Launch the Gateway:**
    ```bash
    docker compose up --build -d
    ```
+   This starts three services:
+   - **Neural Gateway** on `http://localhost:9090`
+   - **Redis** on `localhost:6379`
+   - **Open WebUI** on `http://localhost:3000`
 
-4. **Access the Dashboard:**
-   Open your browser and navigate to:
-   ```
-   http://localhost:9090
-   ```
+4. **Access the Dashboards:**
+   - **Neural Gateway Dashboard**: Open `http://localhost:9090` for the React-based fleet monitoring and telemetry dashboard.
+   - **Open WebUI Chat Interface**: Open `http://localhost:3000` for a full-featured chat interface connected to Neural Gateway.
+   - **Swagger API Docs**: Open `http://localhost:9090/swagger-ui.html` for interactive API exploration.
 
 ---
 
@@ -170,6 +168,13 @@ curl -X POST http://localhost:9090/api/vision/chat/completions \
     "max_tokens": 100
   }'
 ```
+
+### 4. OpenAI-Compatible Usage (via Open WebUI or any OpenAI client)
+Configure your OpenAI client with:
+- **Base URL**: `http://localhost:9090/v1`
+- **API Key**: `neural-gateway-key` (any non-empty string)
+
+This works with Open WebUI, Continue.dev, Cline, Cursor, and any other OpenAI-compatible client.
 
 ---
 
