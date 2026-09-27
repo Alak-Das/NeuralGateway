@@ -38,6 +38,7 @@ interface ChartsProps {
 export default function Charts({ data }: ChartsProps) {
   const [latencyRangeMins, setLatencyRangeMins] = useState(15);
   const [usageRangeMins, setUsageRangeMins] = useState(15);
+  const [errorRangeMins, setErrorRangeMins] = useState(15);
 
   const formatNumber = (num: number) => {
     if (isNaN(num) || num == null) return '0';
@@ -49,18 +50,18 @@ export default function Charts({ data }: ChartsProps) {
 
   const getModelRequestsForRange = (d: ModelStatus, rangeMins: number) => {
     if (rangeMins === 0) {
-      return d.totalUses || (d.history ? d.history.length : 0);
+      return d.history ? d.history.filter(h => !h.isBackgroundProbe).length : 0;
     }
     if (!d.history || d.history.length === 0) return 0;
     const cutoff = Date.now() - (rangeMins * 60 * 1000);
     return d.history.filter(h => {
       if (!h.timestamp) return false;
       const t = new Date(h.timestamp).getTime();
-      return !isNaN(t) && t >= cutoff;
+      return !isNaN(t) && t >= cutoff && !h.isBackgroundProbe;
     }).length;
   };
 
-  const { latencyData, latencyOptions, usageData, usageOptions, totalRequests, displayData, bgColors, activeModels } = useMemo(() => {
+  const { latencyData, latencyOptions, usageData, usageOptions, errorData, errorOptions, totalRequests, displayData, bgColors, activeModels } = useMemo(() => {
     // Model Color Map
     const modelColorMap: Record<string, string> = {};
     data.forEach((d, i) => { modelColorMap[d.model] = colors[i % colors.length]; });
@@ -91,13 +92,13 @@ export default function Charts({ data }: ChartsProps) {
     const latencyDatasets = data
       .filter(d => d.history && d.history.some(h => {
         const isUp = h.up !== undefined ? h.up : h.isUp;
-        return isUp && h.timestamp && new Date(h.timestamp).getTime() >= latencyCutoffTime;
+        return isUp && h.timestamp && new Date(h.timestamp).getTime() >= latencyCutoffTime && !h.isBackgroundProbe;
       }))
       .map((d, i) => {
         const latencyMap: Record<number, number> = {};
         d.history.forEach(h => {
           const isUp = h.up !== undefined ? h.up : h.isUp;
-          if (isUp && h.timestamp) {
+          if (isUp && h.timestamp && !h.isBackgroundProbe) {
             const time = new Date(h.timestamp).getTime();
             if (!isNaN(time) && time >= latencyCutoffTime) {
               const bucketedTime = Math.floor(time / 60000) * 60000;
@@ -135,7 +136,95 @@ export default function Charts({ data }: ChartsProps) {
       }
     };
 
+
+    // 1.5 Error Rate History Chart
+    const errorCutoffTime = Date.now() - (errorRangeMins * 60 * 1000);
+    const errorTimestamps = new Set<number>();
+    
+    data.forEach(d => {
+      if (d.history) {
+        d.history.forEach(h => {
+          if (!h.timestamp) return;
+          const time = new Date(h.timestamp).getTime();
+          if (!isNaN(time) && time >= errorCutoffTime) {
+            const bucketedTime = Math.floor(time / 60000) * 60000;
+            errorTimestamps.add(bucketedTime);
+          }
+        });
+      }
+    });
+
+    const sortedErrorTimestamps = Array.from(errorTimestamps).sort((a, b) => a - b);
+    const errorLabels = sortedErrorTimestamps.map(ts => {
+      const d = new Date(ts);
+      return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+    });
+
+    const errorDatasets = data
+      .filter(d => d.history && d.history.some(h => {
+        return h.timestamp && new Date(h.timestamp).getTime() >= errorCutoffTime && !h.isBackgroundProbe;
+      }))
+      .map((d, i) => {
+        const errorStats: Record<number, { total: number, errors: number }> = {};
+        d.history.forEach(h => {
+          const isUp = h.up !== undefined ? h.up : h.isUp;
+          if (h.timestamp && !h.isBackgroundProbe) {
+            const time = new Date(h.timestamp).getTime();
+            if (!isNaN(time) && time >= errorCutoffTime) {
+              const bucketedTime = Math.floor(time / 60000) * 60000;
+              if (!errorStats[bucketedTime]) errorStats[bucketedTime] = { total: 0, errors: 0 };
+              errorStats[bucketedTime].total++;
+              if (!isUp) errorStats[bucketedTime].errors++;
+            }
+          }
+        });
+        
+        const alignedData = sortedErrorTimestamps.map(ts => {
+           if (errorStats[ts]) {
+               return (errorStats[ts].errors / errorStats[ts].total) * 100;
+           }
+           return null;
+        });
+        const myColor = modelColorMap[d.model] || colors[i % colors.length];
+      
+        return {
+          label: d.model.split("/").pop() || d.model,
+          data: alignedData,
+          borderColor: myColor,
+          backgroundColor: myColor + "20",
+          fill: false,
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          spanGaps: true
+        };
+      });
+
+    const errorOptionsObj = {
+      responsive: true, 
+      maintainAspectRatio: false,
+      interaction: { mode: "index" as const, intersect: false },
+      plugins: {
+        legend: { position: "bottom" as const, labels: { usePointStyle: true, boxWidth: 6 } },
+        tooltip: {
+          callbacks: {
+            label: function(context: any) {
+              let label = context.dataset.label || "";
+              if (label) label += ": ";
+              if (context.parsed.y !== null) label += context.parsed.y.toFixed(1) + "% Error Rate";
+              return label;
+            }
+          }
+        }
+      },
+      scales: {
+        y: { grid: { color: "rgba(0,0,0,0.05)" }, beginAtZero: true, max: 100, ticks: { callback: function(value: any) { return value + "%"; } } },
+        x: { grid: { display: false } }
+      }
+    };
+
     // 2. Usage Distribution Chart
+
     const modelsWithUsage = data.map(d => ({
       model: d.model,
       uses: getModelRequestsForRange(d, usageRangeMins)
@@ -187,17 +276,19 @@ export default function Charts({ data }: ChartsProps) {
       latencyOptions: latencyOptionsObj,
       usageData: { labels: modelNames, datasets: usageDatasets },
       usageOptions: usageOptionsObj,
+      errorData: { labels: errorLabels, datasets: errorDatasets },
+      errorOptions: errorOptionsObj,
       totalRequests: totalRequestsVal,
       displayData: displayDataList,
       bgColors: bgColorsList,
       activeModels: activeModelsList
     };
-  }, [data, latencyRangeMins, usageRangeMins]);
+  }, [data, latencyRangeMins, usageRangeMins, errorRangeMins]);
 
   return (
     <div className="row g-4 mb-4">
       {/* Latency History */}
-      <div className="col-12 col-xl-7">
+      <div className="col-12 col-xl-4">
         <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
           <div className="d-flex justify-content-between align-items-center mb-4">
             <div className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
@@ -216,8 +307,29 @@ export default function Charts({ data }: ChartsProps) {
         </div>
       </div>
       
+      
+      {/* Error Percentage History */}
+      <div className="col-12 col-xl-4">
+        <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <div className="text-secondary fw-semibold" style={{ fontSize: "0.85rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+              <i className="bi bi-exclamation-triangle-fill text-warning me-2"></i>Error Percentage
+            </div>
+            <select className="form-select form-select-sm w-auto rounded-pill" value={errorRangeMins} onChange={e => setErrorRangeMins(Number(e.target.value))}>
+              <option value={15}>Last 15 Mins</option>
+              <option value={60}>Last 1 Hour</option>
+              <option value={360}>Last 6 Hours</option>
+              <option value={1440}>Last 24 Hours</option>
+            </select>
+          </div>
+          <div className="chart-container" style={{ position: "relative", height: "300px", width: "100%" }}>
+            <Line data={errorData} options={errorOptions} />
+          </div>
+        </div>
+      </div>
+
       {/* Usage Distribution */}
-      <div className="col-12 col-xl-5">
+      <div className="col-12 col-xl-4">
         <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
           <div className="d-flex justify-content-between align-items-center mb-4">
             <div className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>

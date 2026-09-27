@@ -51,4 +51,7 @@ test_resilience.js
 ui/node_modules/
 ui/dist/
 ui/fix*.js
-ui/writer.js
+ui/writer.js/
+
+# Open WebUI data (persistent volume, should not be tracked)
+open-webui-data/

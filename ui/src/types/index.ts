@@ -5,6 +5,7 @@ export interface HealthCheckResult {
   errorMessage: string | null;
   up: boolean;
   isUp?: boolean; // fallback
+  isBackgroundProbe?: boolean;
 }
 
 export interface ModelStatus {

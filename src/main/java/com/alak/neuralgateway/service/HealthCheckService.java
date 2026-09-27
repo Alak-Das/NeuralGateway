@@ -86,7 +86,7 @@ public class HealthCheckService {
             .orTimeout(properties.getPingTimeoutMs(), TimeUnit.MILLISECONDS)
             .handle((result, ex) -> {
                 if (ex != null) {
-                    return new HealthCheckResult(model.getId(), false, properties.getPingTimeoutMs(), Instant.now(), "Timeout/Error: " + ex.getMessage());
+                    return new HealthCheckResult(model.getId(), false, properties.getPingTimeoutMs(), Instant.now(), "Timeout/Error: " + ex.getMessage(), true);
                 }
                 return result;
             })
@@ -121,7 +121,7 @@ public class HealthCheckService {
             e.printStackTrace();
         }
 
-        return new HealthCheckResult(modelId, isUp, latency, Instant.now(), errorMessage);
+        return new HealthCheckResult(modelId, isUp, latency, Instant.now(), errorMessage, true);
     }
 
     /**
