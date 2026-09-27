@@ -14,13 +14,13 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const trippedCount = data.filter(d => d.circuitOpen).length;
   const realDownCount = data.filter(d => !d.isUp && !d.circuitOpen).length;
 
-  const totalTps = data.reduce((sum, d) => sum + d.tps, 0);
-  const totalConns = data.reduce((sum, d) => sum + d.activeConnections, 0);
+  const totalTps = data.reduce((sum, d) => sum + (d.tps || 0), 0);
+  const totalConns = data.reduce((sum, d) => sum + (d.activeConnections || 0), 0);
   
   const upLatencies = data.filter(d => d.isUp && !d.circuitOpen && d.latencyMs > 0).map(d => d.latencyMs);
   const avgLatencyMs = upLatencies.length > 0 ? upLatencies.reduce((a, b) => a + b, 0) / upLatencies.length : 0;
   
-  const currentActiveModels = data.filter(d => d.activeConnections > 0).map(d => d.model);
+  const currentActiveModels = data.filter(d => (d.activeConnections || 0) > 0).map(d => d.model);
 
   useEffect(() => {
     const interval = setInterval(() => {

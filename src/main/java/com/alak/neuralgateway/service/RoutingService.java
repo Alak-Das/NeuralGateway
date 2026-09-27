@@ -58,7 +58,7 @@ public class RoutingService {
     public void decrementActiveConnections(String modelId) {
         AtomicInteger counter = activeConnectionsMap.get(modelId);
         if (counter != null) {
-            counter.decrementAndGet();
+            counter.updateAndGet(val -> Math.max(0, val - 1));
         }
     }
 
@@ -124,13 +124,13 @@ public class RoutingService {
                 .collect(Collectors.toList());
 
         // Sort by routing score (ascending - lower is better)
-        healthyModels.sort(Comparator.comparingDouble(m -> calculateRoutingScore(m.getId()).getCalculatedScore()));
+        healthyModels.sort((m1, m2) -> calculateRoutingScore(m1.getId()).compareTo(calculateRoutingScore(m2.getId())));
 
         // Get fallbacks (must NOT have OPEN circuit breaker)
         List<Model> fallbackModels = pipelineModels.stream()
                 .filter(model -> !healthyModels.contains(model))
                 .filter(model -> !circuitBreakerService.isCircuitOpen(model.getId())) // Filter out fully OPEN
-                .sorted(Comparator.comparingDouble(m -> calculateRoutingScore(m.getId()).getCalculatedScore()))
+                .sorted((m1, m2) -> calculateRoutingScore(m1.getId()).compareTo(calculateRoutingScore(m2.getId())))
                 .collect(Collectors.toList());
 
         // Combine: healthy first, then fallbacks up to max attempts
@@ -145,7 +145,7 @@ public class RoutingService {
         // Select the top candidates by priority and lowest historical latency to act as canary probes.
         if (candidates.isEmpty() && !pipelineModels.isEmpty()) {
             return pipelineModels.stream()
-                    .sorted(Comparator.comparingDouble(m -> calculateRoutingScore(m.getId()).getCalculatedScore()))
+                    .sorted((m1, m2) -> calculateRoutingScore(m1.getId()).compareTo(calculateRoutingScore(m2.getId())))
                     .limit(Math.max(1, properties.getMaxFallbackAttempts()))
                     .collect(Collectors.toList());
         }
@@ -157,7 +157,7 @@ public class RoutingService {
      * Get active connections count for a model.
      */
     public int getActiveConnections(String modelId) {
-        return activeConnectionsMap.getOrDefault(modelId, new AtomicInteger(0)).get();
+        return Math.max(0, activeConnectionsMap.getOrDefault(modelId, new AtomicInteger(0)).get());
     }
 
     /**

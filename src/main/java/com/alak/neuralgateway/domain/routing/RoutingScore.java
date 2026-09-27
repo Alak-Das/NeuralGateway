@@ -4,7 +4,7 @@ package com.alak.neuralgateway.domain.routing;
  * Value object representing the routing score used for model selection.
  * Lower scores are better (lower latency + connection penalty).
  */
-public class RoutingScore {
+public class RoutingScore implements Comparable<RoutingScore> {
     private final double emaLatencyMs;
     private final int activeConnections;
     private final double connectionPenaltyPerConnection;
@@ -48,6 +48,18 @@ public class RoutingScore {
     /**
      * Comparator for sorting by score (ascending - lower is better).
      */
-    public static final java.util.Comparator<RoutingScore> BY_SCORE_ASC = 
-            java.util.Comparator.comparingDouble(RoutingScore::getCalculatedScore);
+
+    @Override
+    public int compareTo(RoutingScore other) {
+        // 1. Highest Priority wins (Descending)
+        int priorityCompare = Integer.compare(other.priority, this.priority);
+        if (priorityCompare != 0) return priorityCompare;
+
+        // 2. Lowest Active Connections wins (Load Balancing) (Ascending)
+        int connectionCompare = Integer.compare(this.activeConnections, other.activeConnections);
+        if (connectionCompare != 0) return connectionCompare;
+
+        // 3. Lowest Latency wins (Speed Tie-breaker) (Ascending)
+        return Double.compare(this.emaLatencyMs, other.emaLatencyMs);
+    }
 }

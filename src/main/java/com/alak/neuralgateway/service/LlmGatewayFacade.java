@@ -16,6 +16,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Facade orchestrating all LLM gateway services.
@@ -23,6 +25,8 @@ import java.util.UUID;
  */
 @Service
 public class LlmGatewayFacade {
+
+    private static final Logger log = LoggerFactory.getLogger(LlmGatewayFacade.class);
 
     private final ModelRegistry modelRegistry;
     private final RoutingService routingService;
@@ -69,6 +73,13 @@ public class LlmGatewayFacade {
                                                      String pipelineName) {
         Pipeline pipeline = Pipeline.valueOf(pipelineName.toUpperCase());
         sanitizeRequest(requestBody);
+
+        if (payloadTelemetryService != null) {
+            String payloadSummary = payloadTelemetryService.summarizeRequest(requestBody);
+            if (payloadSummary != null) {
+                log.info("[TxID: {}] Request payload: {}", transactionId, payloadSummary);
+            }
+        }
         
         // Estimate tokens for context window validation
         int estimatedTokens = estimateTokens(requestBody);
@@ -135,6 +146,8 @@ public class LlmGatewayFacade {
                 // 5xx errors - failover to next model
                 long latency = System.currentTimeMillis() - startTime;
                 lastException = e;
+                log.warn("[TxID: {}] Upstream failure for model '{}' ({}ms): {}. Failing over to next candidate...",
+                        transactionId, model.getId(), latency, e.getMessage());
                 circuitBreakerService.recordFailure(model.getId(), e);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                 routingService.decrementActiveConnections(model.getId());
@@ -147,6 +160,8 @@ public class LlmGatewayFacade {
                 // Other errors - failover
                 long latency = System.currentTimeMillis() - startTime;
                 lastException = e;
+                log.warn("[TxID: {}] Model '{}' execution failed ({}ms): {}. Failing over to next candidate...",
+                        transactionId, model.getId(), latency, e.getMessage());
                 circuitBreakerService.recordFailure(model.getId(), e);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                 routingService.decrementActiveConnections(model.getId());
@@ -167,6 +182,14 @@ public class LlmGatewayFacade {
                                                  String pipelineName) {
         Pipeline pipeline = Pipeline.valueOf(pipelineName.toUpperCase());
         sanitizeRequest(requestBody);
+
+        if (payloadTelemetryService != null) {
+            String payloadSummary = payloadTelemetryService.summarizeRequest(requestBody);
+            if (payloadSummary != null) {
+                log.info("[TxID: {}] Streaming request payload: {}", transactionId, payloadSummary);
+            }
+        }
+
         int estimatedTokens = estimateTokens(requestBody);
 
         List<Model> candidates = routingService.selectModels(pipeline, estimatedTokens);
@@ -185,7 +208,12 @@ public class LlmGatewayFacade {
                     throw new IllegalStateException("Circuit breaker OPEN for model: " + model.getId());
                 }
 
-                List<Map<String, Object>> streamChunks = LlmProviderClient.callStream(model.getId(), requestBody);
+                Map<String, Object> upstreamRequest = new java.util.HashMap<>(requestBody);
+                upstreamRequest.put("stream", false);
+                upstreamRequest.put("model", model.getId());
+                upstreamRequest.remove("stream_options");
+
+                List<Map<String, Object>> streamChunks = LlmProviderClient.callStream(model.getId(), upstreamRequest);
                 
                 // Convert to SSE format
                 String sse = convertToSseFormat(streamChunks, model.getId());
@@ -201,10 +229,14 @@ public class LlmGatewayFacade {
                 return sse;
                 
             } catch (LlmProviderClient.UpstreamServiceException e) {
+                log.warn("[TxID: {}] Upstream streaming error for model '{}': {}. Failing over...",
+                        transactionId, model.getId(), e.getMessage());
                 circuitBreakerService.recordFailure(model.getId(), e);
                 routingService.decrementActiveConnections(model.getId());
                 continue;
             } catch (Exception e) {
+                log.warn("[TxID: {}] Streaming error for model '{}': {}. Failing over...",
+                        transactionId, model.getId(), e.getMessage());
                 circuitBreakerService.recordFailure(model.getId(), e);
                 routingService.decrementActiveConnections(model.getId());
                 continue;

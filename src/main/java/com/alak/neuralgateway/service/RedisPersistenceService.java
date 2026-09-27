@@ -169,25 +169,12 @@ public class RedisPersistenceService {
     // ==================== Bulk Operations ====================
 
     public void initializeModelIfAbsent(String modelId) {
-        // Ensure model has entries in all hashes
-        if (!redisTemplate.hasKey(HISTORY_KEY_PREFIX + modelId)) {
-            // History list will be created on first push
-        }
-        if (redisTemplate.opsForHash().get(USAGE_KEY, modelId) == null) {
-            redisTemplate.opsForHash().putIfAbsent(USAGE_KEY, modelId, "0");
-        }
-        if (redisTemplate.opsForHash().get(CIRCUIT_KEY, modelId) == null) {
-            redisTemplate.opsForHash().putIfAbsent(CIRCUIT_KEY, modelId, "false");
-        }
-        if (redisTemplate.opsForHash().get(EMA_LATENCY_KEY, modelId) == null) {
-            redisTemplate.opsForHash().putIfAbsent(EMA_LATENCY_KEY, modelId, "0");
-        }
-        if (redisTemplate.opsForHash().get(CONSECUTIVE_ERRORS_KEY, modelId) == null) {
-            redisTemplate.opsForHash().putIfAbsent(CONSECUTIVE_ERRORS_KEY, modelId, "0");
-        }
-        if (redisTemplate.opsForHash().get(TPS_KEY, modelId) == null) {
-            redisTemplate.opsForHash().putIfAbsent(TPS_KEY, modelId, "0.0");
-        }
+        // Direct atomic putIfAbsent avoids TOCTOU race and eliminates extra network round-trips
+        redisTemplate.opsForHash().putIfAbsent(USAGE_KEY, modelId, "0");
+        redisTemplate.opsForHash().putIfAbsent(CIRCUIT_KEY, modelId, "false");
+        redisTemplate.opsForHash().putIfAbsent(EMA_LATENCY_KEY, modelId, "0");
+        redisTemplate.opsForHash().putIfAbsent(CONSECUTIVE_ERRORS_KEY, modelId, "0");
+        redisTemplate.opsForHash().putIfAbsent(TPS_KEY, modelId, "0.0");
     }
 
     // ==================== Requester Usage Tracking ====================

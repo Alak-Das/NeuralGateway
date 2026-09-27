@@ -116,39 +116,42 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
 
     @Override
     public void updateStatus(String modelId, HealthCheckResult result) {
-        ModelStatus existing = statusCache.get(modelId);
-        if (existing == null) {
-            initializeModel(modelId);
-            existing = statusCache.get(modelId);
-        }
+        ModelStatus updated = statusCache.compute(modelId, (k, existing) -> {
+            if (existing == null) {
+                initializeModel(modelId);
+                existing = statusCache.get(modelId);
+            }
 
-        // Update with new health check result
-        List<HealthCheckResult> updatedHistory = new ArrayList<>(existing.history());
-        updatedHistory.add(result);
-        
-        // Keep history size manageable (same as Redis)
-        if (updatedHistory.size() > 1440) {
-            updatedHistory = updatedHistory.subList(updatedHistory.size() - 1440, updatedHistory.size());
-        }
+            List<HealthCheckResult> updatedHistory = (existing != null && existing.history() != null)
+                    ? new ArrayList<>(existing.history())
+                    : new ArrayList<>();
+            updatedHistory.add(result);
 
-        ModelStatus updated = new ModelStatus(
-                modelId,
-                existing.categories(),
-                result.isUp(),
-                result.getLatencyMs(),
-                result.getTimestamp(),
-                result.isUp() ? null : result.getErrorMessage(),
-                updatedHistory,
-                redisPersistence.getUsage(modelId),
-                routingService.getActiveConnections(modelId),
-                routingService.getTps(modelId),
-                circuitBreakerService.isCircuitOpen(modelId)
-        );
+            if (updatedHistory.size() > 1440) {
+                updatedHistory = updatedHistory.subList(updatedHistory.size() - 1440, updatedHistory.size());
+            }
 
-        statusCache.put(modelId, updated);
-        
+            List<String> categories = existing != null ? existing.categories() : List.of("Unknown");
+
+            return new ModelStatus(
+                    modelId,
+                    categories,
+                    result.isUp(),
+                    result.getLatencyMs(),
+                    result.getTimestamp(),
+                    result.isUp() ? null : result.getErrorMessage(),
+                    updatedHistory,
+                    redisPersistence.getUsage(modelId),
+                    routingService.getActiveConnections(modelId),
+                    routingService.getTps(modelId),
+                    circuitBreakerService.isCircuitOpen(modelId)
+            );
+        });
+
         // Publish event to trigger SSE broadcast instantly
-        eventPublisher.publishEvent(new ModelStatusChangedEvent(this, updated));
+        if (eventPublisher != null && updated != null) {
+            eventPublisher.publishEvent(new ModelStatusChangedEvent(this, updated));
+        }
     }
 
     @Override
@@ -209,23 +212,19 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      */
     public void incrementUsage(String modelId) {
         redisPersistence.incrementUsage(modelId);
-        ModelStatus existing = statusCache.get(modelId);
-        if (existing != null) {
-            ModelStatus updated = new ModelStatus(
-                    existing.model(),
-                    existing.categories(),
-                    existing.isUp(),
-                    existing.latencyMs(),
-                    existing.lastChecked(),
-                    existing.errorMessage(),
-                    existing.history(),
-                    existing.totalUses() + 1,
-                    routingService.getActiveConnections(modelId),
-                    existing.tps(),
-                    existing.circuitOpen()
-            );
-            statusCache.put(modelId, updated);
-        }
+        statusCache.computeIfPresent(modelId, (k, existing) -> new ModelStatus(
+                existing.model(),
+                existing.categories(),
+                existing.isUp(),
+                existing.latencyMs(),
+                existing.lastChecked(),
+                existing.errorMessage(),
+                existing.history(),
+                existing.totalUses() + 1,
+                routingService.getActiveConnections(modelId),
+                existing.tps(),
+                existing.circuitOpen()
+        ));
     }
 
     /**
@@ -233,26 +232,22 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      */
     public void updateTps(String modelId, double tps) {
         redisPersistence.saveTps(modelId, tps);
-        ModelStatus existing = statusCache.get(modelId);
-        if (existing != null) {
-            ModelStatus updated = new ModelStatus(
-                    existing.model(),
-                    existing.categories(),
-                    existing.isUp(),
-                    existing.latencyMs(),
-                    existing.lastChecked(),
-                    existing.errorMessage(),
-                    existing.history(),
-                    existing.totalUses(),
-                    routingService.getActiveConnections(modelId),
-                    tps,
-                    existing.circuitOpen()
-            );
-            statusCache.put(modelId, updated);
-            
-            if (eventPublisher != null) {
-                eventPublisher.publishEvent(new ModelStatusChangedEvent(this, updated));
-            }
+        ModelStatus updated = statusCache.computeIfPresent(modelId, (k, existing) -> new ModelStatus(
+                existing.model(),
+                existing.categories(),
+                existing.isUp(),
+                existing.latencyMs(),
+                existing.lastChecked(),
+                existing.errorMessage(),
+                existing.history(),
+                existing.totalUses(),
+                routingService.getActiveConnections(modelId),
+                tps,
+                existing.circuitOpen()
+        ));
+        
+        if (updated != null && eventPublisher != null) {
+            eventPublisher.publishEvent(new ModelStatusChangedEvent(this, updated));
         }
     }
 }

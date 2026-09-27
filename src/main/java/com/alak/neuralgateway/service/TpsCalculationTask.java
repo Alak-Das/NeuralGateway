@@ -61,7 +61,9 @@ public class TpsCalculationTask {
             
             // Update state
             previousUsageMap.put(modelId, currentUsage);
-            modelStatusService.updateTps(modelId, emaTps);
+            if (Double.compare(previousEmaTps, emaTps) != 0 || delta > 0) {
+                modelStatusService.updateTps(modelId, emaTps);
+            }
         }
     }
 }

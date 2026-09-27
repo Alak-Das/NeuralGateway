@@ -47,4 +47,11 @@ public class ApiKeyPoolTest {
             pool.getAvailableKey();
         });
     }
+
+    @Test
+    void testDuplicateKeysAreFiltered() {
+        ApiKeyPool pool = new ApiKeyPool("test-provider", List.of("dup-key", "dup-key", "  dup-key  "), 60);
+        assertEquals("dup-key", pool.getAvailableKey());
+        assertEquals("dup-key", pool.getAvailableKey());
+    }
 }

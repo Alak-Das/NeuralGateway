@@ -6,12 +6,12 @@ interface RequestersTableProps {
 }
 
 export default function RequestersTable({ requesters }: RequestersTableProps) {
-  const formatNumber = (num: number) => {
-    if (isNaN(num) || num == null) return '0';
+  const formatNumber = (num: number | null | undefined) => {
+    if (num == null || isNaN(num)) return '0';
     if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
     if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return (num || 0).toLocaleString();
+    return num.toLocaleString();
   };
 
   return (
@@ -66,3 +66,4 @@ export default function RequestersTable({ requesters }: RequestersTableProps) {
     </div>
   );
 }
+

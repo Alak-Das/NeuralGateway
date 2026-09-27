@@ -40,12 +40,12 @@ export default function Charts({ data }: ChartsProps) {
   const [usageRangeMins, setUsageRangeMins] = useState(15);
   const [errorRangeMins, setErrorRangeMins] = useState(15);
 
-  const formatNumber = (num: number) => {
-    if (isNaN(num) || num == null) return '0';
+  const formatNumber = (num: number | null | undefined) => {
+    if (num == null || isNaN(num)) return '0';
     if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
     if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return (num || 0).toLocaleString();
+    return num.toLocaleString();
   };
 
   const getModelRequestsForRange = (d: ModelStatus, rangeMins: number) => {
@@ -71,7 +71,7 @@ export default function Charts({ data }: ChartsProps) {
     const allTimestamps = new Set<number>();
     
     data.forEach(d => {
-      if (d.history) {
+      if (d.history && Array.isArray(d.history)) {
         d.history.forEach(h => {
           if (!h.timestamp) return;
           const time = new Date(h.timestamp).getTime();
@@ -90,22 +90,24 @@ export default function Charts({ data }: ChartsProps) {
     });
 
     const latencyDatasets = data
-      .filter(d => d.history && d.history.some(h => {
+      .filter(d => d.history && Array.isArray(d.history) && d.history.some(h => {
         const isUp = h.up !== undefined ? h.up : h.isUp;
         return isUp && h.timestamp && new Date(h.timestamp).getTime() >= latencyCutoffTime && !h.isBackgroundProbe;
       }))
       .map((d, i) => {
         const latencyMap: Record<number, number> = {};
-        d.history.forEach(h => {
-          const isUp = h.up !== undefined ? h.up : h.isUp;
-          if (isUp && h.timestamp && !h.isBackgroundProbe) {
-            const time = new Date(h.timestamp).getTime();
-            if (!isNaN(time) && time >= latencyCutoffTime) {
-              const bucketedTime = Math.floor(time / 60000) * 60000;
-              latencyMap[bucketedTime] = h.latencyMs;
+        if (d.history && Array.isArray(d.history)) {
+          d.history.forEach(h => {
+            const isUp = h.up !== undefined ? h.up : h.isUp;
+            if (isUp && h.timestamp && !h.isBackgroundProbe) {
+              const time = new Date(h.timestamp).getTime();
+              if (!isNaN(time) && time >= latencyCutoffTime) {
+                const bucketedTime = Math.floor(time / 60000) * 60000;
+                latencyMap[bucketedTime] = h.latencyMs;
+              }
             }
-          }
-        });
+          });
+        }
         
         const alignedData = sortedTimestamps.map(ts => latencyMap[ts] !== undefined ? latencyMap[ts] : null);
         const myColor = modelColorMap[d.model] || colors[i % colors.length];
@@ -142,7 +144,7 @@ export default function Charts({ data }: ChartsProps) {
     const errorTimestamps = new Set<number>();
     
     data.forEach(d => {
-      if (d.history) {
+      if (d.history && Array.isArray(d.history)) {
         d.history.forEach(h => {
           if (!h.timestamp) return;
           const time = new Date(h.timestamp).getTime();
@@ -161,23 +163,25 @@ export default function Charts({ data }: ChartsProps) {
     });
 
     const errorDatasets = data
-      .filter(d => d.history && d.history.some(h => {
+      .filter(d => d.history && Array.isArray(d.history) && d.history.some(h => {
         return h.timestamp && new Date(h.timestamp).getTime() >= errorCutoffTime && !h.isBackgroundProbe;
       }))
       .map((d, i) => {
         const errorStats: Record<number, { total: number, errors: number }> = {};
-        d.history.forEach(h => {
-          const isUp = h.up !== undefined ? h.up : h.isUp;
-          if (h.timestamp && !h.isBackgroundProbe) {
-            const time = new Date(h.timestamp).getTime();
-            if (!isNaN(time) && time >= errorCutoffTime) {
-              const bucketedTime = Math.floor(time / 60000) * 60000;
-              if (!errorStats[bucketedTime]) errorStats[bucketedTime] = { total: 0, errors: 0 };
-              errorStats[bucketedTime].total++;
-              if (!isUp) errorStats[bucketedTime].errors++;
+        if (d.history && Array.isArray(d.history)) {
+          d.history.forEach(h => {
+            const isUp = h.up !== undefined ? h.up : h.isUp;
+            if (h.timestamp && !h.isBackgroundProbe) {
+              const time = new Date(h.timestamp).getTime();
+              if (!isNaN(time) && time >= errorCutoffTime) {
+                const bucketedTime = Math.floor(time / 60000) * 60000;
+                if (!errorStats[bucketedTime]) errorStats[bucketedTime] = { total: 0, errors: 0 };
+                errorStats[bucketedTime].total++;
+                if (!isUp) errorStats[bucketedTime].errors++;
+              }
             }
-          }
-        });
+          });
+        }
         
         const alignedData = sortedErrorTimestamps.map(ts => {
            if (errorStats[ts]) {
@@ -263,6 +267,10 @@ export default function Charts({ data }: ChartsProps) {
               }
               if (context.parsed !== null) {
                 label += new Intl.NumberFormat().format(context.parsed) + ' reqs';
+                // Calculate percentage
+                const total = context.dataset.data.reduce((sum: number, val: number) => sum + val, 0);
+                const percentage = ((context.parsed / total) * 100).toFixed(1);
+                label += ` (${percentage}%)`;
               }
               return label;
             }

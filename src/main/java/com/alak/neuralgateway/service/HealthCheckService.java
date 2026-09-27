@@ -19,6 +19,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import jakarta.annotation.PreDestroy;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
 /**
@@ -28,6 +31,8 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
  */
 @Service
 public class HealthCheckService {
+
+    private static final Logger log = LoggerFactory.getLogger(HealthCheckService.class);
 
     private final HealthCheckProperties properties;
     private final ModelRegistry modelRegistry;
@@ -39,9 +44,6 @@ public class HealthCheckService {
 
     // Thread pool for parallel health checks to avoid blocking the scheduler thread
     private final ExecutorService healthCheckExecutor;
-
-    // Model prioritization cache
-    private final Map<String, Double> modelPriorityCache = new ConcurrentHashMap<>();
 
     public HealthCheckService(HealthCheckProperties properties, ModelRegistry modelRegistry,
                               LlmProviderClient llmProviderClient, RedisPersistenceService redisPersistence,
@@ -117,8 +119,8 @@ public class HealthCheckService {
         } catch (Exception e) {
             latency = System.currentTimeMillis() - startTime;
             errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
-            System.err.println("Health check failed for model " + modelId + ":");
-            e.printStackTrace();
+            log.warn("Health check ping failed for model '{}': {}", modelId, errorMessage);
+            log.debug("Health check failure details for model '{}'", modelId, e);
         }
 
         return new HealthCheckResult(modelId, isUp, latency, Instant.now(), errorMessage, true);
@@ -141,6 +143,7 @@ public class HealthCheckService {
 
     /**
      * Get all models prioritized by EMA latency (fastest first) if enabled.
+     * Deduplicates models configured across multiple pipelines to avoid redundant pings.
      */
     private List<Model> getPrioritizedModels() {
         List<Model> allModels = new ArrayList<>();
@@ -148,13 +151,17 @@ public class HealthCheckService {
         allModels.addAll(modelRegistry.getModelsByPipeline(Pipeline.REASONING));
         allModels.addAll(modelRegistry.getModelsByPipeline(Pipeline.VISION));
 
+        List<Model> uniqueModels = allModels.stream()
+                .distinct()
+                .collect(Collectors.toList());
+
         if (properties.isPrioritizeByEma()) {
-            return allModels.stream()
+            return uniqueModels.stream()
                     .sorted(Comparator.comparingDouble(m -> routingService.getEmaLatency(m.getId())))
                     .collect(Collectors.toList());
         }
 
-        return allModels;
+        return uniqueModels;
     }
 
     /**
@@ -174,5 +181,19 @@ public class HealthCheckService {
 
         // Update in-memory status (which now instantly fires SSE broadcast)
         modelStatusUpdater.updateStatus(modelId, result);
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        log.info("Shutting down HealthCheckService executor pool...");
+        healthCheckExecutor.shutdown();
+        try {
+            if (!healthCheckExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                healthCheckExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            healthCheckExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }

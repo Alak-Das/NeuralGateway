@@ -53,10 +53,12 @@ export default function App() {
 
       es.addEventListener('init', (e: any) => {
         try {
-          const parsed = JSON.parse(e.data);
-          setData(parsed);
-          setLastUpdated(new Date());
-          fetchRequesters();
+          if (e.data) {
+            const parsed = JSON.parse(e.data);
+            setData(parsed);
+            setLastUpdated(new Date());
+            fetchRequesters();
+          }
         } catch (err) {
           console.error('Error parsing init data:', err);
         }
@@ -64,10 +66,12 @@ export default function App() {
 
       es.addEventListener('status', (e: any) => {
         try {
-          const parsed = JSON.parse(e.data);
-          setData(parsed);
-          setLastUpdated(new Date());
-          fetchRequesters();
+          if (e.data) {
+            const parsed = JSON.parse(e.data);
+            setData(parsed);
+            setLastUpdated(new Date());
+            fetchRequesters();
+          }
         } catch (err) {
           console.error('Error parsing status data:', err);
         }

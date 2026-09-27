@@ -45,7 +45,7 @@ public class SseNotificationService {
                 emitter.send(SseEmitter.event()
                         .name("status")
                         .data(data));
-            } catch (IOException e) {
+            } catch (Exception e) {
                 deadEmitters.add(emitter);
             }
         }
@@ -62,7 +62,7 @@ public class SseNotificationService {
             emitter.send(SseEmitter.event()
                     .name("init")
                     .data(data));
-        } catch (IOException e) {
+        } catch (Exception e) {
             emitters.remove(emitter);
         }
     }

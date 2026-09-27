@@ -20,7 +20,8 @@ export default function StatusTable({ data }: StatusTableProps) {
     }
   };
 
-  const formatNumber = (num: number) => {
+  const formatNumber = (num: number | null | undefined) => {
+    if (num == null || isNaN(num)) return '0';
     if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
     if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
@@ -254,4 +255,5 @@ export default function StatusTable({ data }: StatusTableProps) {
     </div>
   );
 }
+
 

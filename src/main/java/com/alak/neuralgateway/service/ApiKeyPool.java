@@ -37,12 +37,18 @@ public class ApiKeyPool {
         RateLimiterRegistry registry = RateLimiterRegistry.of(config);
 
         if (rawKeys != null) {
+            java.util.Set<String> uniqueKeys = new java.util.LinkedHashSet<>();
             for (String key : rawKeys) {
-                String trimmed = key.trim();
-                if (!trimmed.isEmpty()) {
-                    RateLimiter limiter = registry.rateLimiter(providerId + "-" + trimmed.hashCode());
-                    keys.add(new KeyEntry(trimmed, limiter));
+                if (key != null) {
+                    String trimmed = key.trim();
+                    if (!trimmed.isEmpty()) {
+                        uniqueKeys.add(trimmed);
+                    }
                 }
+            }
+            for (String trimmed : uniqueKeys) {
+                RateLimiter limiter = registry.rateLimiter(providerId + "-" + trimmed.hashCode());
+                keys.add(new KeyEntry(trimmed, limiter));
             }
         }
     }

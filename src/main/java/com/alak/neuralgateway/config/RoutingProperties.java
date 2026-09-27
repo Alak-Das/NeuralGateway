@@ -33,7 +33,7 @@ public class RoutingProperties {
     /**
      * Enable/disable context window validation before routing.
      */
-    private boolean contextWindowValidationEnabled = true;
+    private boolean contextWindowValidationEnabled = false;
 
     /**
      * Default context limit for models not explicitly configured.

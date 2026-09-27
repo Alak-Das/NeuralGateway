@@ -230,13 +230,13 @@ public class LlmController {
             Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, transactionId, pipeline);
             log.info("{} proxy request completed in {}ms", pipeline, (System.currentTimeMillis() - start));
 
-            return formatOpenAiResponse(request, response);
+            return formatOpenAiResponse(request, response, transactionId);
         } finally {
             org.slf4j.MDC.clear();
         }
     }
 
-    private ResponseEntity<?> formatOpenAiResponse(Map<String, Object> request, Map<String, Object> response) {
+    private ResponseEntity<?> formatOpenAiResponse(Map<String, Object> request, Map<String, Object> response, String transactionId) {
         if (Boolean.TRUE.equals(request.get("stream"))) {
             try {
                 List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
@@ -312,6 +312,7 @@ public class LlmController {
                 
                 return ResponseEntity.ok()
                         .header("Content-Type", "text/event-stream")
+                        .header("X-Transaction-Id", transactionId)
                         .body(sse);
             } catch (Exception e) {
                 log.error("Failed to convert to SSE chunk", e);
@@ -319,7 +320,9 @@ public class LlmController {
             }
         }
         
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok()
+                .header("X-Transaction-Id", transactionId)
+                .body(response);
     }
 
     @ExceptionHandler(org.springframework.web.reactive.function.client.WebClientResponseException.class)
@@ -338,6 +341,11 @@ public class LlmController {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<?> handleGeneralException(Exception e) {
+        if (isClientDisconnect(e)) {
+            log.debug("Client connection disconnected prematurely: {}", e.getMessage());
+            return null;
+        }
+
         log.error("Gateway error: {}", e.getMessage(), e);
         Map<String, Object> error = Map.of(
             "message", e.getMessage() != null ? e.getMessage() : "Internal Gateway Error",
@@ -347,5 +355,18 @@ public class LlmController {
         return ResponseEntity.status(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("error", error));
+    }
+
+    private boolean isClientDisconnect(Throwable t) {
+        if (t == null) return false;
+        String msg = t.getMessage();
+        if (msg != null && (msg.contains("Broken pipe") || msg.contains("Connection reset by peer"))) {
+            return true;
+        }
+        String className = t.getClass().getSimpleName();
+        if (className.contains("ClientAbortException") || className.contains("AsyncRequestNotUsableException")) {
+            return true;
+        }
+        return isClientDisconnect(t.getCause());
     }
 }
