@@ -32,7 +32,8 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **3-Minute Sweep Frequency**: Automated health check sweeps run every 3 minutes (`fixedDelay = 180000ms`), refreshing model statuses without placing continuous load on upstream providers.
 - **Prioritized Ping Ordering**: Models are sorted by historical EMA latency (fastest first), ensuring the most responsive models are verified earliest during each sweep.
 - **Jittered Concurrency**: Each sweep pings up to 10 models in parallel with configurable jitter (`±5s`) to prevent thundering herd patterns against providers.
-- **Redis State Persistence**: Health results (UP/DOWN, latency, failure counts, circuit state) are persisted to Redis with TTL and published via Pub/Sub for real-time dashboard updates.
+- **Redis State Persistence**: Health results (UP/DOWN, latency, failure counts, circuit state) are persisted to Redis and published via Pub/Sub for real-time dashboard updates.
+- **Per-Model Keys with Configurable Data TTL**: All telemetry is stored under individual per-model Redis keys (`gateway:<type>:<modelId>`) instead of monolithic hash keys, allowing each key to expire independently. The retention period is fully configurable via `LLM_DATA_RETENTION_TTL_HOURS` (default: 24 hours) and `LLM_DATA_RETENTION_CLEANUP_INTERVAL_MINUTES` (default: 60 minutes), preventing memory bloat and ensuring the system never relies on stale data.
 
 ### 5. Requester Telemetry & Observability
 - **Per-Requester Analytics**: Tracks request counts, token usage (prompt/completion/total), and latency percentiles (p50/p95/p99) grouped by the `X-Requester` header.

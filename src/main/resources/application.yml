@@ -27,6 +27,9 @@ llm:
   logging:
     payload-mode: ${LLM_LOGGING_PAYLOAD_MODE:SUMMARY}
     preview-max-chars: ${LLM_LOGGING_PREVIEW_MAX_CHARS:120}
+  data-retention:
+    ttl-hours: ${LLM_DATA_RETENTION_TTL_HOURS:24}
+    cleanup-interval-minutes: ${LLM_DATA_RETENTION_CLEANUP_INTERVAL_MINUTES:60}
   providers:
     nvidia:
       base-url: https://integrate.api.nvidia.com/v1
