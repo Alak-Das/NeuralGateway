@@ -66,6 +66,6 @@ llm:
       keys:
         - ${COHERE_API_KEY:}
       models:
-        - { id: "command-a-plus-05-2026",                         priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "command-a-plus-05-2026",                         priority: 8,   pipelines: [ REASONING, VISION ] }
         - { id: "north-mini-code-1-0",                            priority: 7,   pipelines: [ CODING ] }
-        - { id: "command-a-vision-07-2025",                       priority: 6,   pipelines: [ REASONING, VISION ] }
+        - { id: "command-a-vision-07-2025",                       priority: 6,   pipelines: [ VISION ] }

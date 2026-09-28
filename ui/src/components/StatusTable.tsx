@@ -205,7 +205,17 @@ export default function StatusTable({ data }: StatusTableProps) {
               filteredData.map(d => (
                 <tr key={d.model}>
                   <td className="py-3 px-4">
-                    <span className="model-name fw-bold" title={d.model}>{d.model}</span>
+                    <div className="d-flex align-items-center gap-2 flex-wrap">
+                      <span className="model-name fw-bold" title={d.model}>{d.model}</span>
+                      {d.provider && (
+                        <span className="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }}>
+                          <i className="bi bi-cloud me-1"></i>{d.provider}
+                        </span>
+                      )}
+                      <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }}>
+                        <i className="bi bi-sort-numeric-up me-1"></i>Priority: {d.priority}
+                      </span>
+                    </div>
                   </td>
                   <td className="py-3 px-4">
                     {d.categories.map(c => (

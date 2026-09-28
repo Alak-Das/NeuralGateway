@@ -14,5 +14,7 @@ public record ModelStatus(
     long totalUses,
     int activeConnections,
     double tps,
-    boolean circuitOpen
+    boolean circuitOpen,
+    String provider,
+    int priority
 ) {}

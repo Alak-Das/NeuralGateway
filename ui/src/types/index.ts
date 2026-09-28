@@ -20,6 +20,8 @@ export interface ModelStatus {
   activeConnections: number;
   tps: number;
   circuitOpen: boolean;
+  provider: string;
+  priority: number;
 }
 
 export interface RequesterStatus {

@@ -103,7 +103,9 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 usage,
                 0, // activeConnections is 0 on startup
                 0.0, // tps is 0.0 on startup
-                circuitOpen
+                circuitOpen,
+                model != null ? model.getProviderId() : "unknown",
+                model != null ? model.getPriority() : 0
         );
 
         statusCache.put(modelId, status);
@@ -144,7 +146,9 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                     redisPersistence.getUsage(modelId),
                     routingService.getActiveConnections(modelId),
                     routingService.getTps(modelId),
-                    circuitBreakerService.isCircuitOpen(modelId)
+                    circuitBreakerService.isCircuitOpen(modelId),
+                    existing != null ? existing.provider() : "unknown",
+                    existing != null ? existing.priority() : 0
             );
         });
 
@@ -223,7 +227,9 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 existing.totalUses() + 1,
                 routingService.getActiveConnections(modelId),
                 existing.tps(),
-                existing.circuitOpen()
+                existing.circuitOpen(),
+                existing.provider(),
+                existing.priority()
         ));
     }
 
@@ -243,7 +249,9 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 existing.totalUses(),
                 routingService.getActiveConnections(modelId),
                 tps,
-                existing.circuitOpen()
+                existing.circuitOpen(),
+                existing.provider(),
+                existing.priority()
         ));
         
         if (updated != null && eventPublisher != null) {

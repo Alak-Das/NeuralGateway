@@ -24,7 +24,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const upLatencies = data.filter(d => d.isUp && !d.circuitOpen && d.latencyMs > 0).map(d => d.latencyMs);
   const avgLatencyMs = upLatencies.length > 0 ? upLatencies.reduce((a, b) => a + b, 0) / upLatencies.length : 0;
   
-  const currentActiveModels = data.filter(d => (d.activeConnections || 0) > 0).map(d => d.model);
+  const currentActiveModels = data.filter(d => (d.activeConnections || 0) > 0);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -117,7 +117,8 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
     }
 
     const idx = activeRotationIndex % currentActiveModels.length;
-    const currentModel = currentActiveModels[idx];
+    const activeModel = currentActiveModels[idx];
+    const currentModel = activeModel.model;
     const parts = currentModel.split('/');
     const org = parts.length > 1 ? parts[0] + '/' : '';
     const modelName = parts.length > 1 ? parts[1] : parts[0];
@@ -128,7 +129,17 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
       main: (
         <div className="text-truncate w-100" title={currentModel}>
             <div className="text-muted fw-normal" style={{ fontSize: '0.72rem', lineHeight: '1', letterSpacing: '0.5px' }}>{org}</div>
-            <span className="text-primary fw-bolder" style={{ fontSize: '1.2rem' }}>{modelName}</span>
+            <div className="d-flex align-items-center gap-2 flex-wrap">
+              <span className="text-primary fw-bolder" style={{ fontSize: '1.2rem' }}>{modelName}</span>
+              {activeModel.provider && (
+                <span className="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }}>
+                  <i className="bi bi-cloud me-1"></i>{activeModel.provider}
+                </span>
+              )}
+              <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }}>
+                <i className="bi bi-sort-numeric-up me-1"></i>Priority: {activeModel.priority}
+              </span>
+            </div>
         </div>
       ),
       sub: isMultiple ? (
@@ -204,14 +215,16 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
             <span><i className="bi bi-cpu text-warning me-2"></i>Active Model</span>
             {currentActiveModels.length > 0 && <span className="spinner-grow text-warning" style={{ width: '0.5rem', height: '0.5rem' }}></span>}
           </div>
-          <div className="fw-bolder d-flex align-items-center flex-grow-1">
-            {activeModelUI.main}
-          </div>
-          <div className="mt-2" style={{ zIndex: 2 }}>
-            {activeModelUI.sub}
+            <div className="fw-bolder d-flex align-items-center flex-grow-1">
+              {activeModelUI.main}
+            </div>
+            <div className="mt-2" style={{ zIndex: 2 }}>
+              <div className="text-muted small fw-medium">
+                {activeModelUI.sub}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Active Connections */}
       <div className="col-12 col-sm-6 col-lg-4 col-xl">
