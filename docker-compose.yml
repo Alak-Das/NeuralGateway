@@ -9,6 +9,7 @@ services:
     - NVIDIA_API_KEY_1=${NVIDIA_API_KEY_1}
     - NVIDIA_API_KEY_2=${NVIDIA_API_KEY_2}
     - NVIDIA_API_KEY_3=${NVIDIA_API_KEY_3}
+    - CEREBRAS_API_KEY=${CEREBRAS_API_KEY}
     - SPRING_DATA_REDIS_HOST=redis
     depends_on:
     - redis

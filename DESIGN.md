@@ -170,9 +170,10 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - Manage the catalog of available LLM models and their metadata
 - Initialize model registry from configuration (application.yml)
 - Provide lookup capabilities by model ID or pipeline
-- Manage API key pools per provider for rate limiting
+- Manage API key pools **per provider** (NVIDIA NIM, Cerebras Inference, ...) for rate limiting
 - Determine model capabilities based on pipeline assignment
 - Validate model IDs and context limits
+- **Multi-Provider Failover**: Candidate selection spans all configured providers as a single logical fleet, enabling seamless cross-provider failover when a provider-specific error (401/403/404, quota exceeded, etc.) occurs
 
 **Data Structures:**
 - `Map<String, Model> modelCatalog` - ID to model mapping
@@ -411,6 +412,14 @@ llm:
         - { id: "nvidia/nemotron-3-super-120b-a12b", priority: 10, pipelines: [REASONING, CODING] }
         - { id: "nvidia/nemotron-3-ultra-550b-a55b", priority: 9,  pipelines: [REASONING, CODING] }
         # ... additional models
+    cerebras:
+      base-url: https://api.cerebras.ai/v1
+      rate-limit-rpm: 30
+      keys:
+        - ${CEREBRAS_API_KEY:}
+      models:
+        - { id: "gpt-oss-120b",           priority: 8, pipelines: [REASONING, CODING] }
+        - { id: "qwen-3.8-27b",           priority: 6, pipelines: [REASONING, CODING, VISION] }
   logging:
     payload-mode: SUMMARY
     preview-max-chars: 120

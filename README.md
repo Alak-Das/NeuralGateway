@@ -1,6 +1,6 @@
 # Neural Gateway
 
-**Neural Gateway by Alak** is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple NVIDIA NIM AI models.
+**Neural Gateway by Alak** is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple AI providers — including NVIDIA NIM and **Cerebras Inference**.
 
 ---
 
@@ -22,6 +22,8 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Dynamic API Key Cooldown**: When an upstream provider responds with HTTP 429 Too Many Requests, the offending API key is immediately isolated with a 30-second cooldown, rotating traffic instantly to healthy keys.
 - **Emergency Degraded Mode**: If all model circuits in a pipeline trip during upstream provider incidents, the gateway automatically falls back to highest-priority models ordered by lowest latency, eliminating 100% gateway blackouts and enabling traffic-driven self-healing.
 - **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trip model circuit breakers.
+- **Multi-Provider Failover**: Requests are routed across **all configured providers** (NVIDIA NIM and Cerebras Inference) as a single logical fleet. Provider-specific failures — including upstream `401`/`403`/`404` responses and quota errors such as `token_quota_exceeded` — trigger transparent failover to the next candidate model, which may live on a different provider entirely.
+- **Request Sanitization for Cross-Provider Compatibility**: Non-standard client fields are normalised before dispatch — `thinking_effort` and Anthropic-style `thinking` blocks are translated to `reasoning_effort`, and `reasoning_effort` is coerced to the OpenAI-standard set (`none`, `low`, `medium`, `high`). This prevents `400 wrong_api_format` rejections from stricter providers and lets the gateway fail over instead of surfacing a spurious client error.
 - **Auto-Recovery**: Tripped circuit breakers automatically reset to closed as soon as background health checks succeed.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
 - **Resilient Fallback Routing**: During cold-starts or temporary upstream outages, candidate models are sorted by lowest historical EMA score and tried with up to 3 fallback attempts.
@@ -29,7 +31,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 
 ### 4. Resilient Distributed Health Checker
 - **ShedLock Distributed Scheduling**: Prevents redundant health check sweeps across horizontally scaled gateway instances by utilizing a Redis-backed distributed lock.
-- **3-Minute Sweep Frequency**: Automated health check sweeps run every 3 minutes (`fixedDelay = 180000ms`), refreshing model statuses without placing continuous load on upstream providers.
+- **4-Minute Sweep Frequency**: Automated health check sweeps run every 4 minutes (`fixedDelay = 240000ms`, configurable via `llm.health-check.intervalMs`), refreshing model statuses without placing continuous load on upstream providers. Increase this value (or the initial delay) while testing to minimise upstream token consumption.
 - **Prioritized Ping Ordering**: Models are sorted by historical EMA latency (fastest first), ensuring the most responsive models are verified earliest during each sweep.
 - **Jittered Concurrency**: Each sweep pings up to 10 models in parallel with configurable jitter (`±5s`) to prevent thundering herd patterns against providers.
 - **Redis State Persistence**: Health results (UP/DOWN, latency, failure counts, circuit state) are persisted to Redis and published via Pub/Sub for real-time dashboard updates.
@@ -95,6 +97,7 @@ Used by the React monitoring dashboard and operations tooling:
 ### Prerequisites
 - Docker & Docker Compose
 - An NVIDIA NIM API key ([build.nvidia.com](https://build.nvidia.com/))
+- A Cerebras Inference API key ([cloud.cerebras.ai](https://cloud.cerebras.ai/)) _(optional, enables Cerebras models)_
 
 ### Installation & Deployment
 
@@ -104,21 +107,31 @@ Used by the React monitoring dashboard and operations tooling:
    cd NeuralGateway
    ```
 
-2. **Configure your API key:**
-   Create a `.env` file or export `NVIDIA_API_KEY`:
+2. **Configure your API keys:**
+   Create a `.env` file with your provider keys:
    ```env
    NVIDIA_API_KEY=nvapi-your-key-here
+   CEREBRAS_API_KEY=csk-your-cerebras-key
    ```
-   You can also configure multiple keys (`NVIDIA_API_KEY_1`, `NVIDIA_API_KEY_2`, `NVIDIA_API_KEY_3`) for automatic key rotation and rate-limit distribution.
+   You can also configure multiple keys for automatic rotation and rate-limit distribution:
+   - `NVIDIA_API_KEY_1`, `NVIDIA_API_KEY_2`, `NVIDIA_API_KEY_3`
+   - `CEREBRAS_API_KEY` (single key supported)
 
 3. **Launch the Gateway:**
    ```bash
    docker compose up --build -d
    ```
    This starts three services:
-   - **Neural Gateway API & Dashboard** on `http://localhost:9090` (use `http://127.0.0.1:9090` on Windows)
+   - **Neural Gateway API & Dashboard** on `http://localhost:9090` (use `http://127.0.0.1:9090` on Windows — see **WSL Relay Note** below)
    - **Redis** on `localhost:6379`
    - **Open WebUI** on `http://localhost:3000`
+
+> **⚠️ Windows / WSL Relay Note**  
+> On Windows hosts running Docker Desktop with WSL 2 integration, the `wslrelay` process may bind to the IPv6 loopback (`::1:9090`) while the gateway listens on `0.0.0.0:9090`. This causes `localhost` (which resolves to `::1` on Windows) to hit the relay instead of the container, leading to time-outs. Always use **`127.0.0.1`** (explicit IPv4) for local API calls on Windows:
+> ```bash
+> curl -X POST http://127.0.0.1:9090/v1/chat/completions ...
+> ```
+> Configure IDE clients (Cline, Cursor, Roo Code, Continue) with **Base URL: `http://127.0.0.1:9090/v1`**.
 
 4. **Access the Interfaces:**
    - **Neural Gateway Dashboard**: Open `http://localhost:9090` for real-time fleet health, latency, and throughput metrics.

@@ -130,8 +130,13 @@ public class NvidiaLlmClient implements LlmProviderClient {
             return new UpstreamServiceException("Model deprecated (410): " + responseBody, status);
         }
 
+        if (status == 401 || status == 403 || status == 404) {
+            // Upstream provider authentication failure or missing model - failover to next candidate
+            return new UpstreamServiceException("Upstream provider error (" + status + "): " + responseBody, status);
+        }
+
         if (status >= 400 && status < 500) {
-            return new IllegalArgumentException(responseBody); // 400 Bad Request, 401, 403, 404, 422
+            return new IllegalArgumentException(responseBody); // 400 Bad Request, 422
         } else {
             return new UpstreamServiceException(responseBody, status);
         }

@@ -166,7 +166,17 @@ public class LlmGatewayFacade {
                 routingService.decrementActiveConnections(model.getId());
                 continue;
             } catch (IllegalArgumentException e) {
-                // 4xx errors - don't failover, return immediately
+                long latency = System.currentTimeMillis() - startTime;
+                lastException = e;
+                if (i < candidates.size() - 1 && e.getMessage() != null &&
+                        (e.getMessage().contains("wrong_api_format") || e.getMessage().contains("unsupported") || e.getMessage().contains("validation_error"))) {
+                    log.warn("[TxID: {}] Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...",
+                            transactionId, model.getId(), latency, e.getMessage());
+                    circuitBreakerService.recordFailure(model.getId(), e);
+                    routingService.decrementActiveConnections(model.getId());
+                    continue;
+                }
+                // Genuine client 4xx errors - don't failover, return immediately
                 routingService.decrementActiveConnections(model.getId());
                 throw e;
             } catch (Exception e) {
@@ -342,20 +352,71 @@ public class LlmGatewayFacade {
     /**
      * Estimate token count from request body.
      */
-        /**
+    /**
      * Sanitizes incoming requests to prevent 400 Bad Request errors from non-standard parameters.
+     * Clients like Cline, Roo Code, or Cursor often send non-standard fields (e.g. 'thinking_effort',
+     * Anthropic-style 'thinking' maps, or 'reasoning_effort' set to 'xhigh' or 'max').
+     * Upstream OpenAI-compatible providers strictly allow only 'none', 'low', 'medium', or 'high'
+     * for 'reasoning_effort', and reject unknown fields like 'thinking_effort' or 'thinking' with 400 wrong_api_format.
      */
-    private void sanitizeRequest(Map<String, Object> requestBody) {
+    void sanitizeRequest(Map<String, Object> requestBody) {
         if (requestBody == null) return;
-        
-        // Cline / OpenAI compat clients often send 'thinking_effort' or 'reasoning_effort' = 'xhigh'
-        // Some models (like Kimi K3) strictly reject 'xhigh', requiring 'low', 'high', or 'max'.
-        String[] effortKeys = {"thinking_effort", "reasoning_effort"};
-        for (String key : effortKeys) {
-            if (requestBody.containsKey(key)) {
-                Object effort = requestBody.get(key);
-                if ("xhigh".equals(effort)) {
-                    requestBody.put(key, "max"); // Map to highest supported equivalent
+
+        // 1. Convert non-standard 'thinking_effort' to 'reasoning_effort'
+        if (requestBody.containsKey("thinking_effort")) {
+            Object te = requestBody.remove("thinking_effort");
+            if (!requestBody.containsKey("reasoning_effort") && te != null) {
+                requestBody.put("reasoning_effort", te);
+            }
+        }
+
+        // 2. Convert Anthropic-style 'thinking' parameter to 'reasoning_effort'
+        if (requestBody.containsKey("thinking")) {
+            Object thinking = requestBody.remove("thinking");
+            if (!requestBody.containsKey("reasoning_effort") && thinking instanceof Map<?, ?> tMap) {
+                Object budget = tMap.get("budget_tokens");
+                if (budget instanceof Number n) {
+                    if (n.intValue() > 8000) {
+                        requestBody.put("reasoning_effort", "high");
+                    } else if (n.intValue() > 2000) {
+                        requestBody.put("reasoning_effort", "medium");
+                    } else if (n.intValue() > 0) {
+                        requestBody.put("reasoning_effort", "low");
+                    }
+                }
+            }
+        }
+
+        // 3. Strictly normalize 'reasoning_effort' to OpenAI standard values ('none', 'low', 'medium', 'high')
+        if (requestBody.containsKey("reasoning_effort")) {
+            Object effortObj = requestBody.get("reasoning_effort");
+            if (effortObj == null) {
+                requestBody.remove("reasoning_effort");
+            } else {
+                String effort = effortObj.toString().trim().toLowerCase(java.util.Locale.ROOT);
+                switch (effort) {
+                    case "xhigh", "max", "maximum", "very_high", "very-high", "extra_high", "extra-high", "high" ->
+                        requestBody.put("reasoning_effort", "high");
+                    case "medium", "med", "mid", "moderate" ->
+                        requestBody.put("reasoning_effort", "medium");
+                    case "low", "min", "minimum", "minimal" ->
+                        requestBody.put("reasoning_effort", "low");
+                    case "none", "off", "false", "disabled", "0" ->
+                        requestBody.put("reasoning_effort", "none");
+                    default -> {
+                        if (effort.contains("hi") || effort.contains("max")) {
+                            requestBody.put("reasoning_effort", "high");
+                        } else if (effort.contains("med") || effort.contains("mid")) {
+                            requestBody.put("reasoning_effort", "medium");
+                        } else if (effort.contains("low") || effort.contains("min")) {
+                            requestBody.put("reasoning_effort", "low");
+                        } else if (effort.contains("no") || effort.contains("off") || effort.contains("dis")) {
+                            requestBody.put("reasoning_effort", "none");
+                        } else {
+                            // Unsupported value - remove to prevent 400 Bad Request
+                            requestBody.remove("reasoning_effort");
+                        }
+                    }
                 }
             }
         }
