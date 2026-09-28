@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for {@link LlmGatewayFacade#sanitizeRequest(Map)}:
  * normalisation of non-standard reasoning-effort parameters sent by
  * clients such as Cline, Roo Code, Cursor and Anthropic-based SDKs,
- * so that stricter upstream providers (e.g. Cerebras) do not reject
+ * so that stricter upstream providers do not reject
  * the request with 400 wrong_api_format.
  */
 public class LlmGatewayFacadeSanitizeTest {
@@ -44,7 +44,7 @@ public class LlmGatewayFacadeSanitizeTest {
     @Test
     public void testStandardBodyIsUntouched() {
         Map<String, Object> body = new HashMap<>();
-        body.put("model", "gpt-oss-120b");
+        body.put("model", "mimo-v2.6-pro");
         body.put("messages", new ArrayList<>());
         facade.sanitizeRequest(body);
         assertEquals(2, body.size());
@@ -201,7 +201,7 @@ public class LlmGatewayFacadeSanitizeTest {
     public void testCombinedNonStandardFieldsAllNormalised() {
         // Simulates a Cline-style payload mixing everything at once.
         Map<String, Object> body = new HashMap<>();
-        body.put("model", "gpt-oss-120b");
+        body.put("model", "mimo-v2.6-pro");
         body.put("messages", new ArrayList<Map<String, Object>>());
         body.put("thinking_effort", "xhigh");
         body.put("thinking", Map.of("type", "enabled", "budget_tokens", 80000));
@@ -213,7 +213,7 @@ public class LlmGatewayFacadeSanitizeTest {
         // thinking_effort is processed before 'thinking', so its converted value survives
         assertEquals("high", body.get("reasoning_effort"));
         // original fields preserved
-        assertEquals("gpt-oss-120b", body.get("model"));
+        assertEquals("mimo-v2.6-pro", body.get("model"));
         assertTrue(body.get("messages") instanceof List<?>);
     }
 }

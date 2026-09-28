@@ -116,6 +116,17 @@ public class HealthCheckService {
             performPingCall(modelId);
             latency = System.currentTimeMillis() - startTime;
             isUp = true;
+        } catch (LlmProviderClient.UpstreamServiceException e) {
+            latency = System.currentTimeMillis() - startTime;
+            // Preserve HTTP status code so the UI can recognize auth failures (401/403) distinctly.
+            int statusCode = e.getStatusCode();
+            if (statusCode == 401 || statusCode == 403) {
+                errorMessage = String.format("Upstream provider error (%d): %s", statusCode, e.getMessage());
+            } else {
+                errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            }
+            log.warn("Health check ping failed for model '{}': {}", modelId, errorMessage);
+            log.debug("Health check failure details for model '{}'", modelId, e);
         } catch (Exception e) {
             latency = System.currentTimeMillis() - startTime;
             errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getName();

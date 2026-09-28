@@ -21,12 +21,12 @@ import java.util.Map;
  * Client for interacting with any OpenAI-compatible API using the ModelRegistry's dynamic configurations.
  */
 @Service
-public class NvidiaLlmClient implements LlmProviderClient {
+public class OpenAiCompatibleLlmClient implements LlmProviderClient {
 
     private final WebClient webClient;
     private final ModelRegistry modelRegistry;
 
-    public NvidiaLlmClient(WebClient.Builder webClientBuilder, ModelRegistry modelRegistry) {
+    public OpenAiCompatibleLlmClient(WebClient.Builder webClientBuilder, ModelRegistry modelRegistry) {
         this.modelRegistry = modelRegistry;
 
         ConnectionProvider connectionProvider = ConnectionProvider.builder("llm-pool")
@@ -113,7 +113,7 @@ public class NvidiaLlmClient implements LlmProviderClient {
         int status = e.getStatusCode().value();
         String responseBody = e.getResponseBodyAsString();
 
-        boolean isRateLimit = (status == 429) || 
+        boolean isRateLimit = (status == 429) ||
                               (status == 503 && responseBody != null && (responseBody.contains("ResourceExhausted") || responseBody.contains("overloaded")));
 
         if (isRateLimit) {

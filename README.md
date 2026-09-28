@@ -1,6 +1,6 @@
 # Neural Gateway
 
-**Neural Gateway by Alak** is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple AI providers — including NVIDIA NIM and **Cerebras Inference**.
+**Neural Gateway by Alak** is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple AI providers — including NVIDIA NIM and **Experiential Labs**.
 
 ---
 
@@ -22,7 +22,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Dynamic API Key Cooldown**: When an upstream provider responds with HTTP 429 Too Many Requests, the offending API key is immediately isolated with a 30-second cooldown, rotating traffic instantly to healthy keys.
 - **Emergency Degraded Mode**: If all model circuits in a pipeline trip during upstream provider incidents, the gateway automatically falls back to highest-priority models ordered by lowest latency, eliminating 100% gateway blackouts and enabling traffic-driven self-healing.
 - **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trip model circuit breakers.
-- **Multi-Provider Failover**: Requests are routed across **all configured providers** (NVIDIA NIM and Cerebras Inference) as a single logical fleet. Provider-specific failures — including upstream `401`/`403`/`404` responses and quota errors such as `token_quota_exceeded` — trigger transparent failover to the next candidate model, which may live on a different provider entirely.
+- **Multi-Provider Failover**: Requests are routed across **all configured providers** (NVIDIA NIM, Experiential Labs, etc.) as a single logical fleet. Provider-specific failures — including upstream `401`/`403`/`404` responses and quota errors such as `token_quota_exceeded` — trigger transparent failover to the next candidate model, which may live on a different provider entirely.
 - **Request Sanitization for Cross-Provider Compatibility**: Non-standard client fields are normalised before dispatch — `thinking_effort` and Anthropic-style `thinking` blocks are translated to `reasoning_effort`, and `reasoning_effort` is coerced to the OpenAI-standard set (`none`, `low`, `medium`, `high`). This prevents `400 wrong_api_format` rejections from stricter providers and lets the gateway fail over instead of surfacing a spurious client error.
 - **Auto-Recovery**: Tripped circuit breakers automatically reset to closed as soon as background health checks succeed.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
@@ -97,7 +97,7 @@ Used by the React monitoring dashboard and operations tooling:
 ### Prerequisites
 - Docker & Docker Compose
 - An NVIDIA NIM API key ([build.nvidia.com](https://build.nvidia.com/))
-- A Cerebras Inference API key ([cloud.cerebras.ai](https://cloud.cerebras.ai/)) _(optional, enables Cerebras models)_
+- An Experiential Labs API key _(optional, enables `mimo-v2.6-pro`)_
 
 ### Installation & Deployment
 
@@ -111,11 +111,11 @@ Used by the React monitoring dashboard and operations tooling:
    Create a `.env` file with your provider keys:
    ```env
    NVIDIA_API_KEY=nvapi-your-key-here
-   CEREBRAS_API_KEY=csk-your-cerebras-key
+   EXPLABS_API_KEY=xpl-your-key-here
    ```
    You can also configure multiple keys for automatic rotation and rate-limit distribution:
    - `NVIDIA_API_KEY_1`, `NVIDIA_API_KEY_2`, `NVIDIA_API_KEY_3`
-   - `CEREBRAS_API_KEY` (single key supported)
+   - `EXPLABS_API_KEY` (single key supported)
 
 3. **Launch the Gateway:**
    ```bash

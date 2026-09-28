@@ -9,6 +9,8 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 spring:
+  config:
+    import: optional:file:.env[.properties]
   threads:
     virtual:
       enabled: true
@@ -51,12 +53,19 @@ llm:
         - { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  priority: 5,   pipelines: [REASONING, CODING, VISION] }
         - { id: "google/gemma-4-31b-it",                          priority: 5,   pipelines: [REASONING, CODING, VISION] }
         - { id: "meta/llama-3.2-11b-vision-instruct",             priority: 3,   pipelines: [VISION] }
-    cerebras:
-      base-url: https://api.cerebras.ai/v1
+    explabs :
+      base-url: https://api.experientiallabs.ai/v1
+      rate-limit-rpm: 300
+      keys:
+        - ${EXPLABS_API_KEY:}
+      models:
+        - { id: "mimo-v2.6-pro",                                   priority: 10,   pipelines: [ REASONING, CODING, VISION ] }
+    cohere:
+      base-url: https://api.cohere.com/compatibility/v1
       rate-limit-rpm: 30
       keys:
-        - ${CEREBRAS_API_KEY:}
+        - ${COHERE_API_KEY:}
       models:
-        - { id: "gpt-oss-120b",                                   priority: 8,   pipelines: [ REASONING, CODING ] }
-        - { id: "llama-3.3-70b",                                  priority: 7,   pipelines: [ REASONING, CODING ] }
-        - { id: "qwen-3.8-27b",                                   priority: 6,  pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "command-a-plus-05-2026",                         priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "north-mini-code-1-0",                            priority: 7,   pipelines: [ CODING ] }
+        - { id: "command-a-vision-07-2025",                       priority: 6,   pipelines: [ REASONING, VISION ] }

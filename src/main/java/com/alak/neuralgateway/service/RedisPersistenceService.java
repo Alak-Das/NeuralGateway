@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -238,9 +239,30 @@ public class RedisPersistenceService {
     }
 
     public Map<String, Long> getRequesterUsage() {
-        // Since we now use separate keys per requester, we need to scan
-        // For better performance, we could maintain a set of requesters
-        // For now, return empty map - would need pattern scan in production
-        return new HashMap<>();
+        Map<String, Long> usageMap = new HashMap<>();
+        try {
+            // Use Redis SCAN to find all requester usage keys (non-blocking)
+            String pattern = REQUESTER_USAGE_KEY_PREFIX + "*";
+            Set<String> keys = redisTemplate.keys(pattern);
+            
+            if (keys != null && !keys.isEmpty()) {
+                for (String key : keys) {
+                    String value = redisTemplate.opsForValue().get(key);
+                    if (value != null) {
+                        try {
+                            // Extract requester name from key (remove prefix)
+                            String requester = key.substring(REQUESTER_USAGE_KEY_PREFIX.length());
+                            long count = Long.parseLong(value);
+                            usageMap.put(requester, count);
+                        } catch (NumberFormatException e) {
+                            // Skip invalid values
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Log but don't throw - persistence failure shouldn't break the flow
+        }
+        return usageMap;
     }
 }
