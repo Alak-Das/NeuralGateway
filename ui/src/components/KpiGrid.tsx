@@ -91,7 +91,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
       d.health = 100 - (errorByMin[t].errors / errorByMin[t].total) * 100;
     }
     if (usageByMin[t]) {
-      d.tps = usageByMin[t] / 60;
+      d.tps = usageByMin[t];
       d.usage = usageByMin[t];
     }
     if (latencyByMin[t] && latencyByMin[t].count > 0) {
@@ -172,16 +172,15 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
           </div>
         </div>
       </div>
-
-      {/* Global TPS */}
+      {/* Global TPM */}
       <div className="col-12 col-sm-6 col-lg-4 col-xl">
         <div className="card border-0 shadow-sm rounded-4 h-100 position-relative overflow-hidden d-flex flex-column p-0">
           <div className="p-3 pb-0 d-flex flex-column" style={{ zIndex: 2 }}>
             <div className="text-secondary fw-semibold mb-1" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-              <i className="bi bi-activity text-primary me-2"></i>Global TPS
+              <i className="bi bi-activity text-primary me-2"></i>Global TPM
             </div>
             <div className="fw-bolder d-flex align-items-baseline text-main" style={{ fontSize: '2.2rem', letterSpacing: '-1px', lineHeight: '1.1' }}>
-              {totalTps.toFixed(1)} <span className="text-muted ms-1 fw-medium" style={{ fontSize: '0.9rem', letterSpacing: '0' }}>req/s</span>
+              {totalTps.toFixed(1)} <span className="text-muted ms-1 fw-medium" style={{ fontSize: '0.9rem', letterSpacing: '0' }}>req/min</span>
             </div>
           </div>
           <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>
