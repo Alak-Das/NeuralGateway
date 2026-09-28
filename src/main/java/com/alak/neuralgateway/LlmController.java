@@ -15,17 +15,25 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import reactor.core.publisher.Flux;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @RestController
 @CrossOrigin(origins = "*")
 public class LlmController {
+
+    private static final ObjectMapper STREAM_MAPPER = new ObjectMapper();
     
     private final LlmGatewayFacade gatewayFacade;
     private final PipelineResolverService pipelineResolver;
@@ -193,105 +201,76 @@ public class LlmController {
             log.info("Received OpenAI-compatible {} proxy request to '{}' [Resolution: {}]",
                     pipeline, httpRequest.getRequestURI(), resolutionReason != null ? resolutionReason : "Direct");
 
+            if (Boolean.TRUE.equals(request.get("stream"))) {
+                Flux<String> upstreamEvents = gatewayFacade.processStreamingChatCompletion(
+                        request, requester, transactionId, pipeline);
+                StreamingResponseBody body = outputStream -> writeStreamingResponse(
+                        outputStream, upstreamEvents, requester, transactionId);
+                return ResponseEntity.ok()
+                        .contentType(MediaType.TEXT_EVENT_STREAM)
+                        .header("Cache-Control", "no-cache")
+                        .header("X-Transaction-Id", transactionId)
+                        .body(body);
+            }
+
             long start = System.currentTimeMillis();
             Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, transactionId, pipeline);
             log.info("{} proxy request completed in {}ms", pipeline, (System.currentTimeMillis() - start));
 
-            return formatOpenAiResponse(request, response, transactionId);
+            return formatOpenAiResponse(response, transactionId);
         } finally {
             org.slf4j.MDC.clear();
         }
     }
 
-    private ResponseEntity<?> formatOpenAiResponse(Map<String, Object> request, Map<String, Object> response, String transactionId) {
-        if (Boolean.TRUE.equals(request.get("stream"))) {
-            try {
-                @SuppressWarnings("unchecked")
-                List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
-                @SuppressWarnings("unchecked")
-                Map<String, Object> message = (choices != null && !choices.isEmpty()) ? (Map<String, Object>) choices.get(0).get("message") : null;
-                ObjectMapper mapper = new ObjectMapper();
-                
-                // Chunk 1: Content & Tool Calls
-                Map<String, Object> delta = new HashMap<>();
-                delta.put("role", "assistant");
-                if (message != null && message.containsKey("content")) {
-                    delta.put("content", message.get("content"));
-                }
-                boolean hasToolCalls = false;
-                if (message != null && message.containsKey("tool_calls")) {
-                    @SuppressWarnings("unchecked")
-                    List<Map<String, Object>> originalToolCalls = (List<Map<String, Object>>) message.get("tool_calls");
-                    if (originalToolCalls != null && !originalToolCalls.isEmpty()) {
-                        hasToolCalls = true;
-                        List<Map<String, Object>> streamToolCalls = new ArrayList<>();
-                        for (int i = 0; i < originalToolCalls.size(); i++) {
-                            Map<String, Object> tc = new HashMap<>(originalToolCalls.get(i));
-                            tc.put("index", i);
-                            
-                            @SuppressWarnings("unchecked")
-                            Map<String, Object> function = (Map<String, Object>) tc.get("function");
-                            if (function != null && function.containsKey("arguments")) {
-                                Object args = function.get("arguments");
-                                if (!(args instanceof String)) {
-                                    Map<String, Object> newFunction = new HashMap<>(function);
-                                    newFunction.put("arguments", mapper.writeValueAsString(args));
-                                    tc.put("function", newFunction);
-                                }
-                            }
-                            
-                            streamToolCalls.add(tc);
+    private void writeStreamingResponse(OutputStream outputStream,
+                                        Flux<String> upstreamEvents,
+                                        String requester,
+                                        String transactionId) throws IOException {
+        org.slf4j.MDC.put("txId", transactionId);
+        org.slf4j.MDC.put("requester", requester);
+        AtomicBoolean doneSent = new AtomicBoolean(false);
+        try {
+            upstreamEvents
+                    .doOnNext(event -> {
+                        try {
+                            writeSseData(outputStream, event);
+                            if ("[DONE]".equals(event)) doneSent.set(true);
+                        } catch (IOException e) {
+                            throw new java.io.UncheckedIOException(e);
                         }
-                        delta.put("tool_calls", streamToolCalls);
-                    }
+                    })
+                    .blockLast();
+
+            if (!doneSent.get()) writeSseData(outputStream, "[DONE]");
+        } catch (Exception e) {
+            log.error("Streaming response failed: {}", e.getMessage(), e);
+            if (!doneSent.get()) {
+                try {
+                    Map<String, Object> error = Map.of("error", Map.of(
+                            "message", e.getMessage() != null ? e.getMessage() : "Streaming upstream error",
+                            "type", "upstream_error",
+                            "code", "model_unavailable"));
+                    writeSseData(outputStream, STREAM_MAPPER.writeValueAsString(error));
+                    writeSseData(outputStream, "[DONE]");
+                } catch (Exception writeError) {
+                    log.debug("Unable to send streaming error to disconnected client: {}", writeError.getMessage());
                 }
-                
-                Map<String, Object> chunkChoice1 = new HashMap<>();
-                chunkChoice1.put("index", 0);
-                chunkChoice1.put("delta", delta);
-                chunkChoice1.put("finish_reason", null);
-                
-                Map<String, Object> chunk1 = new HashMap<>();
-                chunk1.put("id", response.get("id"));
-                chunk1.put("object", "chat.completion.chunk");
-                chunk1.put("created", response.get("created"));
-                chunk1.put("model", response.get("model"));
-                chunk1.put("choices", List.of(chunkChoice1));
-                
-                // Chunk 2: Finish Reason (tool_calls if tools called, otherwise stop)
-                Map<String, Object> chunkChoice2 = new HashMap<>();
-                chunkChoice2.put("index", 0);
-                chunkChoice2.put("delta", new HashMap<>());
-                chunkChoice2.put("finish_reason", hasToolCalls ? "tool_calls" : "stop");
-                
-                Map<String, Object> chunk2 = new HashMap<>(chunk1);
-                chunk2.put("choices", List.of(chunkChoice2));
-                
-                String sse = "data: " + mapper.writeValueAsString(chunk1) + "\n\n" +
-                             "data: " + mapper.writeValueAsString(chunk2) + "\n\n";
-                             
-                // Chunk 3: Usage (if requested)
-                @SuppressWarnings("unchecked")
-                Map<String, Object> streamOptions = (Map<String, Object>) request.get("stream_options");
-                if (streamOptions != null && Boolean.TRUE.equals(streamOptions.get("include_usage")) && response.containsKey("usage")) {
-                    Map<String, Object> chunk3 = new HashMap<>(chunk1);
-                    chunk3.put("choices", List.of()); // OpenAI usage chunks have empty choices
-                    chunk3.put("usage", response.get("usage"));
-                    sse += "data: " + mapper.writeValueAsString(chunk3) + "\n\n";
-                }
-                
-                sse += "data: [DONE]\n\n";
-                
-                return ResponseEntity.ok()
-                        .header("Content-Type", "text/event-stream")
-                        .header("X-Transaction-Id", transactionId)
-                        .body(sse);
-            } catch (Exception e) {
-                log.error("Failed to convert to SSE chunk", e);
-                return ResponseEntity.internalServerError().build();
             }
+        } finally {
+            org.slf4j.MDC.clear();
         }
-        
+    }
+
+    private void writeSseData(OutputStream outputStream, String data) throws IOException {
+        for (String line : data.split("\\R", -1)) {
+            outputStream.write(("data: " + line + "\n").getBytes(StandardCharsets.UTF_8));
+        }
+        outputStream.write("\n".getBytes(StandardCharsets.UTF_8));
+        outputStream.flush();
+    }
+
+    private ResponseEntity<?> formatOpenAiResponse(Map<String, Object> response, String transactionId) {
         return ResponseEntity.ok()
                 .header("X-Transaction-Id", transactionId)
                 .body(response);

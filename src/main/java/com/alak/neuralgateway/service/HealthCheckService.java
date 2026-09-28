@@ -74,18 +74,13 @@ public class HealthCheckService {
         
         for (int i = 0; i < modelsToPing.size(); i++) {
             Model model = modelsToPing.get(i);
-            long delayMs = i * 500L; // Stagger each ping by 500ms to pace requests
-            
-            CompletableFuture.runAsync(() -> {
-                if (delayMs > 0) {
-                    try {
-                        Thread.sleep(delayMs);
-                    } catch (InterruptedException ignored) {}
-                }
-            }, healthCheckExecutor)
-            .thenCompose(v -> CompletableFuture.supplyAsync(() -> performActualPing(model.getId()), healthCheckExecutor))
-            // Wait up to the configured timeout (e.g. 2 minutes)
-            .orTimeout(properties.getPingTimeoutMs(), TimeUnit.MILLISECONDS)
+            long delayMs = i * properties.getMinPingGapMs();
+
+            CompletableFuture.supplyAsync(
+                    () -> performActualPing(model.getId()),
+                    CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS, healthCheckExecutor))
+            // The delay paces when the ping starts, so don't let its timeout expire before it runs.
+            .orTimeout(delayMs + properties.getPingTimeoutMs(), TimeUnit.MILLISECONDS)
             .handle((result, ex) -> {
                 if (ex != null) {
                     return new HealthCheckResult(model.getId(), false, properties.getPingTimeoutMs(), Instant.now(), "Timeout/Error: " + ex.getMessage(), true);

@@ -1,7 +1,7 @@
 package com.alak.neuralgateway.service;
 
-import java.util.List;
 import java.util.Map;
+import reactor.core.publisher.Flux;
 
 /**
  * Interface representing a generic LLM Provider (NVIDIA, OpenAI, Anthropic, etc).
@@ -18,13 +18,10 @@ public interface LlmProviderClient {
     Map<String, Object> call(String modelId, Map<String, Object> request);
 
     /**
-     * Make a streaming call to the LLM API.
-     *
-     * @param modelId The ID of the model to use
-     * @param request The request payload (OpenAI format)
-     * @return A list of response chunks (OpenAI format)
+     * Stream the raw JSON payload from each upstream Server-Sent Event.
+     * The terminal {@code [DONE]} payload is preserved when supplied upstream.
      */
-    List<Map<String, Object>> callStream(String modelId, Map<String, Object> request);
+    Flux<String> callStream(String modelId, Map<String, Object> request);
 
     /**
      * Exception for upstream service failures (5xx).

@@ -95,7 +95,7 @@ export default function StatusTable({ data }: StatusTableProps) {
       let valA: any = 0; let valB: any = 0;
       switch (sortCol) {
         case 'model': valA = a.model; valB = b.model; break;
-          case 'status': valA = a.circuitOpen ? -1 : (a.isUp ? 1 : 0); valB = b.circuitOpen ? -1 : (b.isUp ? 1 : 0); break;
+        case 'status': valA = a.circuitOpen ? -1 : (a.isUp ? 1 : 0); valB = b.circuitOpen ? -1 : (b.isUp ? 1 : 0); break;
         case 'latency': valA = a.latencyMs; valB = b.latencyMs; break;
         case 'tps': valA = a.tps; valB = b.tps; break;
         case 'uses': valA = a.totalUses; valB = b.totalUses; break;
@@ -107,6 +107,9 @@ export default function StatusTable({ data }: StatusTableProps) {
       }
       if (valA < valB) return sortDir === 'asc' ? -1 : 1;
       if (valA > valB) return sortDir === 'asc' ? 1 : -1;
+      if (sortCol === 'status' || sortCol === 'circuit') {
+        return (b.priority ?? 0) - (a.priority ?? 0);
+      }
       return 0;
     });
   }, [data, categoryFilter, statusFilter, sortCol, sortDir]);

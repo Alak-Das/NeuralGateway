@@ -25,24 +25,35 @@ public class RedisPubSubConfig {
     }
 
     @Bean
-    public MessageListenerAdapter listenerAdapter(SseNotificationService sseNotificationService, ModelStatusService modelStatusService) {
-        return new MessageListenerAdapter(new SseMessageSubscriber(sseNotificationService, modelStatusService), "onMessage");
+    public MessageListenerAdapter listenerAdapter(SseNotificationService sseNotificationService,
+                                                  ModelStatusService modelStatusService,
+                                                  ObjectMapper objectMapper) {
+        return new MessageListenerAdapter(
+                new SseMessageSubscriber(sseNotificationService, modelStatusService, objectMapper), "onMessage");
     }
 
     public static class SseMessageSubscriber {
         private final SseNotificationService sseNotificationService;
         private final ModelStatusService modelStatusService;
+        private final ObjectMapper objectMapper;
 
-        public SseMessageSubscriber(SseNotificationService sseNotificationService, ModelStatusService modelStatusService) {
+        public SseMessageSubscriber(SseNotificationService sseNotificationService,
+                                    ModelStatusService modelStatusService,
+                                    ObjectMapper objectMapper) {
             this.sseNotificationService = sseNotificationService;
             this.modelStatusService = modelStatusService;
+            this.objectMapper = objectMapper;
         }
 
         public void onMessage(String message, String channel) {
-            // When a message is received from Redis, broadcast local state to connected clients.
-            // (We could parse the message payload if we wanted incremental updates,
-            // but broadcasting the whole status list keeps it simple and syncs the state).
-            sseNotificationService.broadcast(modelStatusService.getAllStatuses());
+            try {
+                com.alak.neuralgateway.domain.ModelStatus status =
+                        objectMapper.readValue(message, com.alak.neuralgateway.domain.ModelStatus.class);
+                modelStatusService.updateFromRemote(status);
+                sseNotificationService.broadcast(modelStatusService.getAllStatuses());
+            } catch (Exception e) {
+                // Ignore malformed or legacy notification payloads rather than disrupting the listener.
+            }
         }
     }
 }

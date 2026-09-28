@@ -65,6 +65,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      * Initialize a single model's status from Redis.
      */
     public void initializeModel(String modelId) {
+        circuitBreakerService.initializeModel(modelId);
         List<HealthCheckResult> history = redisPersistence.getHealthCheckHistory(modelId);
         long usage = redisPersistence.getUsage(modelId);
         boolean circuitOpen = redisPersistence.isCircuitOpen(modelId);
@@ -193,6 +194,16 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      */
     public ModelStatus getStatus(String modelId) {
         return statusCache.get(modelId);
+    }
+
+    /**
+     * Apply a status snapshot published by another gateway instance.
+     */
+    public void updateFromRemote(ModelStatus status) {
+        if (status != null && status.model() != null) {
+            circuitBreakerService.initializeModel(status.model());
+            statusCache.put(status.model(), status);
+        }
     }
 
     /**

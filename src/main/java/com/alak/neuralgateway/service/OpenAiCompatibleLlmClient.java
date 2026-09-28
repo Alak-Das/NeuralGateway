@@ -12,10 +12,13 @@ import reactor.netty.resources.ConnectionProvider;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.codec.ServerSentEvent;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Client for interacting with any OpenAI-compatible API using the ModelRegistry's dynamic configurations.
@@ -104,9 +107,50 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
     }
 
     @Override
-    public List<Map<String, Object>> callStream(String modelId, Map<String, Object> request) {
-        Map<String, Object> resp = call(modelId, request);
-        return List.of(resp);
+    public Flux<String> callStream(String modelId, Map<String, Object> request) {
+        Model model = modelRegistry.getModel(modelId).orElseThrow(() -> new IllegalArgumentException("Unknown model: " + modelId));
+
+        return Flux.defer(() -> {
+            String apiKey = getApiKeyForModel(model);
+            String baseUrl = getBaseUrlForModel(model);
+            ApiKeyPool pool = modelRegistry.getApiKeyPool(model.getProviderId());
+
+            request.put("model", modelId);
+            request.put("stream", true);
+
+            if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyActive(apiKey);
+
+            return webClient.post()
+                    .uri(baseUrl + "/chat/completions")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.TEXT_EVENT_STREAM)
+                    .bodyValue(request)
+                    .retrieve()
+                    .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                    .map(ServerSentEvent::data)
+                    .filter(Objects::nonNull)
+                    .onErrorMap(WebClientResponseException.class,
+                            e -> mapWebClientException(e, model.getProviderId(), apiKey, modelId))
+                    .onErrorMap(org.springframework.web.reactive.function.client.WebClientRequestException.class,
+                            e -> mapWebClientRequestException(e, modelId))
+                    .doFinally(signal -> {
+                        if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyIdle(apiKey);
+                    });
+        });
+    }
+
+    private RuntimeException mapWebClientRequestException(
+            org.springframework.web.reactive.function.client.WebClientRequestException e, String modelId) {
+        Throwable cause = e.getCause();
+        if (cause instanceof io.netty.handler.timeout.ReadTimeoutException) {
+            return new UpstreamServiceException("Upstream read timed out for model: " + modelId, 504);
+        }
+        if (cause instanceof reactor.netty.http.client.PrematureCloseException) {
+            return new UpstreamServiceException("Upstream connection prematurely closed for model: " + modelId, 503);
+        }
+        String msg = (e.getMessage() != null && !e.getMessage().isBlank()) ? e.getMessage() : "Network communication error";
+        return new UpstreamServiceException("Upstream connection error for model " + modelId + ": " + msg, 503);
     }
 
     private RuntimeException mapWebClientException(WebClientResponseException e, String providerId, String apiKey, String modelId) {

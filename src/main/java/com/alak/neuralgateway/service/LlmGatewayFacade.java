@@ -16,6 +16,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import reactor.core.publisher.Flux;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -199,10 +201,10 @@ public class LlmGatewayFacade {
     /**
      * Process a streaming chat completion request.
      */
-    public String processStreamingChatCompletion(Map<String, Object> requestBody, 
-                                                 String requester, 
-                                                 String transactionId, 
-                                                 String pipelineName) {
+    public Flux<String> processStreamingChatCompletion(Map<String, Object> requestBody,
+                                                       String requester,
+                                                       String transactionId,
+                                                       String pipelineName) {
         Pipeline pipeline = Pipeline.valueOf(pipelineName.toUpperCase());
         sanitizeRequest(requestBody);
 
@@ -221,78 +223,111 @@ public class LlmGatewayFacade {
             throw new IllegalStateException("No available models for pipeline: " + pipelineName);
         }
 
-        // Try each candidate
-        for (Model model : candidates) {
-            modelStatusService.incrementUsage(model.getId());
-            routingService.incrementActiveConnections(model.getId());
-            
-            try {
-                if (!circuitBreakerService.isRequestPermitted(model.getId())) {
-                    throw new IllegalStateException("Circuit breaker OPEN for model: " + model.getId());
+        Object requestedModelObj = requestBody.get("model");
+        if (requestedModelObj instanceof String requestedModel && modelRegistry.isValidModel(requestedModel)) {
+            for (int i = 0; i < candidates.size(); i++) {
+                if (candidates.get(i).getId().equalsIgnoreCase(requestedModel)) {
+                    Model targeted = candidates.remove(i);
+                    candidates.add(0, targeted);
+                    break;
                 }
-
-                Map<String, Object> upstreamRequest = new java.util.HashMap<>(requestBody);
-                upstreamRequest.put("stream", false);
-                upstreamRequest.put("model", model.getId());
-                upstreamRequest.remove("stream_options");
-
-                List<Map<String, Object>> streamChunks = LlmProviderClient.callStream(model.getId(), upstreamRequest);
-                
-                // Convert to SSE format
-                String sse = convertToSseFormat(streamChunks, model.getId());
-                
-                circuitBreakerService.recordSuccess(model.getId());
-                routingService.decrementActiveConnections(model.getId());
-                
-                // Track estimated tokens for requester on successful stream
-                if (estimatedTokens > 0 && requester != null && !requester.isEmpty()) {
-                    redisPersistenceService.incrementRequesterUsage(requester, estimatedTokens);
-                }
-                
-                return sse;
-                
-            } catch (LlmProviderClient.UpstreamServiceException e) {
-                log.warn("[TxID: {}] Upstream streaming error for model '{}': {}. Failing over...",
-                        transactionId, model.getId(), e.getMessage());
-                circuitBreakerService.recordFailure(model.getId(), e);
-                routingService.decrementActiveConnections(model.getId());
-                continue;
-            } catch (Exception e) {
-                log.warn("[TxID: {}] Streaming error for model '{}': {}. Failing over...",
-                        transactionId, model.getId(), e.getMessage());
-                circuitBreakerService.recordFailure(model.getId(), e);
-                routingService.decrementActiveConnections(model.getId());
-                continue;
             }
         }
 
-        throw new IllegalStateException("All models failed for pipeline: " + pipelineName);
+        return streamCandidate(candidates, 0, requestBody, requester, transactionId, pipelineName, estimatedTokens);
     }
 
-    /**
-     * Convert streaming chunks to SSE format.
-     */
-    private String convertToSseFormat(List<Map<String, Object>> chunks, String modelId) {
-        StringBuilder sse = new StringBuilder();
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        
-        try {
-            for (int i = 0; i < chunks.size(); i++) {
-                Map<String, Object> chunk = chunks.get(i);
-                
-                // Add model if missing
-                if (!chunk.containsKey("model")) {
-                    chunk.put("model", modelId);
-                }
-                
-                sse.append("data: ").append(mapper.writeValueAsString(chunk)).append("\n\n");
-            }
-            sse.append("data: [DONE]\n\n");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to format SSE", e);
+    private Flux<String> streamCandidate(List<Model> candidates,
+                                         int candidateIndex,
+                                         Map<String, Object> requestBody,
+                                         String requester,
+                                         String transactionId,
+                                         String pipelineName,
+                                         int estimatedTokens) {
+        if (candidateIndex >= candidates.size()) {
+            return Flux.error(new IllegalStateException("All models failed for pipeline: " + pipelineName));
         }
-        
-        return sse.toString();
+
+        Model model = candidates.get(candidateIndex);
+        return Flux.defer(() -> {
+            modelStatusService.incrementUsage(model.getId());
+            routingService.incrementActiveConnections(model.getId());
+
+            if (!circuitBreakerService.isRequestPermitted(model.getId())) {
+                routingService.decrementActiveConnections(model.getId());
+                return streamCandidate(candidates, candidateIndex + 1, requestBody, requester,
+                        transactionId, pipelineName, estimatedTokens);
+            }
+
+            long startTime = System.currentTimeMillis();
+            AtomicBoolean emittedAnyData = new AtomicBoolean(false);
+            AtomicBoolean connectionReleased = new AtomicBoolean(false);
+            AtomicBoolean circuitOutcomeRecorded = new AtomicBoolean(false);
+            Runnable releaseConnection = () -> {
+                if (connectionReleased.compareAndSet(false, true)) {
+                    routingService.decrementActiveConnections(model.getId());
+                }
+            };
+
+            Map<String, Object> upstreamRequest = new java.util.HashMap<>(requestBody);
+            upstreamRequest.put("stream", true);
+            upstreamRequest.put("model", model.getId());
+
+            Flux<String> upstream = LlmProviderClient.callStream(model.getId(), upstreamRequest)
+                    .doOnNext(event -> emittedAnyData.set(true))
+                    .doOnComplete(() -> {
+                        long latency = System.currentTimeMillis() - startTime;
+                        routingService.updateEmaLatency(model.getId(), latency);
+                        if (circuitOutcomeRecorded.compareAndSet(false, true)) {
+                            circuitBreakerService.recordSuccess(model.getId());
+                        }
+                        releaseConnection.run();
+                        modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
+                                model.getId(), true, latency, java.time.Instant.now(), null));
+                        if (estimatedTokens > 0 && requester != null && !requester.isEmpty()) {
+                            redisPersistenceService.incrementRequesterUsage(requester, estimatedTokens);
+                        }
+                    })
+                    .doOnError(error -> releaseConnection.run())
+                    .doOnCancel(() -> {
+                        releaseConnection.run();
+                        if (circuitOutcomeRecorded.compareAndSet(false, true)) {
+                            circuitBreakerService.releasePermission(model.getId());
+                        }
+                    });
+
+            return upstream.onErrorResume(error -> {
+                long latency = System.currentTimeMillis() - startTime;
+                boolean formatError = error instanceof IllegalArgumentException
+                        && error.getMessage() != null
+                        && (error.getMessage().contains("wrong_api_format")
+                        || error.getMessage().contains("unsupported")
+                        || error.getMessage().contains("validation_error"));
+
+                boolean recordAsFailure = !(error instanceof IllegalArgumentException) || formatError;
+                if (circuitOutcomeRecorded.compareAndSet(false, true)) {
+                    if (recordAsFailure) {
+                        circuitBreakerService.recordFailure(model.getId(), error);
+                    } else {
+                        circuitBreakerService.releasePermission(model.getId());
+                    }
+                }
+                if (recordAsFailure) {
+                    modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
+                            model.getId(), false, latency, java.time.Instant.now(), error.getMessage()));
+                }
+
+                boolean canFailOver = !emittedAnyData.get()
+                        && recordAsFailure;
+                if (canFailOver) {
+                    log.warn("[TxID: {}] Streaming error for model '{}': {}. Failing over...",
+                            transactionId, model.getId(), error.getMessage());
+                    return streamCandidate(candidates, candidateIndex + 1, requestBody, requester,
+                            transactionId, pipelineName, estimatedTokens);
+                }
+                return Flux.error(error);
+            });
+        });
     }
 
     /**

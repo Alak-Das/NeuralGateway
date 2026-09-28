@@ -31,6 +31,10 @@ ChartJS.register(
 // Theme context to access current theme (provided by App)
 import { ThemeContext } from '../theme/ThemeContext';
 
+interface ChartsProps {
+  data: ModelStatus[];
+}
+
 export default function Charts({ data }: ChartsProps) {
   const [latencyRangeMins, setLatencyRangeMins] = useState(15);
   const [usageRangeMins, setUsageRangeMins] = useState(15);
@@ -377,7 +381,7 @@ export default function Charts({ data }: ChartsProps) {
               <option value={60}>Last 1 Hour</option>
               <option value={360}>Last 6 Hours</option>
               <option value={1440}>Last 24 Hours</option>
-              <option value={0}>All Time</option>
+              <option value={0}>Retained History</option>
             </select>
           </div>
           <div className="d-flex flex-wrap flex-sm-nowrap justify-content-center align-items-center w-100" style={{ minHeight: '280px' }}>

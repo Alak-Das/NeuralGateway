@@ -25,7 +25,9 @@ export default function App() {
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    const initialTheme = savedTheme || systemTheme;
+    const initialTheme: 'dark' | 'light' = savedTheme === 'dark' || savedTheme === 'light'
+      ? savedTheme
+      : systemTheme;
     document.documentElement.dataset.theme = initialTheme;
     document.documentElement.setAttribute('data-bs-theme', initialTheme);
     setTheme(initialTheme);
@@ -158,7 +160,7 @@ export default function App() {
           <div className="d-flex align-items-center gap-3">
             <div className="d-flex align-items-center gap-3 text-muted me-2 d-none d-sm-flex" style={{ fontSize: '0.8rem' }}>
               <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1">
-                <i className="bi bi-shield-check me-1"></i>Sweep: Every 4m (5s gap)
+                <i className="bi bi-shield-check me-1"></i>Scheduled health checks
               </span>
               {getConnectionBadge()}
               <span>Last updated: <span className="fw-medium text-main">{lastUpdated ? lastUpdated.toLocaleTimeString() : '---'}</span></span>

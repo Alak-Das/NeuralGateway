@@ -71,9 +71,11 @@ public class CircuitBreakerService {
     public void initializeModel(String modelId) {
         CircuitBreaker cb = getCircuitBreaker(modelId);
         boolean persistedOpen = redisPersistence.isCircuitOpen(modelId);
-        if (persistedOpen && cb.getState() == CircuitBreaker.State.CLOSED) {
+        CircuitBreaker.State state = cb.getState();
+        if (persistedOpen && (state == CircuitBreaker.State.CLOSED || state == CircuitBreaker.State.HALF_OPEN)) {
             cb.transitionToOpenState();
-        } else if (!persistedOpen && (cb.getState() == CircuitBreaker.State.OPEN || cb.getState() == CircuitBreaker.State.FORCED_OPEN)) {
+        } else if (!persistedOpen && (state == CircuitBreaker.State.OPEN
+                || state == CircuitBreaker.State.FORCED_OPEN || state == CircuitBreaker.State.HALF_OPEN)) {
             cb.transitionToClosedState();
         }
     }
@@ -104,6 +106,13 @@ public class CircuitBreakerService {
     public void recordFailure(String modelId, Throwable throwable) {
         long duration = 1;
         getCircuitBreaker(modelId).onError(duration, java.util.concurrent.TimeUnit.MILLISECONDS, throwable);
+    }
+
+    /**
+     * Release a request permission when a streaming caller disconnects before completion.
+     */
+    public void releasePermission(String modelId) {
+        getCircuitBreaker(modelId).releasePermission();
     }
 
     /**
