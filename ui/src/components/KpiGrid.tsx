@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ModelStatus } from '../types';
+import { Line } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend } from 'chart.js';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
 interface KpiGridProps {
   data: ModelStatus[];
@@ -28,6 +32,81 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
     }, 1800);
     return () => clearInterval(interval);
   }, []);
+
+  // Calculate Sparkline Data
+  const now = new Date();
+  const fifteenMinsAgo = now.getTime() - 15 * 60 * 1000;
+
+  const sparklineData = Array.from({ length: 15 }, (_, i) => {
+    const d = new Date(now.getTime() - (14 - i) * 60 * 1000);
+    d.setSeconds(0, 0);
+    return {
+      time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: d.getTime(),
+      health: 100,
+      tps: 0,
+      latency: 0,
+      usage: 0
+    };
+  });
+
+  const timeMap = new Map<number, typeof sparklineData[0]>();
+  sparklineData.forEach(d => timeMap.set(d.timestamp, d));
+
+  const errorByMin: Record<number, { total: number, errors: number }> = {};
+  const latencyByMin: Record<number, { totalMs: number, count: number }> = {};
+  const usageByMin: Record<number, number> = {};
+
+  data.forEach(d => {
+    if (d.history) {
+      d.history.forEach(h => {
+        const date = new Date(h.timestamp);
+        date.setSeconds(0, 0);
+        const t = date.getTime();
+        
+        if (timeMap.has(t)) {
+          if (!h.isBackgroundProbe) {
+             usageByMin[t] = (usageByMin[t] || 0) + 1;
+          }
+          
+          if (!errorByMin[t]) errorByMin[t] = { total: 0, errors: 0 };
+          errorByMin[t].total++;
+          if (!(h.up !== undefined ? h.up : h.isUp)) {
+            errorByMin[t].errors++;
+          }
+
+          if ((h.up !== undefined ? h.up : h.isUp) && h.latencyMs > 0) {
+            if (!latencyByMin[t]) latencyByMin[t] = { totalMs: 0, count: 0 };
+            latencyByMin[t].totalMs += h.latencyMs;
+            latencyByMin[t].count++;
+          }
+        }
+      });
+    }
+  });
+
+  sparklineData.forEach(d => {
+    const t = d.timestamp;
+    if (errorByMin[t] && errorByMin[t].total > 0) {
+      d.health = 100 - (errorByMin[t].errors / errorByMin[t].total) * 100;
+    }
+    if (usageByMin[t]) {
+      d.tps = usageByMin[t] / 60;
+      d.usage = usageByMin[t];
+    }
+    if (latencyByMin[t] && latencyByMin[t].count > 0) {
+      d.latency = latencyByMin[t].totalMs / latencyByMin[t].count;
+    }
+  });
+
+  const sparklineOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    scales: { x: { display: false }, y: { display: false } },
+    elements: { point: { radius: 0, hitRadius: 0, hoverRadius: 0 }, line: { tension: 0.4, borderWidth: 2 } },
+    animation: false as const
+  };
 
   const getActiveModelUI = () => {
     if (currentActiveModels.length === 0) {
@@ -68,76 +147,121 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
 
   return (
     <div className="row g-4 mb-4" id="kpiGrid">
+      {/* Fleet Health */}
       <div className="col-12 col-sm-6 col-lg-4 col-xl">
-        <div className="card border-0 shadow-sm rounded-4 p-4 h-100 position-relative overflow-hidden">
-          <div className="text-secondary fw-semibold mb-2" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-            <i className="bi bi-server me-2"></i>Fleet Health
+        <div className="card border-0 shadow-sm rounded-4 h-100 position-relative overflow-hidden d-flex flex-column p-0">
+          <div className="p-3 pb-0 d-flex flex-column" style={{ zIndex: 2 }}>
+            <div className="text-secondary fw-semibold mb-1" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+              <i className="bi bi-server me-2"></i>Fleet Health
+            </div>
+            <div className="fw-bolder d-flex align-items-baseline" style={{ fontSize: '2rem', lineHeight: '1.1' }}>
+              <span className={upModels === totalModels ? 'text-success' : (upModels === 0 ? 'text-danger' : 'text-warning')}>{upModels}</span>
+              <span className="text-muted ms-2" style={{ fontSize: '1.1rem' }}>/ {totalModels}</span>
+            </div>
           </div>
-          <div className="fw-bolder d-flex align-items-baseline" style={{ fontSize: '2rem' }}>
-            <span className={upModels === totalModels ? 'text-success' : (upModels === 0 ? 'text-danger' : 'text-warning')}>{upModels}</span>
-            <span className="text-muted ms-2" style={{ fontSize: '1.25rem' }}>/ {totalModels}</span>
-          </div>
-          <div className="mt-2">
-            {trippedCount > 0 ? (
-              <span className="badge bg-warning text-dark"><i className="bi bi-exclamation-triangle me-1"></i> {trippedCount} Tripped</span>
-            ) : realDownCount > 0 ? (
-              <span className="badge bg-danger"><i className="bi bi-x-circle me-1"></i> {realDownCount} Down</span>
-            ) : (
-              <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25"><i className="bi bi-check-circle me-1"></i> All Systems Go</span>
-            )}
+          <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>
+            <div className="position-absolute w-100 h-100 px-3 pb-3">
+              <Line 
+                data={{ 
+                  labels: sparklineData.map(d => d.time), 
+                  datasets: [{ data: sparklineData.map(d => d.health), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.2)', fill: true, pointRadius: 0, tension: 0.4 }] 
+                }} 
+                options={{ ...sparklineOptions, maintainAspectRatio: false, layout: { padding: 0 }, scales: { x: { display: false }, y: { display: false, min: -1, max: 100 } } }} 
+              />
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Global TPS */}
       <div className="col-12 col-sm-6 col-lg-4 col-xl">
-        <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
-          <div className="text-secondary fw-semibold mb-2" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-            <i className="bi bi-activity text-primary me-2"></i>Global TPS
+        <div className="card border-0 shadow-sm rounded-4 h-100 position-relative overflow-hidden d-flex flex-column p-0">
+          <div className="p-3 pb-0 d-flex flex-column" style={{ zIndex: 2 }}>
+            <div className="text-secondary fw-semibold mb-1" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+              <i className="bi bi-activity text-primary me-2"></i>Global TPS
+            </div>
+            <div className="fw-bolder d-flex align-items-baseline text-main" style={{ fontSize: '2.2rem', letterSpacing: '-1px', lineHeight: '1.1' }}>
+              {totalTps.toFixed(1)} <span className="text-muted ms-1 fw-medium" style={{ fontSize: '0.9rem', letterSpacing: '0' }}>req/s</span>
+            </div>
           </div>
-          <div className="fw-bolder d-flex align-items-baseline text-main" style={{ fontSize: '2.5rem', letterSpacing: '-1px' }}>
-            {totalTps.toFixed(1)} <span className="text-muted ms-1 fw-medium" style={{ fontSize: '1rem', letterSpacing: '0' }}>req/s</span>
+          <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>
+            <div className="position-absolute w-100 h-100 px-3 pb-3">
+              <Line 
+                data={{ 
+                  labels: sparklineData.map(d => d.time), 
+                  datasets: [{ data: sparklineData.map(d => d.tps), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.2)', fill: true, pointRadius: 0, tension: 0.4 }] 
+                }} 
+                options={{ ...sparklineOptions, maintainAspectRatio: false, layout: { padding: 0 }, scales: { x: { display: false }, y: { display: false, min: -0.5 } } }} 
+              />
+            </div>
           </div>
-          <div className="text-muted mt-2" style={{ fontSize: '0.8rem' }}>Combined throughput</div>
         </div>
       </div>
 
+      {/* Active Model */}
       <div className="col-12 col-sm-6 col-lg-4 col-xl">
-        <div className="card border-0 shadow-sm rounded-4 p-4 h-100 bg-surface-hover border-primary border-opacity-25" style={{ transition: 'all 0.3s' }}>
-          <div className="text-secondary fw-semibold mb-2 d-flex justify-content-between align-items-center" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+        <div className="card border-0 shadow-sm rounded-4 p-3 h-100 bg-surface-hover border-primary border-opacity-25 position-relative overflow-hidden d-flex flex-column" style={{ transition: 'all 0.3s' }}>
+          <div className="text-secondary fw-semibold mb-1 d-flex justify-content-between align-items-center" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
             <span><i className="bi bi-cpu text-warning me-2"></i>Active Model</span>
             {currentActiveModels.length > 0 && <span className="spinner-grow text-warning" style={{ width: '0.5rem', height: '0.5rem' }}></span>}
           </div>
-          <div className="fw-bolder d-flex align-items-center my-auto" style={{ minHeight: '40px' }}>
+          <div className="fw-bolder d-flex align-items-center flex-grow-1">
             {activeModelUI.main}
           </div>
-          <div className="mt-2">
+          <div className="mt-2" style={{ zIndex: 2 }}>
             {activeModelUI.sub}
           </div>
         </div>
       </div>
 
+      {/* Active Connections */}
       <div className="col-12 col-sm-6 col-lg-4 col-xl">
-        <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
-          <div className="text-secondary fw-semibold mb-2" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-            <i className="bi bi-diagram-3 text-info me-2"></i>Active Connections
+        <div className="card border-0 shadow-sm rounded-4 h-100 position-relative overflow-hidden d-flex flex-column p-0">
+          <div className="p-3 pb-0 d-flex flex-column" style={{ zIndex: 2 }}>
+            <div className="text-secondary fw-semibold mb-1" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+              <i className="bi bi-diagram-3 text-info me-2"></i>Active Conns
+            </div>
+            <div className="fw-bolder text-main" style={{ fontSize: '2.5rem', letterSpacing: '-1px', lineHeight: '1.1' }}>
+              {totalConns}
+            </div>
           </div>
-          <div className="fw-bolder text-main" style={{ fontSize: '2.5rem', letterSpacing: '-1px' }}>
-            {totalConns}
+          <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>
+            <div className="position-absolute w-100 h-100 px-3 pb-3">
+              <Line 
+                data={{ 
+                  labels: sparklineData.map(d => d.time), 
+                  datasets: [{ data: sparklineData.map(d => d.usage), borderColor: '#06b6d4', backgroundColor: 'rgba(6, 182, 212, 0.2)', fill: true, stepped: true, pointRadius: 0 }] 
+                }} 
+                options={{ ...sparklineOptions, maintainAspectRatio: false, layout: { padding: 0 }, scales: { x: { display: false }, y: { display: false, min: -0.5 } } }} 
+              />
+            </div>
           </div>
-          <div className="text-muted mt-2" style={{ fontSize: '0.8rem' }}>Real-time concurrent streams</div>
         </div>
       </div>
 
+      {/* Avg Fleet Latency */}
       <div className="col-12 col-sm-12 col-lg-4 col-xl">
-        <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
-          <div className="text-secondary fw-semibold mb-2" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-            <i className="bi bi-stopwatch text-success me-2"></i>Avg Fleet Latency
+        <div className="card border-0 shadow-sm rounded-4 h-100 position-relative overflow-hidden d-flex flex-column p-0">
+          <div className="p-3 pb-0 d-flex flex-column" style={{ zIndex: 2 }}>
+            <div className="text-secondary fw-semibold mb-1" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+              <i className="bi bi-stopwatch text-success me-2"></i>Avg Latency
+            </div>
+            <div className="fw-bolder d-flex align-items-baseline text-main" style={{ fontSize: '2.2rem', letterSpacing: '-1px', lineHeight: '1.1' }}>
+              {avgLatencyMs >= 1000 ? (avgLatencyMs / 1000).toFixed(2) : Math.round(avgLatencyMs)}
+              <span className="text-muted ms-1 fw-medium" style={{ fontSize: '0.9rem', letterSpacing: '0' }}>{avgLatencyMs >= 1000 ? 's' : 'ms'}</span>
+            </div>
           </div>
-          <div className="fw-bolder d-flex align-items-baseline text-main" style={{ fontSize: '2.5rem', letterSpacing: '-1px' }}>
-            {avgLatencyMs >= 1000 ? (avgLatencyMs / 1000).toFixed(2) : Math.round(avgLatencyMs)}
-            <span className="text-muted ms-1 fw-medium" style={{ fontSize: '1rem', letterSpacing: '0' }}>{avgLatencyMs >= 1000 ? 's' : 'ms'}</span>
+          <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>
+            <div className="position-absolute w-100 h-100 px-3 pb-3">
+              <Line 
+                data={{ 
+                  labels: sparklineData.map(d => d.time), 
+                  datasets: [{ data: sparklineData.map(d => d.latency), borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.2)', fill: true, pointRadius: 0, tension: 0.4 }] 
+                }} 
+                options={{ ...sparklineOptions, maintainAspectRatio: false, layout: { padding: 0 }, scales: { x: { display: false }, y: { display: false, min: -10 } } }} 
+              />
+            </div>
           </div>
-          <div className="text-muted mt-2" style={{ fontSize: '0.8rem' }}>Time to first token (TTFT)</div>
         </div>
       </div>
     </div>

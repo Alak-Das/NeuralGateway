@@ -79,15 +79,15 @@ public class GatewayIntegrationTest {
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"choices\": [{\"message\": {\"content\": \"Success\"}}]}")));
 
-        // Send request
         Map<String, Object> requestBody = Map.of(
+                "model", "coding",
                 "messages", java.util.List.of(
                         Map.of("role", "user", "content", "Test")
                 )
         );
 
         // The Gateway should transparently failover from nemotron to glm-5.3 and return 200 OK.
-        mockMvc.perform(post("/api/coding/v1/chat/completions")
+        mockMvc.perform(post("/v1/chat/completions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(requestBody)))
                 .andExpect(status().isOk());

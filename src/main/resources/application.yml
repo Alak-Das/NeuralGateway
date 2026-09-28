@@ -24,6 +24,8 @@ resilience4j.retry:
       enableExponentialBackoff: true
       exponentialBackoffMultiplier: 2
 llm:
+  health-check:
+    intervalMs: 65000
   logging:
     payload-mode: ${LLM_LOGGING_PAYLOAD_MODE:SUMMARY}
     preview-max-chars: ${LLM_LOGGING_PREVIEW_MAX_CHARS:120}
@@ -48,5 +50,4 @@ llm:
         - { id: "poolside/laguna-xs-2.1",                         priority: 5,   pipelines: [REASONING, CODING] }
         - { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  priority: 5,   pipelines: [REASONING, CODING, VISION] }
         - { id: "google/gemma-4-31b-it",                          priority: 5,   pipelines: [REASONING, CODING, VISION] }
-        - { id: "mistralai/mistral-nemotron",                     priority: 4,   pipelines: [CODING] }
         - { id: "meta/llama-3.2-11b-vision-instruct",             priority: 3,   pipelines: [VISION] }

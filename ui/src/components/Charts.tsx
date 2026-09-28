@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useContext } from 'react';
 import { ModelStatus } from '../types';
 import {
   Chart as ChartJS,
@@ -13,6 +13,7 @@ import {
   ArcElement
 } from 'chart.js';
 import { Line, Doughnut } from 'react-chartjs-2';
+import { themeColors } from '../theme/colors';
 
 ChartJS.register(
   CategoryScale,
@@ -26,19 +27,28 @@ ChartJS.register(
   ArcElement
 );
 
-const colors = [
-  '#FF6B6B', '#4DA1FF', '#C162FD', '#FFB86C', '#48DBFB',
-  '#6BCB77', '#FF9F1C', '#E056FD', '#00D4AA', '#FF6F91'
-];
 
-interface ChartsProps {
-  data: ModelStatus[];
-}
+// Theme context to access current theme (provided by App)
+import { ThemeContext } from '../theme/ThemeContext';
 
 export default function Charts({ data }: ChartsProps) {
   const [latencyRangeMins, setLatencyRangeMins] = useState(15);
   const [usageRangeMins, setUsageRangeMins] = useState(15);
   const [errorRangeMins, setErrorRangeMins] = useState(15);
+  const theme = useContext(ThemeContext);
+  const isDark = theme === 'dark';
+
+  // Get theme-aware categorical colors for model series
+  const getModelColors = (count: number) => 
+    themeColors.chartHelpers.getCategoricalColors(count, isDark);
+
+  // Get semantic colors for specific metrics
+  const latencyLineColor = themeColors.chartHelpers.getMetricColor('latencyLine', isDark);
+  const latencyFillColor = themeColors.chartHelpers.getMetricFillColor('latencyFill', isDark);
+  const errorLineColor = themeColors.chartHelpers.getMetricColor('errorLine', isDark);
+  const errorFillColor = themeColors.chartHelpers.getMetricFillColor('errorFill', isDark);
+  const backgroundProbeColor = themeColors.chartHelpers.getMetricColor('backgroundProbe', isDark);
+  const backgroundProbeFillColor = themeColors.chartHelpers.getMetricFillColor('backgroundProbeFill', isDark);
 
   const formatNumber = (num: number | null | undefined) => {
     if (num == null || isNaN(num)) return '0';
@@ -62,9 +72,10 @@ export default function Charts({ data }: ChartsProps) {
   };
 
   const { latencyData, latencyOptions, usageData, usageOptions, errorData, errorOptions, totalRequests, displayData, bgColors, activeModels } = useMemo(() => {
-    // Model Color Map
+    // Model Color Map - using new categorical palette
     const modelColorMap: Record<string, string> = {};
-    data.forEach((d, i) => { modelColorMap[d.model] = colors[i % colors.length]; });
+    const modelColors = getModelColors(data.length);
+    data.forEach((d, i) => { modelColorMap[d.model] = modelColors[i]; });
 
     // 1. Latency History Chart
     const latencyCutoffTime = Date.now() - (latencyRangeMins * 60 * 1000);
@@ -110,7 +121,7 @@ export default function Charts({ data }: ChartsProps) {
         }
         
         const alignedData = sortedTimestamps.map(ts => latencyMap[ts] !== undefined ? latencyMap[ts] : null);
-        const myColor = modelColorMap[d.model] || colors[i % colors.length];
+        const myColor = modelColorMap[d.model] || getModelColors(data.length)[i];
       
         return {
           label: d.model.split('/').pop() || d.model,
@@ -130,11 +141,18 @@ export default function Charts({ data }: ChartsProps) {
       maintainAspectRatio: false,
       interaction: { mode: 'index' as const, intersect: false },
       plugins: {
-        legend: { position: 'bottom' as const, labels: { usePointStyle: true, boxWidth: 6 } }
+        legend: { position: 'bottom' as const, labels: { usePointStyle: true, boxWidth: 6, color: isDark ? '#94a3b8' : '#64748b' } }
       },
       scales: {
-        y: { grid: { color: 'rgba(0,0,0,0.05)' }, beginAtZero: true },
-        x: { grid: { display: false } }
+        y: { 
+          grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, 
+          beginAtZero: true,
+          ticks: { color: isDark ? '#94a3b8' : '#64748b' }
+        },
+        x: { 
+          grid: { display: false },
+          ticks: { color: isDark ? '#94a3b8' : '#64748b' }
+        }
       }
     };
 
@@ -189,7 +207,7 @@ export default function Charts({ data }: ChartsProps) {
            }
            return null;
         });
-        const myColor = modelColorMap[d.model] || colors[i % colors.length];
+        const myColor = modelColorMap[d.model] || getModelColors(data.length)[i];
       
         return {
           label: d.model.split("/").pop() || d.model,
@@ -209,7 +227,7 @@ export default function Charts({ data }: ChartsProps) {
       maintainAspectRatio: false,
       interaction: { mode: "index" as const, intersect: false },
       plugins: {
-        legend: { position: "bottom" as const, labels: { usePointStyle: true, boxWidth: 6 } },
+        legend: { position: "bottom" as const, labels: { usePointStyle: true, boxWidth: 6, color: isDark ? '#94a3b8' : '#64748b' } },
         tooltip: {
           callbacks: {
             label: function(context: any) {
@@ -222,8 +240,19 @@ export default function Charts({ data }: ChartsProps) {
         }
       },
       scales: {
-        y: { grid: { color: "rgba(0,0,0,0.05)" }, beginAtZero: true, max: 100, ticks: { callback: function(value: any) { return value + "%"; } } },
-        x: { grid: { display: false } }
+        y: { 
+          grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, 
+          beginAtZero: true, 
+          max: 100, 
+          ticks: { 
+            callback: function(value: any) { return value + "%"; },
+            color: isDark ? '#94a3b8' : '#64748b'
+          } 
+        },
+        x: { 
+          grid: { display: false },
+          ticks: { color: isDark ? '#94a3b8' : '#64748b' }
+        }
       }
     };
 
@@ -240,7 +269,7 @@ export default function Charts({ data }: ChartsProps) {
     
     const modelNames = displayDataList.map(d => d.model.split('/').pop() || d.model);
     const usageValues = displayDataList.map(d => d.uses);
-    const bgColorsList = displayDataList.map((d, i) => activeModelsList.length > 0 ? (modelColorMap[d.model] || colors[i % colors.length]) : '#64748b40');
+    const bgColorsList = displayDataList.map((d, i) => activeModelsList.length > 0 ? (modelColorMap[d.model] || getModelColors(data.length)[i]) : '#64748b40');
     
     const totalRequestsVal = activeModelsList.length > 0 ? activeModelsList.reduce((sum, d) => sum + d.uses, 0) : 0;
 

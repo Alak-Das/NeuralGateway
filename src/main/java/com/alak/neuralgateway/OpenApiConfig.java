@@ -27,11 +27,9 @@ public class OpenApiConfig {
                         new Server().url("/").description("Default Neural Gateway Server")
                 ))
                 .tags(List.of(
-                        new Tag().name("Coding Pipeline").description("OpenAI-compatible chat completions optimized for code generation and agentic IDE tools (Cline, Cursor, etc.)."),
-                        new Tag().name("Reasoning Pipeline").description("OpenAI-compatible chat completions tuned for deep analytical reasoning, math, and architecture planning."),
-                        new Tag().name("Vision Pipeline").description("OpenAI-compatible multimodal chat completions for image understanding and visual reasoning."),
-                        new Tag().name("Fleet Health & Diagnostics").description("Real-time health status, telemetry, latency tracking, and circuit breaker management."),
-                        new Tag().name("Telemetry").description("Client and agent request usage statistics.")
+                        new Tag().name("OpenAI API").description("Official OpenAI-compatible endpoints (/v1/chat/completions, /v1/models). Powers Cline, Cursor, Roo-Code, Open-WebUI, and AI agent frameworks with multi-tier dynamic capability routing (Coding, Reasoning, Vision)."),
+                        new Tag().name("Fleet Health & Diagnostics").description("Real-time health status, telemetry, latency tracking, and circuit breaker management (/api/models/...)."),
+                        new Tag().name("Telemetry").description("Client and agent request usage statistics (/api/requesters/...).")
                 ));
     }
 }

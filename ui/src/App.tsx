@@ -1,12 +1,16 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, createContext, useContext } from 'react';
 import { ModelStatus, RequesterStatus } from './types';
 import KpiGrid from './components/KpiGrid';
 import StatusTable from './components/StatusTable';
 import RequestersTable from './components/RequestersTable';
 import Charts from './components/Charts';
+import { ThemeContext } from './theme/ThemeContext';
+
+// Theme context for charts
+
 
 export default function App() {
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [connectionStatus, setConnectionStatus] = useState<'CONNECTING' | 'LIVE' | 'DISCONNECTED' | 'RECONNECTING'>('CONNECTING');
   const [data, setData] = useState<ModelStatus[]>([]);
   const [requesters, setRequesters] = useState<RequesterStatus[]>([]);
@@ -169,7 +173,9 @@ export default function App() {
       <main className="container-fluid px-4 px-lg-5 py-4">
         <KpiGrid data={data} lastUpdated={lastUpdated} />
         
-        <Charts data={data} />
+        <ThemeContext.Provider value={theme}>
+          <Charts data={data} />
+        </ThemeContext.Provider>
         
         <ul className="nav nav-tabs mb-4 border-bottom">
           <li className="nav-item">

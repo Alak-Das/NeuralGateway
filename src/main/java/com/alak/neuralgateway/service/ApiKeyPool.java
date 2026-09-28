@@ -22,6 +22,7 @@ public class ApiKeyPool {
     private final List<KeyEntry> keys = new ArrayList<>();
     private final Map<String, Instant> cooldownUntil = new ConcurrentHashMap<>();
     private final AtomicInteger roundRobin = new AtomicInteger(0);
+    private final Map<String, AtomicInteger> activeConnections = new ConcurrentHashMap<>();
     private final String providerId;
 
     public ApiKeyPool(String providerId, List<String> rawKeys, int rateLimitRpm) {
@@ -57,6 +58,25 @@ public class ApiKeyPool {
      * Mark an API key as rate-limited by upstream (e.g. on HTTP 429).
      * It will be bypassed during key selection until the cooldown expires.
      */
+
+    public void markKeyActive(String key) {
+        if (key != null && !key.isEmpty()) {
+            activeConnections.computeIfAbsent(key, k -> new AtomicInteger(0)).incrementAndGet();
+        }
+    }
+
+    public void markKeyIdle(String key) {
+        if (key != null && !key.isEmpty()) {
+            AtomicInteger count = activeConnections.get(key);
+            if (count != null && count.get() > 0) count.decrementAndGet();
+        }
+    }
+
+    public int getActiveConnections(String key) {
+        if (key == null || key.isEmpty()) return 0;
+        AtomicInteger count = activeConnections.get(key);
+        return count == null ? 0 : count.get();
+    }
     public void recordRateLimit(String key, Duration coolDownDuration) {
         if (key != null && !key.isEmpty()) {
             cooldownUntil.put(key, Instant.now().plus(coolDownDuration));
@@ -86,7 +106,21 @@ public class ApiKeyPool {
 
         int startIdx = roundRobin.getAndUpdate(i -> (i + 1) % keys.size());
 
-        // First pass: try keys that are NOT currently cooling down
+        // First pass: try keys that are NOT currently cooling down AND have NO active connections
+        for (int i = 0; i < keys.size(); i++) {
+            int idx = (startIdx + i) % keys.size();
+            KeyEntry entry = keys.get(idx);
+            
+            if (isCoolingDown(entry.key()) || getActiveConnections(entry.key()) > 0) {
+                continue;
+            }
+
+            if (entry.limiter().acquirePermission()) {
+                return entry.key();
+            }
+        }
+
+        // Second pass: fallback to keys that are not cooling down (even if they have active connections)
         for (int i = 0; i < keys.size(); i++) {
             int idx = (startIdx + i) % keys.size();
             KeyEntry entry = keys.get(idx);
@@ -100,7 +134,7 @@ public class ApiKeyPool {
             }
         }
 
-        // Second pass: if all keys are cooling down or busy, attempt any key
+        // Third pass: if all keys are cooling down, attempt any key as a final desperate measure
         for (int i = 0; i < keys.size(); i++) {
             int idx = (startIdx + i) % keys.size();
             KeyEntry entry = keys.get(idx);

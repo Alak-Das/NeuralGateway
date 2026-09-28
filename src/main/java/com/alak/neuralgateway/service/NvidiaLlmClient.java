@@ -63,11 +63,13 @@ public class NvidiaLlmClient implements LlmProviderClient {
         Model model = modelRegistry.getModel(modelId).orElseThrow(() -> new IllegalArgumentException("Unknown model: " + modelId));
         String apiKey = getApiKeyForModel(model);
         String baseUrl = getBaseUrlForModel(model);
+        ApiKeyPool pool = modelRegistry.getApiKeyPool(model.getProviderId());
 
         request.put("model", modelId);
         request.put("stream", false);
         request.remove("stream_options");
 
+        if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyActive(apiKey);
         try {
             return webClient.post()
                     .uri(baseUrl + "/chat/completions")
@@ -96,6 +98,8 @@ public class NvidiaLlmClient implements LlmProviderClient {
         } catch (Exception e) {
             String msg = (e.getMessage() != null && !e.getMessage().isBlank()) ? e.getMessage() : e.getClass().getSimpleName();
             throw new UpstreamServiceException("Upstream error for model " + modelId + ": " + msg, 500);
+        } finally {
+            if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyIdle(apiKey);
         }
     }
 
@@ -109,13 +113,21 @@ public class NvidiaLlmClient implements LlmProviderClient {
         int status = e.getStatusCode().value();
         String responseBody = e.getResponseBodyAsString();
 
-        if (status == 429) {
+        boolean isRateLimit = (status == 429) || 
+                              (status == 503 && responseBody != null && (responseBody.contains("ResourceExhausted") || responseBody.contains("overloaded")));
+
+        if (isRateLimit) {
             // Cool down the specific key if apiKeyPool is available
             ApiKeyPool pool = modelRegistry.getApiKeyPool(providerId);
             if (pool != null && apiKey != null && !apiKey.isEmpty()) {
                 pool.recordRateLimit(apiKey, Duration.ofSeconds(30));
             }
             return new RateLimitException(responseBody, providerId, apiKey, modelId);
+        }
+
+        if (status == 410) {
+            // End of life model (Gone). Force failover instead of hard crash.
+            return new UpstreamServiceException("Model deprecated (410): " + responseBody, status);
         }
 
         if (status >= 400 && status < 500) {

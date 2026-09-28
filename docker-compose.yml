@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   neural-gateway:
-    container_name: neural-gateway-api
+    container_name: neural-gateway-app
     build: .
     ports:
     - 9090:8080

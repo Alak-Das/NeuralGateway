@@ -2,13 +2,13 @@ package com.alak.neuralgateway;
 
 import com.alak.neuralgateway.domain.health.HealthCheckResult;
 import com.alak.neuralgateway.domain.ModelStatus;
-import com.alak.neuralgateway.domain.routing.RoutingScore;
 import com.alak.neuralgateway.service.LlmGatewayFacade;
+import com.alak.neuralgateway.service.PipelineResolverService;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -24,98 +24,96 @@ import java.util.UUID;
 
 @Slf4j
 @RestController
-@RequestMapping({"/api", ""})
+@CrossOrigin(origins = "*")
 public class LlmController {
     
     private final LlmGatewayFacade gatewayFacade;
+    private final PipelineResolverService pipelineResolver;
 
-    public LlmController(LlmGatewayFacade gatewayFacade) {
+    public LlmController(LlmGatewayFacade gatewayFacade, PipelineResolverService pipelineResolver) {
         this.gatewayFacade = gatewayFacade;
+        this.pipelineResolver = pipelineResolver;
     }
 
     // ==========================================
-    // Coding Pipeline
-    // ==========================================
-
-    @Operation(
-        summary = "Generate coding completions",
-        description = "OpenAI-compatible chat completions optimized for coding tasks. Routes to the fastest healthy coding model, normalizes IDE tool calls, and supports streaming (SSE).",
-        tags = {"Coding Pipeline"}
-    )
-    @PostMapping({"/coding/chat/completions"})
-    public ResponseEntity<?> generateCodingOpenAi(
-            jakarta.servlet.http.HttpServletRequest httpRequest,
-            @RequestBody Map<String, Object> request, 
-            @Parameter(description = "Identifier of calling agent/client", example = "Mr. X")
-            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
-        return processRequest(httpRequest, request, requester, "coding");
-    }
-
-    @Hidden
-    @PostMapping({"/coding/v1/chat/completions", "/v1/coding/chat/completions"})
-    public ResponseEntity<?> generateCodingOpenAiAlias(
-            jakarta.servlet.http.HttpServletRequest httpRequest,
-            @RequestBody Map<String, Object> request, 
-            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
-        return generateCodingOpenAi(httpRequest, request, requester);
-    }
-
-    // ==========================================
-    // Reasoning Pipeline
+    // OpenAI Standard API (/v1)
     // ==========================================
 
     @Operation(
-        summary = "Generate reasoning completions",
-        description = "OpenAI-compatible chat completions tuned for deep analytical reasoning, math, and architecture planning. Enforces context window checks and EMA latency routing.",
-        tags = {"Reasoning Pipeline"}
+        summary = "Create chat completion",
+        description = "Standard OpenAI-compatible chat completions endpoint (`/v1/chat/completions`). " +
+                      "Intelligently routes requests to the optimal model based on virtual model alias (coding, reasoning, vision, auto), " +
+                      "multimodal image payload, IDE/coding tool definitions, or caller identification (Cline, Cursor, etc.). " +
+                      "Supports SSE streaming, tool calls normalization, automatic failover, and EMA latency routing.",
+        tags = {"OpenAI API"}
     )
-    @PostMapping({"/reasoning/chat/completions", "/chat/completions", "/v1/chat/completions"})
-    public ResponseEntity<?> generateReasoningOpenAi(
-            jakarta.servlet.http.HttpServletRequest httpRequest,
+    @PostMapping("/v1/chat/completions")
+    public ResponseEntity<?> generateChatCompletion(
+            HttpServletRequest httpRequest,
             @RequestBody Map<String, Object> request, 
-            @Parameter(description = "Identifier of calling agent/client", example = "Mr. X")
-            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
-        return processRequest(httpRequest, request, requester, "reasoning");
+            @Parameter(description = "Identifier of calling agent/client", example = "Cline")
+            @RequestHeader(value = "X-Requester", defaultValue = "Anonymous") String requester) {
+        var resolution = pipelineResolver.resolve(request, httpRequest, requester, null);
+        return processRequest(httpRequest, request, requester, resolution.pipeline().name().toLowerCase(), resolution.reason());
     }
-
-    @Hidden
-    @PostMapping({"/reasoning/v1/chat/completions", "/v1/reasoning/chat/completions"})
-    public ResponseEntity<?> generateReasoningOpenAiAlias(
-            jakarta.servlet.http.HttpServletRequest httpRequest,
-            @RequestBody Map<String, Object> request, 
-            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
-        return generateReasoningOpenAi(httpRequest, request, requester);
-    }
-
-    // ==========================================
-    // Vision Pipeline
-    // ==========================================
 
     @Operation(
-        summary = "Generate multimodal vision completions",
-        description = "OpenAI-compatible multimodal chat completions for visual question answering and image inspection. Accepts base64 image data URLs and web image links.",
-        tags = {"Vision Pipeline"}
+        summary = "List models",
+        description = "Standard OpenAI-compatible model listing endpoint (`/v1/models`). " +
+                      "Returns virtual routing aliases (coding, reasoning, vision, auto) as well as all registered physical models in the fleet.",
+        tags = {"OpenAI API"}
     )
-    @PostMapping("/vision/chat/completions")
-    public ResponseEntity<?> generateVisionOpenAi(
-            jakarta.servlet.http.HttpServletRequest httpRequest,
-            @RequestBody Map<String, Object> request, 
-            @Parameter(description = "Identifier of calling agent/client", example = "Mr. X")
-            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
-        return processRequest(httpRequest, request, requester, "vision");
+    @GetMapping("/v1/models")
+    public ResponseEntity<Map<String, Object>> listModels() {
+        List<ModelStatus> statuses = gatewayFacade.getModelStatuses();
+        List<Map<String, Object>> modelsData = new ArrayList<>();
+        long createdTimestamp = System.currentTimeMillis() / 1000;
+
+        // Virtual model aliases for standard OpenAI clients
+        modelsData.add(createModelObject("coding", createdTimestamp));
+        modelsData.add(createModelObject("neural-coding", createdTimestamp));
+        modelsData.add(createModelObject("reasoning", createdTimestamp));
+        modelsData.add(createModelObject("neural-reasoning", createdTimestamp));
+        modelsData.add(createModelObject("vision", createdTimestamp));
+        modelsData.add(createModelObject("neural-vision", createdTimestamp));
+        modelsData.add(createModelObject("auto", createdTimestamp));
+        modelsData.add(createModelObject("neural-gateway", createdTimestamp));
+
+        // Physical fleet models
+        for (ModelStatus status : statuses) {
+            modelsData.add(createModelObject(status.model(), createdTimestamp));
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("object", "list");
+        response.put("data", modelsData);
+        return ResponseEntity.ok(response);
     }
 
-    @Hidden
-    @PostMapping({"/vision/v1/chat/completions", "/v1/vision/chat/completions"})
-    public ResponseEntity<?> generateVisionOpenAiAlias(
-            jakarta.servlet.http.HttpServletRequest httpRequest,
-            @RequestBody Map<String, Object> request, 
-            @RequestHeader(value = "X-Requester", defaultValue = "Mr. X") String requester) {
-        return generateVisionOpenAi(httpRequest, request, requester);
+    @Operation(
+        summary = "Retrieve model",
+        description = "Standard OpenAI-compatible single model retrieval endpoint (`/v1/models/{modelId}`).",
+        tags = {"OpenAI API"}
+    )
+    @GetMapping("/v1/models/{modelId}")
+    public ResponseEntity<?> getModelDetails(
+            @Parameter(description = "ID of the model to retrieve", example = "coding")
+            @PathVariable String modelId) {
+        long createdTimestamp = System.currentTimeMillis() / 1000;
+        return ResponseEntity.ok(createModelObject(modelId, createdTimestamp));
+    }
+
+    private Map<String, Object> createModelObject(String id, long createdTimestamp) {
+        Map<String, Object> model = new HashMap<>();
+        model.put("id", id);
+        model.put("object", "model");
+        model.put("created", createdTimestamp);
+        model.put("owned_by", "neural-gateway");
+        return model;
     }
 
     // ==========================================
-    // Fleet Health & Diagnostics
+    // Fleet Health & Diagnostics (/api)
     // ==========================================
 
     @Operation(
@@ -123,7 +121,7 @@ public class LlmController {
         description = "Returns current operational status, EMA latency, active connections, total requests, and circuit breaker state across all registered models.",
         tags = {"Fleet Health & Diagnostics"}
     )
-    @GetMapping("/models/status")
+    @GetMapping("/api/models/status")
     public List<ModelStatus> getStatus() {
         return gatewayFacade.getModelStatuses();
     }
@@ -133,7 +131,7 @@ public class LlmController {
         description = "Subscribes to a real-time Server-Sent Events (SSE) feed emitting status changes whenever background health checks finish.",
         tags = {"Fleet Health & Diagnostics"}
     )
-    @GetMapping(value = "/models/status/stream", produces = "text/event-stream")
+    @GetMapping(value = "/api/models/status/stream", produces = "text/event-stream")
     public SseEmitter streamModelStatus() {
         return gatewayFacade.subscribeToStatusUpdates();
     }
@@ -143,7 +141,7 @@ public class LlmController {
         description = "Sends an immediate health ping to a single model and updates its recorded status and latency in Redis.",
         tags = {"Fleet Health & Diagnostics"}
     )
-    @PostMapping("/models/ping")
+    @PostMapping("/api/models/ping")
     public HealthCheckResult pingModel(
             @Parameter(description = "Exact name of model to ping", example = "moonshotai/kimi-k3")
             @RequestParam String model) {
@@ -155,7 +153,7 @@ public class LlmController {
         description = "Manually closes a tripped circuit breaker for the specified model, restoring it to active routing.",
         tags = {"Fleet Health & Diagnostics"}
     )
-    @PostMapping("/models/circuit-reset")
+    @PostMapping("/api/models/circuit-reset")
     public void resetCircuitBreaker(
             @Parameter(description = "Exact name of model to reset", example = "moonshotai/kimi-k3")
             @RequestParam String model) {
@@ -163,49 +161,17 @@ public class LlmController {
     }
 
     // ==========================================
-    // Telemetry
+    // Telemetry (/api)
     // ==========================================
 
     @Operation(
-        summary = "Get request statistics",
+        summary = "Get requester statistics",
         description = "Returns request count statistics grouped by calling client or agent (based on X-Requester header).",
         tags = {"Telemetry"}
     )
-    @GetMapping("/requesters/status")
+    @GetMapping("/api/requesters/status")
     public List<Map<String, Object>> getRequesterStatus() {
         return gatewayFacade.getRequesterTelemetry();
-    }
-
-    // ==========================================
-    // OpenAI Compatibility
-    // ==========================================
-
-    @Operation(
-        summary = "List available models",
-        description = "Returns an OpenAI-compatible list of available models configured in the gateway.",
-        tags = {"OpenAI"}
-    )
-    @GetMapping({"/v1/models", "/models"})
-    public ResponseEntity<Map<String, Object>> listModels() {
-        List<ModelStatus> statuses = gatewayFacade.getModelStatuses();
-        
-        List<Map<String, Object>> modelsData = new ArrayList<>();
-        long createdTimestamp = System.currentTimeMillis() / 1000;
-        
-        for (ModelStatus status : statuses) {
-            Map<String, Object> model = new HashMap<>();
-            model.put("id", status.model());
-            model.put("object", "model");
-            model.put("created", createdTimestamp);
-            model.put("owned_by", "neural-gateway");
-            modelsData.add(model);
-        }
-        
-        Map<String, Object> response = new HashMap<>();
-        response.put("object", "list");
-        response.put("data", modelsData);
-        
-        return ResponseEntity.ok(response);
     }
 
     // ==========================================
@@ -213,18 +179,19 @@ public class LlmController {
     // ==========================================
 
     private ResponseEntity<?> processRequest(
-            jakarta.servlet.http.HttpServletRequest httpRequest,
+            HttpServletRequest httpRequest,
             Map<String, Object> request,
             String requester,
-            String pipeline) {
-        String transactionId = java.util.UUID.randomUUID().toString();
+            String pipeline,
+            String resolutionReason) {
+        String transactionId = UUID.randomUUID().toString();
         
         org.slf4j.MDC.put("txId", transactionId);
         org.slf4j.MDC.put("requester", requester);
         
         try {
-            log.info("Received OpenAI-compatible {} proxy request to exact endpoint '{}'",
-                    pipeline, httpRequest.getRequestURI());
+            log.info("Received OpenAI-compatible {} proxy request to '{}' [Resolution: {}]",
+                    pipeline, httpRequest.getRequestURI(), resolutionReason != null ? resolutionReason : "Direct");
 
             long start = System.currentTimeMillis();
             Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, transactionId, pipeline);
@@ -239,7 +206,9 @@ public class LlmController {
     private ResponseEntity<?> formatOpenAiResponse(Map<String, Object> request, Map<String, Object> response, String transactionId) {
         if (Boolean.TRUE.equals(request.get("stream"))) {
             try {
+                @SuppressWarnings("unchecked")
                 List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
+                @SuppressWarnings("unchecked")
                 Map<String, Object> message = (choices != null && !choices.isEmpty()) ? (Map<String, Object>) choices.get(0).get("message") : null;
                 ObjectMapper mapper = new ObjectMapper();
                 
@@ -251,6 +220,7 @@ public class LlmController {
                 }
                 boolean hasToolCalls = false;
                 if (message != null && message.containsKey("tool_calls")) {
+                    @SuppressWarnings("unchecked")
                     List<Map<String, Object>> originalToolCalls = (List<Map<String, Object>>) message.get("tool_calls");
                     if (originalToolCalls != null && !originalToolCalls.isEmpty()) {
                         hasToolCalls = true;
@@ -259,6 +229,7 @@ public class LlmController {
                             Map<String, Object> tc = new HashMap<>(originalToolCalls.get(i));
                             tc.put("index", i);
                             
+                            @SuppressWarnings("unchecked")
                             Map<String, Object> function = (Map<String, Object>) tc.get("function");
                             if (function != null && function.containsKey("arguments")) {
                                 Object args = function.get("arguments");
@@ -300,6 +271,7 @@ public class LlmController {
                              "data: " + mapper.writeValueAsString(chunk2) + "\n\n";
                              
                 // Chunk 3: Usage (if requested)
+                @SuppressWarnings("unchecked")
                 Map<String, Object> streamOptions = (Map<String, Object>) request.get("stream_options");
                 if (streamOptions != null && Boolean.TRUE.equals(streamOptions.get("include_usage")) && response.containsKey("usage")) {
                     Map<String, Object> chunk3 = new HashMap<>(chunk1);

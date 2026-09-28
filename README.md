@@ -65,21 +65,28 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 
 ## 🔌 API Endpoints
 
-Neural Gateway is a drop-in replacement for OpenAI API endpoints:
+Neural Gateway strictly implements the official OpenAI API specification for LLM consumption, combined with clean `/api/...` endpoints for telemetry and fleet administration:
 
-| Pipeline | Direct Endpoint | OpenAI `/v1` Compatible Endpoint |
+### 1. OpenAI Standard Endpoints (`/v1`)
+Drop-in replacement for OpenAI SDKs, IDE extensions (Cline, Cursor, Roo-Code), and AI agents:
+
+| Method | Endpoint | Description |
 |---|---|---|
-| **Coding** | `POST /api/coding/chat/completions` | `POST /v1/chat/completions`, `POST /chat/completions` |
-| **Reasoning** | `POST /api/reasoning/chat/completions` | `POST /api/reasoning/v1/chat/completions` |
-| **Vision** | `POST /api/vision/chat/completions` | `POST /api/vision/v1/chat/completions` |
-| **Fleet Status** | `GET /api/models/status` | `GET /models/status` |
-| **Status Stream** | `GET /api/models/status/stream` (SSE) | — |
-| **Requester Telemetry** | `GET /api/requesters/status` | `GET /requesters/status` |
-| **Manual Ping** | `POST /api/models/ping?model={name}` | — |
-| **Reset Circuit** | `POST /api/models/circuit-reset?model={name}` | — |
-| **Swagger UI** | `GET /swagger-ui.html` | `GET /v3/api-docs` |
+| `POST` | `/v1/chat/completions` | **Universal Chat Completion**: Dynamically routes to the fastest healthy model using multi-tier capability detection (Coding, Reasoning, Vision). Fully supports streaming (SSE), tool calling, and automatic failover. |
+| `GET` | `/v1/models` | **List Models**: Returns all active physical models plus virtual pipeline aliases (`coding`, `reasoning`, `vision`, `auto`). |
+| `GET` | `/v1/models/{modelId}` | **Retrieve Model**: Returns metadata for a specific model ID in standard OpenAI format. |
 
-**Note on endpoint routing**: The OpenAI-compatible `/v1/chat/completions` and `/chat/completions` aliases route to the **Reasoning** pipeline by default, ensuring maximum capability for general-purpose chat clients. The Coding pipeline is available via its dedicated `/api/coding/chat/completions` endpoint.
+### 2. Fleet Health, Diagnostics & Telemetry (`/api`)
+Used by the React monitoring dashboard and operations tooling:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/models/status` | Current operational status, EMA latency, active connections, and circuit breaker states across all models. |
+| `GET` | `/api/models/status/stream` | Real-time Server-Sent Events (SSE) feed emitting status updates as health check sweeps complete. |
+| `POST` | `/api/models/ping?model={name}` | On-demand synchronous health ping to verify a specific model's latency and availability. |
+| `POST` | `/api/models/circuit-reset?model={name}` | Manually reset a tripped circuit breaker to immediately restore model traffic. |
+| `GET` | `/api/requesters/status` | Request volume and token usage metrics grouped by calling client (`X-Requester`). |
+| `GET` | `/swagger-ui.html` | Interactive Swagger/OpenAPI documentation and API explorer. |
 
 ---
 
@@ -102,63 +109,65 @@ Neural Gateway is a drop-in replacement for OpenAI API endpoints:
    ```env
    NVIDIA_API_KEY=nvapi-your-key-here
    ```
-   You can also configure multiple keys (`NVIDIA_API_KEY_1`, `NVIDIA_API_KEY_2`, `NVIDIA_API_KEY_3`) for automatic rotation and rate-limit distribution.
+   You can also configure multiple keys (`NVIDIA_API_KEY_1`, `NVIDIA_API_KEY_2`, `NVIDIA_API_KEY_3`) for automatic key rotation and rate-limit distribution.
 
 3. **Launch the Gateway:**
    ```bash
    docker compose up --build -d
    ```
    This starts three services:
-   - **Neural Gateway** on `http://localhost:9090`
+   - **Neural Gateway API & Dashboard** on `http://localhost:9090` (use `http://127.0.0.1:9090` on Windows)
    - **Redis** on `localhost:6379`
    - **Open WebUI** on `http://localhost:3000`
 
-4. **Access the Dashboards:**
-   - **Neural Gateway Dashboard**: Open `http://localhost:9090` for the React-based fleet monitoring and telemetry dashboard.
-   - **Open WebUI Chat Interface**: Open `http://localhost:3000` for a full-featured chat interface connected to Neural Gateway.
-   - **Swagger API Docs**: Open `http://localhost:9090/swagger-ui.html` for interactive API exploration.
+4. **Access the Interfaces:**
+   - **Neural Gateway Dashboard**: Open `http://localhost:9090` for real-time fleet health, latency, and throughput metrics.
+   - **Open WebUI Chat Interface**: Open `http://localhost:3000` for a chat interface connected to Neural Gateway via `/v1`.
+   - **Swagger API Docs**: Open `http://localhost:9090/swagger-ui.html` for interactive OpenAPI exploration.
 
 ---
 
 ## 💡 Usage Examples
 
-### 1. Coding Proxy (cURL)
+### 1. OpenAI Standard Chat Completion (Coding Task)
 ```bash
-curl -X POST http://localhost:9090/api/coding/chat/completions \
+curl -X POST http://127.0.0.1:9090/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "X-Requester: my-ide-agent" \
+  -H "X-Requester: Cline" \
   -d '{
+    "model": "coding",
     "messages": [
-      {"role": "user", "content": "Write a Python script to reverse a string."}
+      {"role": "user", "content": "Write a Python function to compute Fibonacci numbers."}
     ],
-    "max_tokens": 100
+    "stream": true
   }'
 ```
 
-### 2. Reasoning Proxy (cURL)
+### 2. Deep Reasoning Prompt
 ```bash
-curl -X POST http://localhost:9090/api/reasoning/chat/completions \
+curl -X POST http://127.0.0.1:9090/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "X-Requester: research-assistant" \
+  -H "X-Requester: Analyst" \
   -d '{
+    "model": "reasoning",
     "messages": [
-      {"role": "user", "content": "Solve: What is the sum of all primes under 20?"}
-    ],
-    "max_tokens": 200
+      {"role": "user", "content": "Analyze the systemic implications of rising treasury yields on commercial real estate."}
+    ]
   }'
 ```
 
-### 3. Vision Proxy (Multimodal Base64 Image)
+### 3. Multimodal Vision Inspection
 ```bash
-curl -X POST http://localhost:9090/api/vision/chat/completions \
+curl -X POST http://127.0.0.1:9090/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "X-Requester: vision-agent" \
+  -H "X-Requester: VisionClient" \
   -d '{
+    "model": "vision",
     "messages": [
       {
         "role": "user",
         "content": [
-          {"type": "text", "text": "What is in this image?"},
+          {"type": "text", "text": "Describe the contents of this image in detail."},
           {
             "type": "image_url",
             "image_url": {
@@ -167,17 +176,18 @@ curl -X POST http://localhost:9090/api/vision/chat/completions \
           }
         ]
       }
-    ],
-    "max_tokens": 100
+    ]
   }'
 ```
 
-### 4. OpenAI-Compatible Usage (via Open WebUI or any OpenAI client)
-Configure your OpenAI client with:
-- **Base URL**: `http://localhost:9090/v1`
-- **API Key**: `neural-gateway-key` (any non-empty string)
+### 4. Client IDE Setup (Cline, Cursor, Roo Code, Continue)
+Configure your IDE's OpenAI-compatible provider:
+- **API Provider**: `OpenAI Compatible`
+- **Base URL**: `http://127.0.0.1:9090/v1`
+- **API Key**: `neural-gateway` *(any string)*
+- **Model ID**: `coding` *(or `auto`, or a specific model like `z-ai/glm-5.3`)*
 
-This works with Open WebUI, Continue.dev, Cline, Cursor, and any other OpenAI-compatible client.
+This standard OpenAI interface works seamlessly with Open WebUI, Cline, Cursor, Roo Code, Continue.dev, and official OpenAI SDKs.
 
 ---
 

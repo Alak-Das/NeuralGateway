@@ -15,12 +15,38 @@
             --text-main: #e2e8f0; --text-muted: #94a3b8; --border-color: #2e3340;
             --card-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
             --brand-primary: #3b82f6; --brand-success: #10b981; --brand-warning: #f59e0b; --brand-danger: #ef4444;
+
+            /* Graph-specific colors (CVD-safe, WCAG AA) */
+            --graph-1: #0A84FF; --graph-2: #FF9F0A; --graph-3: #30D158;
+            --graph-4: #BF5AF2; --graph-5: #FF453A; --graph-6: #5E5CE6;
+            --graph-7: #FF375F; --graph-8: #64D2FF; --graph-9: #FFD60A; --graph-10: #98989D;
+
+            /* Semantic graph elements */
+            --graph-latency: #0A84FF; --graph-latency-fill: rgba(10, 132, 255, 0.15);
+            --graph-errors: #FF453A; --graph-errors-fill: rgba(255, 69, 58, 0.15);
+            --graph-throughput: #30D158; --graph-throughput-fill: rgba(48, 209, 88, 0.15);
+            --graph-saturation: #FF9F0A; --graph-saturation-fill: rgba(255, 159, 10, 0.15);
+            --graph-availability: #5E5CE6; --graph-availability-fill: rgba(94, 92, 230, 0.15);
+            --graph-probes: #98989D; --graph-probes-fill: rgba(152, 152, 157, 0.12);
         }
         :root[data-theme="light"] {
             --bg-color: #f8fafc; --bg-surface: #ffffff; --bg-surface-hover: #f1f5f9;
             --text-main: #0f172a; --text-muted: #64748b; --border-color: #e2e8f0;
             --card-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
             --brand-primary: #2563eb; --brand-success: #059669; --brand-warning: #d97706; --brand-danger: #dc2626;
+
+            /* Graph-specific colors (CVD-safe, WCAG AA) */
+            --graph-1: #007AFF; --graph-2: #FF9F0A; --graph-3: #34C759;
+            --graph-4: #AF52DE; --graph-5: #FF3B30; --graph-6: #5856D6;
+            --graph-7: #FF2D92; --graph-8: #00C7BE; --graph-9: #FFCC00; --graph-10: #8E8E93;
+
+            /* Semantic graph elements */
+            --graph-latency: #007AFF; --graph-latency-fill: rgba(0, 122, 255, 0.10);
+            --graph-errors: #FF3B30; --graph-errors-fill: rgba(255, 59, 48, 0.10);
+            --graph-throughput: #34C759; --graph-throughput-fill: rgba(52, 199, 89, 0.10);
+            --graph-saturation: #FF9F0A; --graph-saturation-fill: rgba(255, 159, 10, 0.10);
+            --graph-availability: #5856D6; --graph-availability-fill: rgba(88, 86, 214, 0.10);
+            --graph-probes: #8E8E93; --graph-probes-fill: rgba(142, 142, 147, 0.08);
         }
         body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); transition: background-color 0.3s, color 0.3s; margin: 0; padding: 0; min-height: 100vh; }
         .font-monospace { font-family: 'JetBrains Mono', monospace; }
@@ -71,6 +97,15 @@
     </style>
 </head>
 <body>
+<script>
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+  document.body.innerHTML += "<div style='color: red; padding: 20px; font-family: monospace; z-index: 9999; position: absolute; background: white; width: 100%; height: 100%; top: 0; left: 0;'><h3>Runtime Error</h3><p>" + msg + "</p><pre>" + (error && error.stack ? error.stack : "") + "</pre></div>";
+  return false;
+};
+window.onunhandledrejection = function(event) {
+  document.body.innerHTML += "<div style='color: red; padding: 20px; font-family: monospace; z-index: 9999; position: absolute; background: white; width: 100%; height: 100%; top: 0; left: 0;'><h3>Unhandled Promise Rejection</h3><p>" + event.reason + "</p></div>";
+};
+</script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
 </body>

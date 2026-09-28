@@ -91,6 +91,19 @@ public class LlmGatewayFacade {
             throw new IllegalStateException("No available models for pipeline: " + pipelineName);
         }
 
+        // If client targeted a specific physical model, prioritize it as the primary candidate if available
+        Object requestedModelObj = requestBody.get("model");
+        if (requestedModelObj instanceof String requestedModel && modelRegistry.isValidModel(requestedModel)) {
+            for (int i = 0; i < candidates.size(); i++) {
+                if (candidates.get(i).getId().equalsIgnoreCase(requestedModel)) {
+                    Model targeted = candidates.remove(i);
+                    candidates.add(0, targeted);
+                    log.info("[TxID: {}] Prioritized targeted model '{}' as primary candidate", transactionId, requestedModel);
+                    break;
+                }
+            }
+        }
+
         // Try each candidate with failover
         Exception lastException = null;
         for (int i = 0; i < candidates.size(); i++) {
