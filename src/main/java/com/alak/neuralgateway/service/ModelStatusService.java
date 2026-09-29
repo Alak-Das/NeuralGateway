@@ -6,6 +6,8 @@ import com.alak.neuralgateway.domain.model.Model;
 import com.alak.neuralgateway.domain.model.Model.Pipeline;
 import com.alak.neuralgateway.event.ModelStatusChangedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Lazy;
@@ -26,6 +28,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdater {
+
+    private static final Logger log = LoggerFactory.getLogger(ModelStatusService.class);
 
     private final RedisPersistenceService redisPersistence;
     private final RoutingService routingService;
@@ -75,7 +79,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
         // Determine initial status from history
         boolean isUp = false;
         long latency = 0;
-        Instant lastChecked = Instant.now();
+        Instant lastChecked = null;
         String errorMessage = "Not yet checked";
 
         if (!history.isEmpty()) {
@@ -119,6 +123,10 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
 
     @Override
     public void updateStatus(String modelId, HealthCheckResult result) {
+        log.debug("Persisting model status history: modelId={}, up={}, latencyMs={}",
+                modelId, result.isUp(), result.getLatencyMs());
+        redisPersistence.saveHealthCheckResult(modelId, result);
+
         ModelStatus updated = statusCache.compute(modelId, (k, existing) -> {
             if (existing == null) {
                 initializeModel(modelId);

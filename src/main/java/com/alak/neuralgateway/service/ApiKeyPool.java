@@ -21,6 +21,7 @@ public class ApiKeyPool {
 
     private final List<KeyEntry> keys = new ArrayList<>();
     private final Map<String, Instant> cooldownUntil = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> cooldownFailures = new ConcurrentHashMap<>();
     private final AtomicInteger roundRobin = new AtomicInteger(0);
     private final Map<String, AtomicInteger> activeConnections = new ConcurrentHashMap<>();
     private final String providerId;
@@ -31,8 +32,8 @@ public class ApiKeyPool {
         RateLimiterConfig config = RateLimiterConfig.custom()
                 .limitRefreshPeriod(Duration.ofMinutes(1))
                 .limitForPeriod(rateLimitRpm)
-                // Block for up to 2 seconds if no tokens are immediately available
-                .timeoutDuration(Duration.ofSeconds(2))
+                // Don't queue a user request behind a depleted key; try another key or fail over.
+                .timeoutDuration(Duration.ZERO)
                 .build();
         
         RateLimiterRegistry registry = RateLimiterRegistry.of(config);
@@ -79,8 +80,16 @@ public class ApiKeyPool {
     }
     public void recordRateLimit(String key, Duration coolDownDuration) {
         if (key != null && !key.isEmpty()) {
-            cooldownUntil.put(key, Instant.now().plus(coolDownDuration));
+            int failures = cooldownFailures.computeIfAbsent(key, ignored -> new AtomicInteger()).incrementAndGet();
+            long multiplier = 1L << Math.min(failures - 1, 10);
+            long baseMillis = Math.max(1, coolDownDuration.toMillis());
+            long backoffMillis = Math.min(Duration.ofMinutes(15).toMillis(), baseMillis * multiplier);
+            cooldownUntil.put(key, Instant.now().plusMillis(backoffMillis));
         }
+    }
+
+    public void markKeyHealthy(String key) {
+        if (key != null && !key.isEmpty()) cooldownFailures.remove(key);
     }
 
     public boolean isCoolingDown(String key) {
@@ -129,15 +138,6 @@ public class ApiKeyPool {
                 continue;
             }
 
-            if (entry.limiter().acquirePermission()) {
-                return entry.key();
-            }
-        }
-
-        // Third pass: if all keys are cooling down, attempt any key as a final desperate measure
-        for (int i = 0; i < keys.size(); i++) {
-            int idx = (startIdx + i) % keys.size();
-            KeyEntry entry = keys.get(idx);
             if (entry.limiter().acquirePermission()) {
                 return entry.key();
             }

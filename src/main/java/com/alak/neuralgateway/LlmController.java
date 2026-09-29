@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -56,13 +57,14 @@ public class LlmController {
         tags = {"OpenAI API"}
     )
     @PostMapping("/v1/chat/completions")
-    public ResponseEntity<?> generateChatCompletion(
+    public StreamingResponseBody generateChatCompletion(
             HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse,
             @RequestBody Map<String, Object> request, 
             @Parameter(description = "Identifier of calling agent/client", example = "Cline")
             @RequestHeader(value = "X-Requester", defaultValue = "Anonymous") String requester) {
         var resolution = pipelineResolver.resolve(request, httpRequest, requester, null);
-        return processRequest(httpRequest, request, requester, resolution.pipeline().name().toLowerCase(), resolution.reason());
+        return processRequest(httpRequest, httpResponse, request, requester, resolution.pipeline().name().toLowerCase(), resolution.reason());
     }
 
     @Operation(
@@ -186,41 +188,59 @@ public class LlmController {
     // Internal Helper & Formatting
     // ==========================================
 
-    private ResponseEntity<?> processRequest(
+    private StreamingResponseBody processRequest(
             HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse,
             Map<String, Object> request,
             String requester,
             String pipeline,
             String resolutionReason) {
         String transactionId = UUID.randomUUID().toString();
         
-        org.slf4j.MDC.put("txId", transactionId);
-        org.slf4j.MDC.put("requester", requester);
-        
-        try {
-            log.info("Received OpenAI-compatible {} proxy request to '{}' [Resolution: {}]",
-                    pipeline, httpRequest.getRequestURI(), resolutionReason != null ? resolutionReason : "Direct");
+        boolean streaming = Boolean.TRUE.equals(request.get("stream"));
+        httpResponse.setContentType(streaming ? MediaType.TEXT_EVENT_STREAM_VALUE : MediaType.APPLICATION_JSON_VALUE);
+        httpResponse.setHeader("Cache-Control", "no-cache");
+        httpResponse.setHeader("X-Transaction-Id", transactionId);
+        return outputStream -> {
+            org.slf4j.MDC.put("txId", transactionId);
+            org.slf4j.MDC.put("requester", requester);
+            try {
+                log.info("Received OpenAI-compatible {} proxy request to '{}' [Resolution: {}]",
+                        pipeline, httpRequest.getRequestURI(), resolutionReason != null ? resolutionReason : "Direct");
 
-            if (Boolean.TRUE.equals(request.get("stream"))) {
+                if (streaming) {
                 Flux<String> upstreamEvents = gatewayFacade.processStreamingChatCompletion(
                         request, requester, transactionId, pipeline);
-                StreamingResponseBody body = outputStream -> writeStreamingResponse(
-                        outputStream, upstreamEvents, requester, transactionId);
-                return ResponseEntity.ok()
-                        .contentType(MediaType.TEXT_EVENT_STREAM)
-                        .header("Cache-Control", "no-cache")
-                        .header("X-Transaction-Id", transactionId)
-                        .body(body);
+                    writeStreamingResponse(outputStream, upstreamEvents, requester, transactionId);
+                    return;
+                }
+
+                long start = System.currentTimeMillis();
+                Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, transactionId, pipeline);
+                log.info("{} proxy request completed in {}ms", pipeline, (System.currentTimeMillis() - start));
+                STREAM_MAPPER.writeValue(outputStream, response);
+            } catch (Exception e) {
+                if (isClientDisconnect(e)) {
+                    log.debug("Client connection disconnected prematurely: {}", e.getMessage());
+                    return;
+                }
+                log.error("Gateway error: {}", e.getMessage(), e);
+                httpResponse.setStatus(e instanceof IllegalArgumentException ? 400 : 503);
+                Map<String, Object> error = Map.of(
+                        "message", e.getMessage() != null ? e.getMessage() : "Gateway error",
+                        "type", e instanceof IllegalArgumentException ? "invalid_request_error" : "gateway_error",
+                        "code", e instanceof IllegalArgumentException ? "invalid_request" : "model_unavailable");
+                if (streaming) {
+                    writeSseData(outputStream, STREAM_MAPPER.writeValueAsString(Map.of("error", error)));
+                    writeSseData(outputStream, "[DONE]");
+                } else {
+                    STREAM_MAPPER.writeValue(outputStream, Map.of("error", error));
+                }
+            } finally {
+                org.slf4j.MDC.clear();
             }
+        };
 
-            long start = System.currentTimeMillis();
-            Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, transactionId, pipeline);
-            log.info("{} proxy request completed in {}ms", pipeline, (System.currentTimeMillis() - start));
-
-            return formatOpenAiResponse(response, transactionId);
-        } finally {
-            org.slf4j.MDC.clear();
-        }
     }
 
     private void writeStreamingResponse(OutputStream outputStream,
@@ -270,12 +290,6 @@ public class LlmController {
         outputStream.flush();
     }
 
-    private ResponseEntity<?> formatOpenAiResponse(Map<String, Object> response, String transactionId) {
-        return ResponseEntity.ok()
-                .header("X-Transaction-Id", transactionId)
-                .body(response);
-    }
-
     @ExceptionHandler(org.springframework.web.reactive.function.client.WebClientResponseException.class)
     public ResponseEntity<?> handleWebClientResponseException(org.springframework.web.reactive.function.client.WebClientResponseException e) {
         String body = e.getResponseBodyAsString();
@@ -290,6 +304,19 @@ public class LlmController {
                 .body(Map.of("error", error));
     }
 
+    @ExceptionHandler(org.springframework.web.context.request.async.AsyncRequestTimeoutException.class)
+    public ResponseEntity<?> handleAsyncTimeout(org.springframework.web.context.request.async.AsyncRequestTimeoutException e) {
+        log.warn("Async request timed out — upstream LLM provider did not respond in time");
+        Map<String, Object> error = Map.of(
+            "message", "Upstream LLM provider did not respond in time. The request may have been too large or the model is warming up. Please retry.",
+            "type", "upstream_error",
+            "code", "gateway_timeout"
+        );
+        return ResponseEntity.status(org.springframework.http.HttpStatus.GATEWAY_TIMEOUT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("error", error));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<?> handleGeneralException(Exception e) {
         if (isClientDisconnect(e)) {
@@ -298,6 +325,14 @@ public class LlmController {
         }
 
         log.error("Gateway error: {}", e.getMessage(), e);
+        if (e instanceof IllegalArgumentException) {
+            Map<String, Object> error = Map.of(
+                "message", e.getMessage() != null ? e.getMessage() : "Invalid request",
+                "type", "invalid_request_error",
+                "code", "invalid_request"
+            );
+            return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(Map.of("error", error));
+        }
         Map<String, Object> error = Map.of(
             "message", e.getMessage() != null ? e.getMessage() : "Internal Gateway Error",
             "type", "gateway_error",

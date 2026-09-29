@@ -27,8 +27,8 @@ public class RoutingProperties {
      * Maximum number of fallback attempts when primary model fails.
      */
     @Min(1)
-    @Max(10)
-    private int maxFallbackAttempts = 3;
+    @Max(20)
+    private int maxFallbackAttempts = 20;
 
     /**
      * Enable/disable context window validation before routing.

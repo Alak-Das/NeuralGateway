@@ -40,7 +40,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 ### 5. Requester Telemetry & Observability
 - **Per-Requester Analytics**: Tracks request counts, token usage (prompt/completion/total), and latency percentiles (p50/p95/p99) grouped by the `X-Requester` header.
 - **Real-Time SSE Dashboard**: Live Server-Sent Events stream at `/api/models/status/stream` and `/api/requesters/status/stream` push updates to the React frontend without polling.
-- **Enhanced Dashboard Visualization**: React-based frontend now includes **Error Percentage History** charts alongside latency and usage metrics, enabling operators to monitor model reliability trends over time.
+- **Enhanced Dashboard Visualization**: React-based frontend now includes **Success Rate History** charts alongside latency and usage metrics, enabling operators to monitor model reliability trends over time.
 - **Structured Logging with MDC**: Every request carries a transaction ID and requester identity through MDC (Mapped Diagnostic Context) for end-to-end traceability.
 - **Background Probe Identification**: Health check results now distinguish between automated background sweeps and user-initiated pings, allowing for filtered analytics and cleaner observability data.
 - **Swagger/OpenAPI Documentation**: Interactive API explorer available at `/swagger-ui.html` and `/v3/api-docs`.

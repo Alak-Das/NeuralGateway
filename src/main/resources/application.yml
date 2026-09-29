@@ -27,9 +27,11 @@ resilience4j.retry:
       exponentialBackoffMultiplier: 2
 llm:
   health-check:
-    intervalMs: 65000
+    intervalMs: 240000
+    lock-at-most-for: 5m
+    enabled: ${LLM_HEALTH_CHECK_ENABLED:false}
   logging:
-    payload-mode: ${LLM_LOGGING_PAYLOAD_MODE:SUMMARY}
+    payload-mode: ${LLM_LOGGING_PAYLOAD_MODE:NONE}
     preview-max-chars: ${LLM_LOGGING_PREVIEW_MAX_CHARS:120}
   data-retention:
     ttl-hours: ${LLM_DATA_RETENTION_TTL_HOURS:24}
@@ -38,6 +40,9 @@ llm:
     nvidia:
       base-url: https://integrate.api.nvidia.com/v1
       rate-limit-rpm: 40
+      health-check-interval-ms: 1800000
+      health-check-max-backoff-ms: 3600000
+      overload-cooldown-ms: 300000
       keys:
         - ${NVIDIA_API_KEY_1:}
         - ${NVIDIA_API_KEY_2:}
@@ -56,6 +61,9 @@ llm:
     explabs :
       base-url: https://api.experientiallabs.ai/v1
       rate-limit-rpm: 300
+      health-check-interval-ms: 21600000
+      health-check-max-backoff-ms: 3600000
+      overload-cooldown-ms: 300000
       keys:
         - ${EXPLABS_API_KEY:}
       models:
@@ -63,6 +71,10 @@ llm:
     cohere:
       base-url: https://api.cohere.com/compatibility/v1
       rate-limit-rpm: 30
+      health-check-interval-ms: 86400000
+      health-check-max-backoff-ms: 86400000
+      overload-cooldown-ms: 300000
+      quota-cooldown-ms: 2592000000
       keys:
         - ${COHERE_API_KEY:}
       models:

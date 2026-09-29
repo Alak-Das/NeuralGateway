@@ -3,7 +3,6 @@ package com.alak.neuralgateway.service;
 import com.alak.neuralgateway.config.LlmProvidersProperties;
 import com.alak.neuralgateway.domain.model.Model;
 import com.alak.neuralgateway.domain.model.Model.Pipeline;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
@@ -57,8 +56,9 @@ public class ModelRegistry {
                             modelId.trim(),
                             providerId,
                             modelConfig.getPipelines(),
-                            32000, // DEFAULT_CONTEXT_LIMIT
+                            modelConfig.getContextLimit(),
                             modelConfig.getPriority(),
+                            modelConfig.getPipelinePriorities(),
                             determineCapabilities(modelId.trim(), modelConfig.getPipelines())
                     );
                     

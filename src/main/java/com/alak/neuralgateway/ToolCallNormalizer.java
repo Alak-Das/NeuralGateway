@@ -20,7 +20,7 @@ public class ToolCallNormalizer {
     private static final Pattern DRIVE_PATH_PATTERN = Pattern.compile("([A-Za-z]:[/\\\\][^\r\n\"']+)");
 
     public ToolCallNormalizer() {
-        this(new PayloadTelemetryService("SUMMARY", 120));
+        this(new PayloadTelemetryService("NONE", 120));
     }
 
     public ToolCallNormalizer(PayloadTelemetryService payloadTelemetryService) {

@@ -28,7 +28,7 @@ export default function StatusTable({ data }: StatusTableProps) {
     return num.toString();
   };
 
-  const formatTimeAgo = (dateStr: string) => {
+  const formatTimeAgo = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
     const date = new Date(dateStr);
     const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
@@ -40,7 +40,7 @@ export default function StatusTable({ data }: StatusTableProps) {
     return `${Math.floor(hours / 24)}d ago`;
   };
 
-  const formatTimeOnly = (dateStr: string) => {
+  const formatTimeOnly = (dateStr: string | null) => {
     if (!dateStr) return '';
     const date = new Date(dateStr);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }).toLowerCase();
@@ -83,19 +83,25 @@ export default function StatusTable({ data }: StatusTableProps) {
     return Array.from(cats).sort();
   }, [data]);
 
+  const isUnchecked = (model: ModelStatus) => model.errorMessage === 'Not yet checked';
+
   const filteredData = useMemo(() => {
     return data.filter(d => {
       const catMatch = !categoryFilter || d.categories.includes(categoryFilter);
       let statusMatch = true;
-      if (statusFilter === 'up') statusMatch = d.isUp && !d.circuitOpen;
-      else if (statusFilter === 'down') statusMatch = !d.isUp;
+      if (statusFilter === 'up') statusMatch = d.isUp && !d.circuitOpen && !isUnchecked(d);
+      else if (statusFilter === 'down') statusMatch = !d.isUp && !d.circuitOpen && !isUnchecked(d);
+      else if (statusFilter === 'unknown') statusMatch = isUnchecked(d);
       else if (statusFilter === 'circuit') statusMatch = d.circuitOpen;
       return catMatch && statusMatch;
     }).sort((a, b) => {
       let valA: any = 0; let valB: any = 0;
       switch (sortCol) {
         case 'model': valA = a.model; valB = b.model; break;
-        case 'status': valA = a.circuitOpen ? -1 : (a.isUp ? 1 : 0); valB = b.circuitOpen ? -1 : (b.isUp ? 1 : 0); break;
+        case 'status':
+          valA = a.circuitOpen ? -1 : (isUnchecked(a) ? 0 : (a.isUp ? 2 : 1));
+          valB = b.circuitOpen ? -1 : (isUnchecked(b) ? 0 : (b.isUp ? 2 : 1));
+          break;
         case 'latency': valA = a.latencyMs; valB = b.latencyMs; break;
         case 'tps': valA = a.tps; valB = b.tps; break;
         case 'uses': valA = a.totalUses; valB = b.totalUses; break;
@@ -119,14 +125,14 @@ export default function StatusTable({ data }: StatusTableProps) {
     const rows = filteredData.map(d => [
       d.model,
       d.categories.join('; '),
-      d.circuitOpen ? 'CIRCUIT OPEN' : (d.isUp ? 'UP' : 'DOWN'),
+      d.circuitOpen ? 'CIRCUIT OPEN' : (isUnchecked(d) ? 'UNKNOWN' : (d.isUp ? 'UP' : 'DOWN')),
       d.latencyMs,
       d.tps.toFixed(2),
       d.totalUses,
       d.activeConnections,
       d.circuitOpen ? 'Open' : 'Closed',
       d.errorMessage || '',
-      new Date(d.lastChecked).toISOString()
+      d.lastChecked ? new Date(d.lastChecked).toISOString() : ''
     ]);
     
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -165,6 +171,7 @@ export default function StatusTable({ data }: StatusTableProps) {
                 <option value="">All Statuses</option>
                 <option value="up">Up (Healthy)</option>
                 <option value="down">Down</option>
+                <option value="unknown">Unknown (Not checked)</option>
                 <option value="circuit">Circuit Open</option>
               </select>
             </div>
@@ -228,6 +235,8 @@ export default function StatusTable({ data }: StatusTableProps) {
                   <td className="py-3 px-4">
                     {d.circuitOpen ? (
                       <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 px-2 py-1"><i className="bi bi-exclamation-triangle-fill me-1"></i>CIRCUIT OPEN</span>
+                    ) : isUnchecked(d) ? (
+                      <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1"><i className="bi bi-question-circle-fill me-1"></i>UNKNOWN</span>
                     ) : d.isUp ? (
                       <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1"><i className="bi bi-circle-fill me-1" style={{ fontSize: '0.5rem', verticalAlign: 'middle' }}></i>UP</span>
                     ) : (
@@ -235,7 +244,7 @@ export default function StatusTable({ data }: StatusTableProps) {
                     )}
                   </td>
                   <td className="py-3 px-4 fw-medium text-nowrap">
-                    {!d.isUp && !d.circuitOpen ? <span className="text-danger opacity-75">N/A</span> : (
+                    {isUnchecked(d) ? <span className="text-muted opacity-50">&mdash;</span> : !d.isUp && !d.circuitOpen ? <span className="text-danger opacity-75">N/A</span> : (
                       d.latencyMs > 1000 ? <span className="text-warning">{(d.latencyMs / 1000).toFixed(2)}s</span> : <span>{d.latencyMs}ms</span>
                     )}
                   </td>
@@ -268,5 +277,3 @@ export default function StatusTable({ data }: StatusTableProps) {
     </div>
   );
 }
-
-

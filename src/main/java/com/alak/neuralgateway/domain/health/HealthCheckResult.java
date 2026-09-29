@@ -2,6 +2,7 @@
 package com.alak.neuralgateway.domain.health;
 
 import java.time.Instant;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -29,7 +30,7 @@ public class HealthCheckResult {
     @JsonCreator
     public HealthCheckResult(
             @JsonProperty("model") String model, 
-            @JsonProperty("isUp") boolean isUp, 
+            @JsonProperty("up") @JsonAlias("isUp") boolean isUp,
             @JsonProperty("latencyMs") long latencyMs, 
             @JsonProperty("timestamp") Instant timestamp, 
             @JsonProperty("errorMessage") String errorMessage, 
@@ -63,4 +64,3 @@ public class HealthCheckResult {
                 "}";
     }
 }
-

@@ -16,6 +16,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import reactor.core.publisher.Flux;
 import org.slf4j.Logger;
@@ -41,6 +43,7 @@ public class LlmGatewayFacade {
     private final SseNotificationService sseNotificationService;
     private final RoutingProperties routingProperties;
     private final RedisPersistenceService redisPersistenceService;
+    private final ProviderAvailabilityService providerAvailabilityService;
 
     public LlmGatewayFacade(ModelRegistry modelRegistry,
                             RoutingService routingService,
@@ -53,6 +56,24 @@ public class LlmGatewayFacade {
                             SseNotificationService sseNotificationService,
                             RoutingProperties routingProperties,
                             RedisPersistenceService redisPersistenceService) {
+        this(modelRegistry, routingService, circuitBreakerService, healthCheckService, LlmProviderClient,
+                toolCallNormalizer, payloadTelemetryService, modelStatusService, sseNotificationService,
+                routingProperties, redisPersistenceService, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public LlmGatewayFacade(ModelRegistry modelRegistry,
+                            RoutingService routingService,
+                            CircuitBreakerService circuitBreakerService,
+                            HealthCheckService healthCheckService,
+                            LlmProviderClient LlmProviderClient,
+                            ToolCallNormalizer toolCallNormalizer,
+                            PayloadTelemetryService payloadTelemetryService,
+                            ModelStatusService modelStatusService,
+                            SseNotificationService sseNotificationService,
+                            RoutingProperties routingProperties,
+                            RedisPersistenceService redisPersistenceService,
+                            ProviderAvailabilityService providerAvailabilityService) {
         this.modelRegistry = modelRegistry;
         this.routingService = routingService;
         this.circuitBreakerService = circuitBreakerService;
@@ -64,6 +85,7 @@ public class LlmGatewayFacade {
         this.sseNotificationService = sseNotificationService;
         this.routingProperties = routingProperties;
         this.redisPersistenceService = redisPersistenceService;
+        this.providerAvailabilityService = providerAvailabilityService;
     }
 
     /**
@@ -90,7 +112,7 @@ public class LlmGatewayFacade {
         List<Model> candidates = routingService.selectModels(pipeline, estimatedTokens);
         
         if (candidates.isEmpty()) {
-            throw new IllegalStateException("No available models for pipeline: " + pipelineName);
+            throw noEligibleProvider(pipeline, null);
         }
 
         // If client targeted a specific physical model, prioritize it as the primary candidate if available
@@ -110,6 +132,11 @@ public class LlmGatewayFacade {
         Exception lastException = null;
         for (int i = 0; i < candidates.size(); i++) {
             Model model = candidates.get(i);
+            if (!isProviderAvailable(model)) {
+                log.info("[TxID: {}] Skipping model '{}' because provider '{}' is in cooldown", transactionId,
+                        model.getId(), model.getProviderId());
+                continue;
+            }
             
             // Increment usage tracking
             modelStatusService.incrementUsage(model.getId());
@@ -138,6 +165,7 @@ public class LlmGatewayFacade {
                 // Update telemetry and health status on success
                 routingService.updateEmaLatency(model.getId(), latency);
                 circuitBreakerService.recordSuccess(model.getId());
+                recordProviderSuccess(model);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), true, latency, java.time.Instant.now(), null));
                 
                 // Normalize tool calls
@@ -163,7 +191,9 @@ public class LlmGatewayFacade {
                 lastException = e;
                 log.warn("[TxID: {}] Upstream failure for model '{}' ({}ms): {}. Failing over to next candidate...",
                         transactionId, model.getId(), latency, e.getMessage());
-                circuitBreakerService.recordFailure(model.getId(), e);
+                if (!recordProviderFailure(model, e)) {
+                    circuitBreakerService.recordFailure(model.getId(), e);
+                }
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                 routingService.decrementActiveConnections(model.getId());
                 continue;
@@ -195,7 +225,7 @@ public class LlmGatewayFacade {
         }
 
         // All candidates exhausted
-        throw new IllegalStateException("All models failed for pipeline: " + pipelineName, lastException);
+        throw noEligibleProvider(pipeline, lastException);
     }
 
     /**
@@ -220,7 +250,7 @@ public class LlmGatewayFacade {
         List<Model> candidates = routingService.selectModels(pipeline, estimatedTokens);
         
         if (candidates.isEmpty()) {
-            throw new IllegalStateException("No available models for pipeline: " + pipelineName);
+            throw noEligibleProvider(pipeline, null);
         }
 
         Object requestedModelObj = requestBody.get("model");
@@ -245,11 +275,15 @@ public class LlmGatewayFacade {
                                          String pipelineName,
                                          int estimatedTokens) {
         if (candidateIndex >= candidates.size()) {
-            return Flux.error(new IllegalStateException("All models failed for pipeline: " + pipelineName));
+            return Flux.error(noEligibleProvider(Pipeline.valueOf(pipelineName.toUpperCase()), null));
         }
 
         Model model = candidates.get(candidateIndex);
         return Flux.defer(() -> {
+            if (!isProviderAvailable(model)) {
+                return streamCandidate(candidates, candidateIndex + 1, requestBody, requester,
+                        transactionId, pipelineName, estimatedTokens);
+            }
             modelStatusService.incrementUsage(model.getId());
             routingService.incrementActiveConnections(model.getId());
 
@@ -281,6 +315,7 @@ public class LlmGatewayFacade {
                         if (circuitOutcomeRecorded.compareAndSet(false, true)) {
                             circuitBreakerService.recordSuccess(model.getId());
                         }
+                        recordProviderSuccess(model);
                         releaseConnection.run();
                         modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
                                 model.getId(), true, latency, java.time.Instant.now(), null));
@@ -306,9 +341,10 @@ public class LlmGatewayFacade {
 
                 boolean recordAsFailure = !(error instanceof IllegalArgumentException) || formatError;
                 if (circuitOutcomeRecorded.compareAndSet(false, true)) {
-                    if (recordAsFailure) {
+                    boolean providerWide = recordProviderFailure(model, error);
+                    if (recordAsFailure && !providerWide) {
                         circuitBreakerService.recordFailure(model.getId(), error);
-                    } else {
+                    } else if (!recordAsFailure) {
                         circuitBreakerService.releasePermission(model.getId());
                     }
                 }
@@ -328,6 +364,32 @@ public class LlmGatewayFacade {
                 return Flux.error(error);
             });
         });
+    }
+
+    private boolean isProviderAvailable(Model model) {
+        return providerAvailabilityService == null || providerAvailabilityService.isAvailable(model.getProviderId());
+    }
+
+    private boolean recordProviderFailure(Model model, Throwable error) {
+        if (providerAvailabilityService == null || !(error instanceof ProviderFailureException failure)) return false;
+        providerAvailabilityService.recordFailure(failure);
+        return failure.isProviderWide();
+    }
+
+    private void recordProviderSuccess(Model model) {
+        if (providerAvailabilityService != null) providerAvailabilityService.recordSuccess(model.getProviderId());
+    }
+
+    private IllegalStateException noEligibleProvider(Pipeline pipeline, Exception cause) {
+        Set<String> providers = modelRegistry.getModelsByPipeline(pipeline).stream()
+                .map(Model::getProviderId).collect(Collectors.toSet());
+        Map<String, String> unavailable = providerAvailabilityService == null ? Map.of()
+                : providerAvailabilityService.unavailableReasons(providers);
+        String message = unavailable.isEmpty()
+                ? "No eligible models remain for pipeline: " + pipeline.name().toLowerCase()
+                : "No eligible provider remains for pipeline " + pipeline.name().toLowerCase()
+                + ". Provider state: " + unavailable;
+        return cause == null ? new IllegalStateException(message) : new IllegalStateException(message, cause);
     }
 
     /**
@@ -460,31 +522,44 @@ public class LlmGatewayFacade {
     private int estimateTokens(Map<String, Object> requestBody) {
         if (requestBody == null || !requestBody.containsKey("messages")) return 0;
         try {
-            Object msgsObj = requestBody.get("messages");
-            if (!(msgsObj instanceof List<?> messages)) return 0;
-            int estimatedTokens = 0;
-            for (Object mObj : messages) {
-                if (!(mObj instanceof Map<?, ?> m)) continue;
-                Object content = m.get("content");
-                if (content instanceof String str) {
-                    estimatedTokens += str.length() / 4;
-                } else if (content instanceof List<?> parts) {
-                    for (Object partObj : parts) {
-                        if (partObj instanceof Map<?, ?> part) {
-                            String type = (String) part.get("type");
-                            if ("text".equals(type) && part.get("text") instanceof String t) {
-                                estimatedTokens += t.length() / 4;
-                            } else if ("image_url".equals(type)) {
-                                estimatedTokens += 1000;
-                            }
-                        }
-                    }
-                }
+            Map<String, Object> promptParts = new HashMap<>();
+            for (String field : List.of("messages", "tools", "tool_choice", "response_format")) {
+                Object value = requestBody.get(field);
+                if (value != null) promptParts.put(field, replaceImagePayloads(value));
             }
-            return estimatedTokens;
+            String prompt = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(promptParts);
+            int textTokens = (int) Math.ceil(prompt.length() / 3.0);
+            int imageCount = countImages(requestBody.get("messages"));
+            int outputTokens = requestBody.get("max_tokens") instanceof Number n ? Math.max(0, n.intValue()) : 4096;
+            return Math.addExact(Math.addExact(textTokens, imageCount * 2048), outputTokens);
         } catch (Exception e) {
             return 0;
         }
+    }
+
+    private int countImages(Object messagesObject) {
+        if (!(messagesObject instanceof List<?> messages)) return 0;
+        int count = 0;
+        for (Object message : messages) {
+            if (message instanceof Map<?, ?> map && map.get("content") instanceof List<?> parts) {
+                for (Object part : parts) {
+                    if (part instanceof Map<?, ?> partMap && "image_url".equals(partMap.get("type"))) count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private Object replaceImagePayloads(Object value) {
+        if (value instanceof Map<?, ?> source) {
+            Map<String, Object> copy = new HashMap<>();
+            source.forEach((key, item) -> copy.put(String.valueOf(key), "image_url".equals(key) ? "[image]" : replaceImagePayloads(item)));
+            return copy;
+        }
+        if (value instanceof List<?> source) {
+            return source.stream().map(this::replaceImagePayloads).toList();
+        }
+        return value;
     }
 
     private long extractTotalTokens(Map<String, Object> response) {

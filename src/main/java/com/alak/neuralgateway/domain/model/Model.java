@@ -1,6 +1,8 @@
 package com.alak.neuralgateway.domain.model;
 
 import java.util.Collections;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -13,15 +15,24 @@ public class Model {
     private final Set<Pipeline> pipelines;
     private final int contextLimit;
     private final int priority;
+    private final Map<Pipeline, Integer> pipelinePriorities;
     private final ModelCapabilities capabilities;
 
     public Model(String id, String name, String providerId, Set<Pipeline> pipelines, int contextLimit, int priority, ModelCapabilities capabilities) {
+        this(id, name, providerId, pipelines, contextLimit, priority, Map.of(), capabilities);
+    }
+
+    public Model(String id, String name, String providerId, Set<Pipeline> pipelines, int contextLimit,
+                 int priority, Map<Pipeline, Integer> pipelinePriorities, ModelCapabilities capabilities) {
         this.id = id;
         this.name = name;
         this.providerId = providerId;
         this.pipelines = pipelines != null ? Collections.unmodifiableSet(pipelines) : Collections.emptySet();
         this.contextLimit = contextLimit;
         this.priority = priority;
+        Map<Pipeline, Integer> priorities = new EnumMap<>(Pipeline.class);
+        if (pipelinePriorities != null) priorities.putAll(pipelinePriorities);
+        this.pipelinePriorities = Collections.unmodifiableMap(priorities);
         this.capabilities = capabilities != null ? capabilities : ModelCapabilities.NONE;
     }
 
@@ -48,6 +59,12 @@ public class Model {
     public int getPriority() {
         return priority;
     }
+
+    public int getPriority(Pipeline pipeline) {
+        return pipelinePriorities.getOrDefault(pipeline, priority);
+    }
+
+    public Map<Pipeline, Integer> getPipelinePriorities() { return pipelinePriorities; }
 
     public ModelCapabilities getCapabilities() {
         return capabilities;

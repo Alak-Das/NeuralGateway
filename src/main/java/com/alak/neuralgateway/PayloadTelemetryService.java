@@ -23,13 +23,13 @@ public class PayloadTelemetryService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     public PayloadTelemetryService(
-            @Value("${llm.logging.payload-mode:SUMMARY}") String modeStr,
+            @Value("${llm.logging.payload-mode:NONE}") String modeStr,
             @Value("${llm.logging.preview-max-chars:120}") int previewMaxChars) {
         PayloadLogMode mode;
         try {
             mode = PayloadLogMode.valueOf(modeStr != null ? modeStr.trim().toUpperCase() : "SUMMARY");
         } catch (Exception e) {
-            mode = PayloadLogMode.SUMMARY;
+            mode = PayloadLogMode.NONE;
         }
         this.logMode = mode;
         this.previewMaxChars = Math.max(20, previewMaxChars);

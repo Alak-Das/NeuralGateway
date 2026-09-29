@@ -13,7 +13,7 @@ export interface ModelStatus {
   categories: string[];
   isUp: boolean;
   latencyMs: number;
-  lastChecked: string;
+  lastChecked: string | null;
   errorMessage: string | null;
   history: HealthCheckResult[];
   totalUses: number;

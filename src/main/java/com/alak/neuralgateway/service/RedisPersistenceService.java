@@ -3,6 +3,8 @@ package com.alak.neuralgateway.service;
 import com.alak.neuralgateway.config.DataRetentionProperties;
 import com.alak.neuralgateway.domain.health.HealthCheckResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +24,8 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class RedisPersistenceService {
 
+    private static final Logger log = LoggerFactory.getLogger(RedisPersistenceService.class);
+
     private static final String HISTORY_KEY_PREFIX = "gateway:model:history:";
     private static final String USAGE_KEY_PREFIX = "gateway:model:usage:";
     private static final String CIRCUIT_KEY_PREFIX = "gateway:model:circuit:";
@@ -29,6 +33,7 @@ public class RedisPersistenceService {
     private static final String CONSECUTIVE_ERRORS_KEY_PREFIX = "gateway:model:consecutive_errors:";
     private static final String TPS_KEY_PREFIX = "gateway:model:tps:";
     private static final String REQUESTER_USAGE_KEY_PREFIX = "gateway:requester:usage:";
+    private static final String PROVIDER_UNAVAILABLE_KEY_PREFIX = "gateway:provider:unavailable:";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -59,6 +64,8 @@ public class RedisPersistenceService {
     public void saveHealthCheckResult(String modelId, HealthCheckResult result) {
         String historyKey = HISTORY_KEY_PREFIX + modelId;
         try {
+            log.debug("Saving health-check history to Redis: modelId={}, up={}, latencyMs={}",
+                    modelId, result.isUp(), result.getLatencyMs());
             String json = objectMapper.writeValueAsString(result);
             redisTemplate.opsForList().rightPush(historyKey, json);
             redisTemplate.opsForList().trim(historyKey, -maxHistorySize, -1);
@@ -264,5 +271,19 @@ public class RedisPersistenceService {
             // Log but don't throw - persistence failure shouldn't break the flow
         }
         return usageMap;
+    }
+
+    public void setProviderUnavailable(String providerId, String reason, java.time.Duration cooldown) {
+        if (providerId == null || providerId.isBlank() || cooldown == null || cooldown.isZero() || cooldown.isNegative()) return;
+        redisTemplate.opsForValue().set(PROVIDER_UNAVAILABLE_KEY_PREFIX + providerId, reason, cooldown);
+    }
+
+    public String getProviderUnavailableReason(String providerId) {
+        if (providerId == null || providerId.isBlank()) return null;
+        return redisTemplate.opsForValue().get(PROVIDER_UNAVAILABLE_KEY_PREFIX + providerId);
+    }
+
+    public void clearProviderUnavailable(String providerId) {
+        if (providerId != null && !providerId.isBlank()) redisTemplate.delete(PROVIDER_UNAVAILABLE_KEY_PREFIX + providerId);
     }
 }

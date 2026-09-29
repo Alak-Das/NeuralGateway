@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.resources.ConnectionProvider;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -16,9 +15,9 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.codec.ServerSentEvent;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Client for interacting with any OpenAI-compatible API using the ModelRegistry's dynamic configurations.
@@ -74,7 +73,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
 
         if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyActive(apiKey);
         try {
-            return webClient.post()
+            Map<String, Object> response = webClient.post()
                     .uri(baseUrl + "/chat/completions")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -82,6 +81,8 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                     .retrieve()
                     .bodyToMono(Map.class)
                     .block();
+            if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyHealthy(apiKey);
+            return response;
         } catch (WebClientResponseException e) {
             throw mapWebClientException(e, model.getProviderId(), apiKey, modelId);
         } catch (org.springframework.web.reactive.function.client.WebClientRequestException e) {
@@ -128,12 +129,38 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                     .bodyValue(request)
                     .retrieve()
                     .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
-                    .map(ServerSentEvent::data)
-                    .filter(Objects::nonNull)
+                    .mapNotNull(ServerSentEvent::data)
+                    .doOnNext(data -> {
+                        // Detect upstream errors embedded in SSE data events (e.g. NVIDIA 503 in-stream).
+                        // Providers may return 200 OK with an SSE body containing {"error":{...}} instead
+                        // of using the HTTP status code. Without this check the error silently passes through
+                        // as normal data, bypassing the failover logic entirely.
+                        if (data.contains("\"error\"") && data.contains("\"code\"")) {
+                            try {
+                                Map parsed = new com.fasterxml.jackson.databind.ObjectMapper().readValue(data, Map.class);
+                                if (parsed.containsKey("error")) {
+                                    Object errorObj = parsed.get("error");
+                                    if (errorObj instanceof Map errorMap) {
+                                        int code = errorMap.get("code") instanceof Number n ? n.intValue()
+                                                : errorMap.get("code") instanceof String s ? Integer.parseInt(s) : 500;
+                                        String msg = errorMap.get("message") instanceof String s ? s : data;
+                                        throw new UpstreamServiceException(msg, code);
+                                    }
+                                }
+                            } catch (UpstreamServiceException e) {
+                                throw e;
+                            } catch (Exception ignored) {
+                                // Not a parseable error — pass through as normal data
+                            }
+                        }
+                    })
                     .onErrorMap(WebClientResponseException.class,
                             e -> mapWebClientException(e, model.getProviderId(), apiKey, modelId))
                     .onErrorMap(org.springframework.web.reactive.function.client.WebClientRequestException.class,
                             e -> mapWebClientRequestException(e, modelId))
+                    .doOnComplete(() -> {
+                        if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyHealthy(apiKey);
+                    })
                     .doFinally(signal -> {
                         if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyIdle(apiKey);
                     });
@@ -156,33 +183,54 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
     private RuntimeException mapWebClientException(WebClientResponseException e, String providerId, String apiKey, String modelId) {
         int status = e.getStatusCode().value();
         String responseBody = e.getResponseBodyAsString();
+        Duration retryAfter = parseRetryAfter(e);
+        String lowerBody = responseBody == null ? "" : responseBody.toLowerCase(java.util.Locale.ROOT);
 
-        boolean isRateLimit = (status == 429) ||
-                              (status == 503 && responseBody != null && (responseBody.contains("ResourceExhausted") || responseBody.contains("overloaded")));
+        boolean quotaExhausted = lowerBody.contains("quota") || lowerBody.contains("api calls / month")
+                || lowerBody.contains("monthly limit") || lowerBody.contains("billing") && lowerBody.contains("limit");
+        boolean providerOverloaded = status == 503 && (lowerBody.contains("resourceexhausted")
+                || lowerBody.contains("at capacity") || lowerBody.contains("no capacity"));
 
-        if (isRateLimit) {
-            // Cool down the specific key if apiKeyPool is available
+        if (quotaExhausted || status == 429 || providerOverloaded) {
             ApiKeyPool pool = modelRegistry.getApiKeyPool(providerId);
             if (pool != null && apiKey != null && !apiKey.isEmpty()) {
-                pool.recordRateLimit(apiKey, Duration.ofSeconds(30));
+                pool.recordRateLimit(apiKey, retryAfter != null ? retryAfter : Duration.ofSeconds(30));
             }
-            return new RateLimitException(responseBody, providerId, apiKey, modelId);
+            ProviderFailureType type = quotaExhausted ? ProviderFailureType.QUOTA_EXHAUSTED
+                    : providerOverloaded ? ProviderFailureType.PROVIDER_OVERLOAD : ProviderFailureType.RATE_LIMIT;
+            return new ProviderFailureException(responseBody, status, providerId, type, retryAfter);
         }
 
         if (status == 410) {
-            // End of life model (Gone). Force failover instead of hard crash.
-            return new UpstreamServiceException("Model deprecated (410): " + responseBody, status);
+            return new ProviderFailureException("Model deprecated (410): " + responseBody, status, providerId,
+                    ProviderFailureType.MODEL_UNAVAILABLE, null);
         }
 
         if (status == 401 || status == 403 || status == 404) {
-            // Upstream provider authentication failure or missing model - failover to next candidate
-            return new UpstreamServiceException("Upstream provider error (" + status + "): " + responseBody, status);
+            ProviderFailureType type = status == 404 ? ProviderFailureType.MODEL_UNAVAILABLE : ProviderFailureType.AUTHENTICATION;
+            return new ProviderFailureException("Upstream provider error (" + status + "): " + responseBody, status,
+                    providerId, type, null);
         }
 
         if (status >= 400 && status < 500) {
             return new IllegalArgumentException(responseBody); // 400 Bad Request, 422
         } else {
-            return new UpstreamServiceException(responseBody, status);
+            return new ProviderFailureException(responseBody, status, providerId,
+                    ProviderFailureType.TRANSIENT_UPSTREAM, null);
+        }
+    }
+
+    private Duration parseRetryAfter(WebClientResponseException e) {
+        String value = e.getHeaders().getFirst(HttpHeaders.RETRY_AFTER);
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Duration.ofSeconds(Long.parseLong(value.trim()));
+        } catch (NumberFormatException ignored) {
+            try {
+                return Duration.between(Instant.now(), java.time.ZonedDateTime.parse(value).toInstant());
+            } catch (Exception ignoredAgain) {
+                return null;
+            }
         }
     }
 }

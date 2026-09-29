@@ -1,7 +1,7 @@
 version: '3.8'
 services:
   neural-gateway:
-    container_name: neural-gateway-app
+    container_name:  NeuralGateway-App
     build: .
     ports:
     - 9090:8080
@@ -18,8 +18,6 @@ services:
     image: redis:7-alpine
     container_name: NeuralGateway-Redis
     command: redis-server --stop-writes-on-bgsave-error no --save 60 1
-    ports:
-    - 6379:6379
     volumes:
     - ./redis-data:/data
   open-webui:

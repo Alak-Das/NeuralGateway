@@ -14,9 +14,18 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const [activeRotationIndex, setActiveRotationIndex] = useState(0);
 
   const totalModels = data.length;
-  const upModels = data.filter(d => d.isUp && !d.circuitOpen).length;
+  const uncheckedModels = data.filter(d => d.errorMessage === 'Not yet checked').length;
+  const checkedModels = totalModels - uncheckedModels;
+  const upModels = data.filter(d => d.isUp && !d.circuitOpen && d.errorMessage !== 'Not yet checked').length;
   const trippedCount = data.filter(d => d.circuitOpen).length;
-  const realDownCount = data.filter(d => !d.isUp && !d.circuitOpen).length;
+  const realDownCount = data.filter(d => !d.isUp && !d.circuitOpen && d.errorMessage !== 'Not yet checked').length;
+  const healthColor = checkedModels === 0
+    ? 'text-muted'
+    : realDownCount > 0 && upModels === 0
+      ? 'text-danger'
+      : realDownCount > 0 || uncheckedModels > 0 || trippedCount > 0
+        ? 'text-warning'
+        : 'text-success';
 
   const totalTps = data.reduce((sum, d) => sum + (d.tps || 0), 0);
   const totalConns = data.reduce((sum, d) => sum + (d.activeConnections || 0), 0);
@@ -166,8 +175,11 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
               <i className="bi bi-server me-2"></i>Fleet Health
             </div>
             <div className="fw-bolder d-flex align-items-baseline" style={{ fontSize: '2rem', lineHeight: '1.1' }}>
-              <span className={upModels === totalModels ? 'text-success' : (upModels === 0 ? 'text-danger' : 'text-warning')}>{upModels}</span>
-              <span className="text-muted ms-2" style={{ fontSize: '1.1rem' }}>/ {totalModels}</span>
+              <span className={healthColor} title="Healthy models / models checked">{checkedModels > 0 ? upModels : '—'}</span>
+              <span className="text-muted ms-2" style={{ fontSize: '1.1rem' }}>/ {checkedModels} checked</span>
+            </div>
+            <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
+              {uncheckedModels} unchecked{realDownCount > 0 ? ` · ${realDownCount} down` : ''}{trippedCount > 0 ? ` · ${trippedCount} circuit open` : ''}
             </div>
           </div>
           <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>

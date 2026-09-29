@@ -25,6 +25,12 @@ public class LlmProvidersProperties {
     public static class ProviderConfig {
         private String baseUrl;
         private int rateLimitRpm = 40;
+        private boolean healthCheckEnabled = true;
+        private long healthCheckIntervalMs = 14_400_000;
+        private long healthCheckMaxBackoffMs = 3_600_000;
+        private long overloadCooldownMs = 300_000;
+        private long quotaCooldownMs = 86_400_000;
+        private long authenticationCooldownMs = 86_400_000;
         private List<String> keys;
         private List<ModelConfig> models;
 
@@ -43,6 +49,19 @@ public class LlmProvidersProperties {
         public void setRateLimitRpm(int rateLimitRpm) {
             this.rateLimitRpm = rateLimitRpm;
         }
+
+        public boolean isHealthCheckEnabled() { return healthCheckEnabled; }
+        public void setHealthCheckEnabled(boolean healthCheckEnabled) { this.healthCheckEnabled = healthCheckEnabled; }
+        public long getHealthCheckIntervalMs() { return healthCheckIntervalMs; }
+        public void setHealthCheckIntervalMs(long healthCheckIntervalMs) { this.healthCheckIntervalMs = healthCheckIntervalMs; }
+        public long getHealthCheckMaxBackoffMs() { return healthCheckMaxBackoffMs; }
+        public void setHealthCheckMaxBackoffMs(long healthCheckMaxBackoffMs) { this.healthCheckMaxBackoffMs = healthCheckMaxBackoffMs; }
+        public long getOverloadCooldownMs() { return overloadCooldownMs; }
+        public void setOverloadCooldownMs(long overloadCooldownMs) { this.overloadCooldownMs = overloadCooldownMs; }
+        public long getQuotaCooldownMs() { return quotaCooldownMs; }
+        public void setQuotaCooldownMs(long quotaCooldownMs) { this.quotaCooldownMs = quotaCooldownMs; }
+        public long getAuthenticationCooldownMs() { return authenticationCooldownMs; }
+        public void setAuthenticationCooldownMs(long authenticationCooldownMs) { this.authenticationCooldownMs = authenticationCooldownMs; }
 
         public List<String> getKeys() {
             return keys;
@@ -65,6 +84,8 @@ public class LlmProvidersProperties {
         private String id;
         private Set<Model.Pipeline> pipelines;
         private int priority = 1;
+        private int contextLimit = 32000;
+        private Map<Model.Pipeline, Integer> pipelinePriorities;
 
         public String getId() {
             return id;
@@ -89,5 +110,10 @@ public class LlmProvidersProperties {
         public void setPriority(int priority) {
             this.priority = priority;
         }
+
+        public int getContextLimit() { return contextLimit; }
+        public void setContextLimit(int contextLimit) { this.contextLimit = contextLimit; }
+        public Map<Model.Pipeline, Integer> getPipelinePriorities() { return pipelinePriorities; }
+        public void setPipelinePriorities(Map<Model.Pipeline, Integer> pipelinePriorities) { this.pipelinePriorities = pipelinePriorities; }
     }
 }
