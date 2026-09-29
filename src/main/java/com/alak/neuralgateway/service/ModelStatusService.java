@@ -218,7 +218,23 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      * Get all model statuses.
      */
     public List<ModelStatus> getAllStatuses() {
-        return new ArrayList<>(statusCache.values());
+        return statusCache.values().stream()
+                .map(status -> new ModelStatus(
+                        status.model(),
+                        status.categories(),
+                        status.isUp(),
+                        status.latencyMs(),
+                        status.lastChecked(),
+                        status.errorMessage(),
+                        status.history(),
+                        redisPersistence.getUsage(status.model()),
+                        routingService.getActiveConnections(status.model()),
+                        status.tps(),
+                        status.circuitOpen(),
+                        status.provider(),
+                        status.priority()
+                ))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -235,7 +251,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      */
     public void incrementUsage(String modelId) {
         redisPersistence.incrementUsage(modelId);
-        statusCache.computeIfPresent(modelId, (k, existing) -> new ModelStatus(
+        ModelStatus updated = statusCache.computeIfPresent(modelId, (k, existing) -> new ModelStatus(
                 existing.model(),
                 existing.categories(),
                 existing.isUp(),
@@ -243,13 +259,17 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 existing.lastChecked(),
                 existing.errorMessage(),
                 existing.history(),
-                existing.totalUses() + 1,
+                redisPersistence.getUsage(modelId),
                 routingService.getActiveConnections(modelId),
                 existing.tps(),
                 existing.circuitOpen(),
                 existing.provider(),
                 existing.priority()
         ));
+
+        if (updated != null && eventPublisher != null) {
+            eventPublisher.publishEvent(new ModelStatusChangedEvent(this, updated));
+        }
     }
 
     /**

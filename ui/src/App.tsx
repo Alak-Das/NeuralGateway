@@ -1,13 +1,10 @@
-import React, { useEffect, useState, useRef, createContext, useContext } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { ModelStatus, RequesterStatus } from './types';
 import KpiGrid from './components/KpiGrid';
 import StatusTable from './components/StatusTable';
 import RequestersTable from './components/RequestersTable';
 import Charts from './components/Charts';
 import { ThemeContext } from './theme/ThemeContext';
-
-// Theme context for charts
-
 
 export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -19,8 +16,6 @@ export default function App() {
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const MAX_RECONNECT_ATTEMPTS = 10;
-  const RECONNECT_DELAY_BASE = 1000;
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -42,97 +37,153 @@ export default function App() {
   };
 
   useEffect(() => {
-    const connectSSE = () => {
-      if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-        setConnectionStatus('DISCONNECTED');
-        return;
+    let disposed = false;
+    let refreshTimeout: number | undefined;
+    let reconnectTimeout: number | undefined;
+    let requestTimeout: number | undefined;
+    let refreshInProgress = false;
+    let statusRevision = 0;
+    let activeRequest: AbortController | null = null;
+
+    const refreshDashboard = async () => {
+      if (disposed || refreshInProgress) return;
+
+      refreshInProgress = true;
+      const controller = new AbortController();
+      activeRequest = controller;
+      const revisionAtStart = statusRevision;
+      requestTimeout = window.setTimeout(() => controller.abort(), 10000);
+
+      const refreshModels = async () => {
+        try {
+          const response = await fetch('/api/models/status', {
+            cache: 'no-store',
+            signal: controller.signal
+          });
+          if (!response.ok) return false;
+
+          const statuses: ModelStatus[] = await response.json();
+          if (!Array.isArray(statuses)) {
+            console.error('Failed to refresh model statuses: response was not an array');
+            return false;
+          }
+          if (!disposed && revisionAtStart === statusRevision) setData(statuses);
+          return true;
+        } catch (err) {
+          if (!controller.signal.aborted) console.error('Failed to refresh model statuses', err);
+          return false;
+        }
+      };
+
+      const refreshRequesters = async () => {
+        try {
+          const response = await fetch('/api/requesters/status', {
+            cache: 'no-store',
+            signal: controller.signal
+          });
+          if (!response.ok) return false;
+
+          const reqData = await response.json();
+          let entries: RequesterStatus[] = [];
+          if (Array.isArray(reqData)) {
+            entries = reqData.map((item: any) => ({
+              requester: item.requester || item.identity || item.name || 'unknown',
+              count: Number(item.count ?? item.tokens ?? item.total ?? 0)
+            }));
+          } else if (typeof reqData === 'object' && reqData !== null) {
+            entries = Object.entries(reqData).map(([requester, count]) => ({
+              requester,
+              count: Number(count)
+            }));
+          }
+          entries.sort((a, b) => b.count - a.count);
+          if (!disposed) setRequesters(entries);
+          return true;
+        } catch (err) {
+          if (!controller.signal.aborted) console.error('Failed to refresh requesters', err);
+          return false;
+        }
+      };
+
+      try {
+        const results = await Promise.all([refreshModels(), refreshRequesters()]);
+        if (!disposed && results.some(Boolean)) setLastUpdated(new Date());
+      } finally {
+        window.clearTimeout(requestTimeout);
+        refreshInProgress = false;
+        if (activeRequest === controller) activeRequest = null;
+        if (!disposed) refreshTimeout = window.setTimeout(refreshDashboard, 5000);
       }
+    };
+
+    const applyStreamUpdate = (event: Event) => {
+      try {
+        const parsed = JSON.parse((event as MessageEvent<string>).data);
+        if (Array.isArray(parsed)) {
+          statusRevision += 1;
+          setData(parsed);
+          setLastUpdated(new Date());
+        }
+      } catch (err) {
+        console.error('Error parsing model status stream data:', err);
+      }
+    };
+
+    const connectSSE = () => {
+      if (disposed) return;
 
       setConnectionStatus(reconnectAttemptsRef.current === 0 ? 'CONNECTING' : 'RECONNECTING');
-      const es = new EventSource('/api/models/status/stream');
-      eventSourceRef.current = es;
-
-      es.onopen = () => {
-        setConnectionStatus('LIVE');
-        reconnectAttemptsRef.current = 0;
-      };
-
-      es.addEventListener('init', (e: any) => {
-        try {
-          if (e.data) {
-            const parsed = JSON.parse(e.data);
-            setData(parsed);
-            setLastUpdated(new Date());
-            fetchRequesters();
-          }
-        } catch (err) {
-          console.error('Error parsing init data:', err);
-        }
-      });
-
-      es.addEventListener('status', (e: any) => {
-        try {
-          if (e.data) {
-            const parsed = JSON.parse(e.data);
-            setData(parsed);
-            setLastUpdated(new Date());
-            fetchRequesters();
-          }
-        } catch (err) {
-          console.error('Error parsing status data:', err);
-        }
-      });
-
-      es.onerror = () => {
-        es.close();
+      let eventSource: EventSource;
+      try {
+        eventSource = new EventSource('/api/models/status/stream');
+      } catch (err) {
+        console.error('Failed to open model status stream', err);
         reconnectAttemptsRef.current += 1;
         setConnectionStatus('RECONNECTING');
-        const delay = Math.min(RECONNECT_DELAY_BASE * Math.pow(1.5, reconnectAttemptsRef.current), 10000);
-        setTimeout(connectSSE, delay);
+        const backoffStep = Math.min(reconnectAttemptsRef.current - 1, 5);
+        reconnectTimeout = window.setTimeout(connectSSE, Math.min(1000 * Math.pow(2, backoffStep), 30000));
+        return;
+      }
+      eventSourceRef.current = eventSource;
+
+      eventSource.onopen = () => {
+        reconnectAttemptsRef.current = 0;
+        setConnectionStatus('LIVE');
       };
+      eventSource.addEventListener('init', applyStreamUpdate);
+      eventSource.addEventListener('status', applyStreamUpdate);
+      eventSource.onerror = () => {
+        eventSource.close();
+        if (disposed) return;
+
+        reconnectAttemptsRef.current += 1;
+        setConnectionStatus('RECONNECTING');
+        const backoffStep = Math.min(reconnectAttemptsRef.current - 1, 5);
+        const delay = Math.min(1000 * Math.pow(2, backoffStep), 30000);
+        reconnectTimeout = window.setTimeout(connectSSE, delay);
+      };
+    };
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== 'visible' || disposed) return;
+      window.clearTimeout(refreshTimeout);
+      if (!refreshInProgress) void refreshDashboard();
     };
 
     connectSSE();
+    void refreshDashboard();
+    document.addEventListener('visibilitychange', refreshWhenVisible);
 
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
+      disposed = true;
+      window.clearTimeout(refreshTimeout);
+      window.clearTimeout(reconnectTimeout);
+      window.clearTimeout(requestTimeout);
+      activeRequest?.abort();
+      eventSourceRef.current?.close();
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, []);
-
-  const fetchRequesters = async () => {
-    try {
-      const res = await fetch('/api/requesters/status');
-      if (res.ok) {
-        const reqData = await res.json();
-        let entries: RequesterStatus[] = [];
-        if (Array.isArray(reqData)) {
-          entries = reqData.map((item: any) => ({
-            requester: item.requester || item.identity || item.name || 'unknown',
-            count: Number(item.count ?? item.tokens ?? item.total ?? 0)
-          }));
-        } else if (typeof reqData === 'object' && reqData !== null) {
-          entries = Object.entries(reqData).map(([requester, count]) => ({
-            requester,
-            count: Number(count)
-          }));
-        }
-        entries.sort((a, b) => b.count - a.count);
-        setRequesters(entries);
-      }
-    } catch (err) {
-      console.error('Failed to fetch requesters', err);
-    }
-  };
-
-  useEffect(() => {
-    fetchRequesters();
-    if (activeTab === 'requesters') {
-      const interval = setInterval(fetchRequesters, 4000);
-      return () => clearInterval(interval);
-    }
-  }, [activeTab]);
 
   const getConnectionBadge = () => {
     switch (connectionStatus) {
@@ -201,4 +252,3 @@ export default function App() {
     </div>
   );
 }
-

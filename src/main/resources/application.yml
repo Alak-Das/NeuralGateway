@@ -68,16 +68,3 @@ llm:
         - ${EXPLABS_API_KEY:}
       models:
         - { id: "mimo-v2.6-pro",                                   priority: 10,   pipelines: [ REASONING, CODING, VISION ] }
-    cohere:
-      base-url: https://api.cohere.com/compatibility/v1
-      rate-limit-rpm: 30
-      health-check-interval-ms: 86400000
-      health-check-max-backoff-ms: 86400000
-      overload-cooldown-ms: 300000
-      quota-cooldown-ms: 2592000000
-      keys:
-        - ${COHERE_API_KEY:}
-      models:
-        - { id: "command-a-plus-05-2026",                         priority: 8,   pipelines: [ REASONING, VISION ] }
-        - { id: "north-mini-code-1-0",                            priority: 7,   pipelines: [ CODING ] }
-        - { id: "command-a-vision-07-2025",                       priority: 6,   pipelines: [ VISION ] }

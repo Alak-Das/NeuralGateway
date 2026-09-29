@@ -2,6 +2,7 @@ package com.alak.neuralgateway.service;
 
 import com.alak.neuralgateway.domain.ModelStatus;
 import com.alak.neuralgateway.domain.health.HealthCheckResult;
+import com.alak.neuralgateway.event.ModelStatusChangedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -53,6 +54,77 @@ class ModelStatusServiceTest {
         ModelStatus status = service.getStatus("test-model");
         assertTrue(status.isUp());
         assertEquals(1, status.history().size());
-        assertEquals(result, status.history().get(0));
+        assertEquals(result, status.history().getFirst());
+    }
+
+    @Test
+    void incrementUsagePublishesUpdatedModelStatus() {
+        RedisPersistenceService redisPersistence = mock(RedisPersistenceService.class);
+        RoutingService routingService = mock(RoutingService.class);
+        CircuitBreakerService circuitBreakerService = mock(CircuitBreakerService.class);
+        ModelRegistry modelRegistry = mock(ModelRegistry.class);
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+
+        when(redisPersistence.getHealthCheckHistory("test-model")).thenReturn(new ArrayList<>());
+        when(redisPersistence.getUsage("test-model")).thenReturn(0L);
+        when(redisPersistence.isCircuitOpen("test-model")).thenReturn(false);
+        when(redisPersistence.getEmaLatency("test-model", 0.0)).thenReturn(0.0);
+        when(redisPersistence.getConsecutiveErrors("test-model")).thenReturn(0);
+        when(modelRegistry.getModel("test-model")).thenReturn(Optional.empty());
+        when(routingService.getActiveConnections("test-model")).thenReturn(0);
+
+        ModelStatusService service = new ModelStatusService(
+                redisPersistence,
+                routingService,
+                circuitBreakerService,
+                modelRegistry,
+                new ObjectMapper().findAndRegisterModules(),
+                eventPublisher
+        );
+        service.initializeModel("test-model");
+
+        when(redisPersistence.getUsage("test-model")).thenReturn(1L);
+        service.incrementUsage("test-model");
+
+        org.mockito.ArgumentCaptor<ModelStatusChangedEvent> eventCaptor =
+                org.mockito.ArgumentCaptor.forClass(ModelStatusChangedEvent.class);
+        verify(eventPublisher, org.mockito.Mockito.times(2)).publishEvent(eventCaptor.capture());
+        ModelStatusChangedEvent statusChangedEvent = eventCaptor.getAllValues().get(1);
+        assertEquals(1L, statusChangedEvent.getModelStatus().totalUses());
+    }
+
+    @Test
+    void getAllStatusesReadsCurrentUsageAndConnectionCounts() {
+        RedisPersistenceService redisPersistence = mock(RedisPersistenceService.class);
+        RoutingService routingService = mock(RoutingService.class);
+        CircuitBreakerService circuitBreakerService = mock(CircuitBreakerService.class);
+        ModelRegistry modelRegistry = mock(ModelRegistry.class);
+        ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+
+        when(redisPersistence.getHealthCheckHistory("test-model")).thenReturn(new ArrayList<>());
+        when(redisPersistence.getUsage("test-model")).thenReturn(0L);
+        when(redisPersistence.isCircuitOpen("test-model")).thenReturn(false);
+        when(redisPersistence.getEmaLatency("test-model", 0.0)).thenReturn(0.0);
+        when(redisPersistence.getConsecutiveErrors("test-model")).thenReturn(0);
+        when(modelRegistry.getModel("test-model")).thenReturn(Optional.empty());
+        when(routingService.getActiveConnections("test-model")).thenReturn(0);
+
+        ModelStatusService service = new ModelStatusService(
+                redisPersistence,
+                routingService,
+                circuitBreakerService,
+                modelRegistry,
+                new ObjectMapper().findAndRegisterModules(),
+                eventPublisher
+        );
+        service.initializeModel("test-model");
+
+        when(redisPersistence.getUsage("test-model")).thenReturn(12L);
+        when(routingService.getActiveConnections("test-model")).thenReturn(2);
+
+        ModelStatus status = service.getAllStatuses().getFirst();
+
+        assertEquals(12L, status.totalUses());
+        assertEquals(2, status.activeConnections());
     }
 }
