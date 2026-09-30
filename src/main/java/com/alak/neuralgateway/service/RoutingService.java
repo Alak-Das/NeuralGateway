@@ -122,7 +122,10 @@ public class RoutingService {
      * Returns a prioritized list of candidate models (primary + fallbacks).
      */
     public List<Model> selectModels(Pipeline pipeline, int estimatedTokens) {
-        List<Model> pipelineModels = modelRegistry.getModelsByPipeline(pipeline);
+        // Disabled models are never eligible for routing (including degraded-mode fallbacks).
+        List<Model> pipelineModels = modelRegistry.getModelsByPipeline(pipeline).stream()
+                .filter(Model::isEnabled)
+                .collect(Collectors.toList());
 
         // Filter by context window if enabled
         if (properties.isContextWindowValidationEnabled()) {

@@ -43,7 +43,7 @@ class ModelStatusFreshnessTest {
         ModelStatus reconstructed = new ModelStatus(original.model(), original.categories(), original.isUp(),
                 original.latencyMs(), original.lastChecked(), original.errorMessage(), original.history(),
                 original.totalUses(), original.activeConnections(), original.tps(), original.circuitOpen(),
-                original.provider(), original.priority());
+                original.provider(), original.priority(), original.enabled());
 
         assertEquals(checkedAt, reconstructed.lastChecked());
         assertTrue(reconstructed.isStatusFresh());
@@ -51,6 +51,6 @@ class ModelStatusFreshnessTest {
 
     private ModelStatus statusCheckedAt(Instant lastChecked) {
         return new ModelStatus("model", List.of(), true, 1, lastChecked, null,
-                List.of(), 0, 0, 0, false, "provider", 1);
+                List.of(), 0, 0, 0, false, "provider", 1, true);
     }
 }

@@ -197,6 +197,7 @@ public class HealthCheckService {
                     var config = modelRegistry.getProviderConfig(model.getProviderId());
                     return config != null && config.isHealthCheckEnabled();
                 })
+                .filter(Model::isEnabled)
                 .filter(model -> modelRecoveryTracker.isDue(model.getId(), now))
                 .filter(model -> {
                     Instant nextProviderProbe = nextRecoveryProviderProbeAt.get(model.getProviderId());
@@ -372,6 +373,9 @@ public class HealthCheckService {
         allModels.addAll(modelRegistry.getModelsByPipeline(Pipeline.CODING));
         allModels.addAll(modelRegistry.getModelsByPipeline(Pipeline.REASONING));
         allModels.addAll(modelRegistry.getModelsByPipeline(Pipeline.VISION));
+
+        // Disabled models stay visible in the dashboard but are never probed.
+        allModels.removeIf(model -> !model.isEnabled());
 
         Instant now = Instant.now();
         Map<String, List<Model>> modelsByProvider = allModels.stream()

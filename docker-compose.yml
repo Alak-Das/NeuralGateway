@@ -10,7 +10,7 @@ services:
     - NVIDIA_API_KEY_3=${NVIDIA_API_KEY_3}
     - EXPLABS_API_KEY=${EXPLABS_API_KEY}
     - ANTSEED_API_KEY=${ANTSEED_API_KEY}
-    - SPRING_DATA_REDIS_HOST=redis
+    - REDIS_HOST=redis
     - LLM_HEALTH_CHECK_ENABLED=${LLM_HEALTH_CHECK_ENABLED:-true}
     depends_on:
       redis:

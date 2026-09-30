@@ -24,7 +24,8 @@ public record ModelStatus(
         double tps,
         boolean circuitOpen,
         String provider,
-        int priority
+        int priority,
+        boolean enabled
 ) {
     // Record automatically generates constructor, getters, equals, hashCode, toString
 

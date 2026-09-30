@@ -86,6 +86,7 @@ export default function StatusTable({ data }: StatusTableProps) {
   }, [data]);
 
   const isUnchecked = (model: ModelStatus) => model.errorMessage === 'Not yet checked';
+  const isDisabled = (model: ModelStatus) => model.enabled === false;
   const getProbeStatus = (model: ModelStatus) => isUnchecked(model) ? 'unknown' : (model.isUp ? 'up' : 'down');
   const isStatusFresh = (model: ModelStatus) => {
     if (model.statusFresh != null) return model.statusFresh;
@@ -223,13 +224,18 @@ export default function StatusTable({ data }: StatusTableProps) {
               </tr>
             ) : (
               filteredData.map(d => (
-                <tr key={d.model}>
+                <tr key={d.model} className={isDisabled(d) ? 'row-disabled' : ''}>
                   <td className="py-3 px-4">
                     <div className="d-flex align-items-center gap-2 flex-wrap">
                       <span className="model-name fw-bold" title={d.model}>{d.model}</span>
                       {d.provider && (
                         <span className="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }}>
                           <i className="bi bi-cloud me-1"></i>{d.provider}
+                        </span>
+                      )}
+                      {isDisabled(d) && (
+                        <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }} title="Disabled in config — excluded from routing and health checks">
+                          <i className="bi bi-pause-circle me-1"></i>DISABLED
                         </span>
                       )}
                       <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }}>

@@ -59,7 +59,8 @@ public class ModelRegistry {
                             modelConfig.getContextLimit(),
                             modelConfig.getPriority(),
                             modelConfig.getPipelinePriorities(),
-                            determineCapabilities(modelId.trim(), modelConfig.getPipelines())
+                            determineCapabilities(modelId.trim(), modelConfig.getPipelines()),
+                            modelConfig.isEnabled()
                     );
                     
                     // If a model is defined multiple times (shouldn't happen in proper YAML), overwrite

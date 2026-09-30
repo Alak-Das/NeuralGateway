@@ -24,6 +24,7 @@ export interface ModelStatus {
   circuitOpen: boolean;
   provider: string;
   priority: number;
+  enabled?: boolean;
 }
 
 export interface RequesterStatus {

@@ -149,6 +149,13 @@ public class LlmProvidersProperties {
         private Set<Model.Pipeline> pipelines;
         private int priority = 1;
         private int contextLimit = 32000;
+        /**
+         * Whether the model participates in routing and periodic health checks.
+         * Disabled models remain registered and visible in the dashboard/status
+         * endpoints, but are excluded from request routing and health-check sweeps.
+         * Defaults to {@code true} so existing configs keep working unchanged.
+         */
+        private boolean enabled = true;
         private Map<Model.Pipeline, Integer> pipelinePriorities;
 
         public String getId() {
@@ -181,6 +188,14 @@ public class LlmProvidersProperties {
 
         public void setContextLimit(int contextLimit) {
             this.contextLimit = contextLimit;
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
 
         public Map<Model.Pipeline, Integer> getPipelinePriorities() {

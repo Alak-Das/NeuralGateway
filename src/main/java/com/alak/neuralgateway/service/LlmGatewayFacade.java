@@ -409,6 +409,7 @@ public class LlmGatewayFacade {
 
     private IllegalStateException noEligibleProvider(Pipeline pipeline, Exception cause) {
         Set<String> providers = modelRegistry.getModelsByPipeline(pipeline).stream()
+                .filter(Model::isEnabled)
                 .map(Model::getProviderId).collect(Collectors.toSet());
         Map<String, String> unavailable = providerAvailabilityService == null ? Map.of()
                 : providerAvailabilityService.unavailableReasons(providers);

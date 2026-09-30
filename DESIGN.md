@@ -99,6 +99,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - `sanitizeRequest(requestBody)` - Normalize provider-specific parameters (e.g., thinking_effort)
 - `getRoutingScore(modelId)` - Retrieve current routing score for a model
 - `recordRoutedFailure(modelId, throwable)` / `recordRoutedSuccess(modelId)` - Notify the recovery tracker of routed outcomes
+- `noEligibleProvider(pipeline, cause)` - Builds the error message when no candidate is available. Filters `getModelsByPipeline()` with `.filter(Model::isEnabled)` so that only providers with at least one **enabled** model contribute their availability state to the error message. This prevents stale `QUOTA_EXHAUSTED` state from a disabled model from polluting the error.
 - Various getter methods for telemetry and status information
 
 #### RoutingService
@@ -351,6 +352,7 @@ data: {"timestamp":"2026-09-27T10:30:05Z","instanceId":"neural-gateway-1"}
 - `pipelines`: Set of assigned pipelines (CODING, REASONING, VISION)
 - `contextLimit`: Maximum context tokens supported
 - `priority`: Priority level (lower = higher priority)
+- `enabled`: Boolean flag (default `false` via `Boolean.TRUE.equals()`) — models must be explicitly marked `enabled: true` in configuration to be eligible for routing and health checks. Disabled models are excluded from `getModelsByPipeline()`, filtered by `noEligibleProvider()`, and marked DOWN in model status.
 - `capabilities`: ModelCapabilities object
 
 #### ModelCapabilities
@@ -857,7 +859,7 @@ services:
     environment:
       - NVIDIA_API_KEY_1=${NVIDIA_API_KEY_1}
       - NVIDIA_API_KEY_2=${NVIDIA_API_KEY_2}
-      - SPRING_DATA_REDIS_HOST=redis
+      - REDIS_HOST=redis
     depends_on:
       - redis
     restart: unless-stopped

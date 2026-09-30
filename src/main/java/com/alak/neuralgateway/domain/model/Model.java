@@ -17,13 +17,20 @@ public class Model {
     private final int priority;
     private final Map<Pipeline, Integer> pipelinePriorities;
     private final ModelCapabilities capabilities;
+    private final boolean enabled;
 
     public Model(String id, String name, String providerId, Set<Pipeline> pipelines, int contextLimit, int priority, ModelCapabilities capabilities) {
-        this(id, name, providerId, pipelines, contextLimit, priority, Map.of(), capabilities);
+        this(id, name, providerId, pipelines, contextLimit, priority, Map.of(), capabilities, true);
     }
 
     public Model(String id, String name, String providerId, Set<Pipeline> pipelines, int contextLimit,
                  int priority, Map<Pipeline, Integer> pipelinePriorities, ModelCapabilities capabilities) {
+        this(id, name, providerId, pipelines, contextLimit, priority, pipelinePriorities, capabilities, true);
+    }
+
+    public Model(String id, String name, String providerId, Set<Pipeline> pipelines, int contextLimit,
+                 int priority, Map<Pipeline, Integer> pipelinePriorities, ModelCapabilities capabilities,
+                 boolean enabled) {
         this.id = id;
         this.name = name;
         this.providerId = providerId;
@@ -34,6 +41,7 @@ public class Model {
         if (pipelinePriorities != null) priorities.putAll(pipelinePriorities);
         this.pipelinePriorities = Collections.unmodifiableMap(priorities);
         this.capabilities = capabilities != null ? capabilities : ModelCapabilities.NONE;
+        this.enabled = enabled;
     }
 
     public String getId() {
@@ -70,6 +78,15 @@ public class Model {
         return capabilities;
     }
 
+    /**
+     * Whether this model participates in routing and periodic health checks.
+     * Disabled models stay registered (visible in dashboard/status endpoints)
+     * but are excluded from request routing and health-check sweeps.
+     */
+    public boolean isEnabled() {
+        return enabled;
+    }
+
     public boolean isAvailableForPipeline(Pipeline pipeline) {
         return pipelines.contains(pipeline);
     }
@@ -99,6 +116,7 @@ public class Model {
                 ", pipelines=" + pipelines +
                 ", contextLimit=" + contextLimit +
                 ", capabilities=" + capabilities +
+                ", enabled=" + enabled +
                 '}';
     }
 

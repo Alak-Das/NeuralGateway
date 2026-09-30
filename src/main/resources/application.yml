@@ -51,13 +51,13 @@ llm:
         - ${NVIDIA_API_KEY_2:}
         - ${NVIDIA_API_KEY_3:}
       models:
-        - { id: "moonshotai/kimi-k3",                             priority: 10,  pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "z-ai/glm-5.3",                                   priority: 9,   pipelines: [ REASONING, CODING ] }
-        - { id: "nvidia/nemotron-3-ultra-550b-a55b",              priority: 9,   pipelines: [ REASONING, CODING ] }
-        - { id: "deepseek-ai/deepseek-v4.1-flash",                priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "nvidia/nemotron-3-super-120b-a12b",               priority: 7,   pipelines: [ REASONING, CODING ] }
-        - { id: "z-ai/glm-5.3-flash",                             priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "meta/llama-3.2-11b-vision-instruct",             priority: 3,   pipelines: [ VISION ] }
+        - { id: "moonshotai/kimi-k3",                             enabled: true, priority: 10,  pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "z-ai/glm-5.3",                                   enabled: true, priority: 9,   pipelines: [ REASONING, CODING ] }
+        - { id: "nvidia/nemotron-3-ultra-550b-a55b",              enabled: true, priority: 9,   pipelines: [ REASONING, CODING ] }
+        - { id: "deepseek-ai/deepseek-v4.1-flash",                enabled: true, priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "nvidia/nemotron-3-super-120b-a12b",              enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }
+        - { id: "z-ai/glm-5.3-flash",                             enabled: true, priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "meta/llama-3.2-11b-vision-instruct",             enabled: true, priority: 3,   pipelines: [ VISION ] }
     explabs:
       base-url: https://api.experientiallabs.ai/v1
       rate-limit-rpm: 300
@@ -69,8 +69,8 @@ llm:
       keys:
         - ${EXPLABS_API_KEY:}
       models:
-        - { id: "mimo-v2.6-pro",                                  priority: 10,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "gpt-6-luna",                                     priority: 9,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "mimo-v2.6-pro",                                  enabled: false, priority: 10,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "gpt-6-luna",                                     enabled: false, priority: 9,   pipelines: [ REASONING, CODING, VISION ] }
     antseed:
       base-url: http://host.docker.internal:8377/v1
       rate-limit-rpm: 300
@@ -83,7 +83,7 @@ llm:
       keys:
         - ${ANTSEED_API_KEY:}
       models:
-        - { id: "deepseek-v4-flash",                              priority: 7,   pipelines: [ REASONING, CODING ] }
-        - { id: "zai-org/GLM-5.3-Flash",                          priority: 6,   pipelines: [ REASONING, CODING ] }
-        - { id: "openai/gpt-oss-120b",                            priority: 6,   pipelines: [ REASONING, CODING ] }
-        - { id: "Qwen/Qwen3-235B-A22B-Instruct-2507",             priority: 6,   pipelines: [ REASONING, CODING ] }
+        - { id: "deepseek-v4-flash",                              enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }
+        - { id: "zai-org/GLM-5.3-Flash",                          enabled: true, priority: 6,   pipelines: [ REASONING, CODING ] }
+        - { id: "openai/gpt-oss-120b",                            enabled: true, priority: 6,   pipelines: [ REASONING, CODING ] }
+        - { id: "Qwen/Qwen3-235B-A22B-Instruct-2507",             enabled: true, priority: 6,   pipelines: [ REASONING, CODING ] }

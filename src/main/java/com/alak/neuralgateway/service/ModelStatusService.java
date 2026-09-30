@@ -110,7 +110,8 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 0.0, // tps is 0.0 on startup
                 circuitOpen,
                 model != null ? model.getProviderId() : "unknown",
-                model != null ? model.getPriority() : 0
+                model != null ? model.getPriority() : 0,
+                model != null && model.isEnabled()
         );
 
         statusCache.put(modelId, status);
@@ -157,7 +158,9 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                     routingService.getTps(modelId),
                     circuitBreakerService.isCircuitOpen(modelId),
                     existing != null ? existing.provider() : "unknown",
-                    existing != null ? existing.priority() : 0
+                    existing != null ? existing.priority() : 0,
+                    existing != null ? existing.enabled()
+                            : modelRegistry.getModel(modelId).map(Model::isEnabled).orElse(true)
             );
         });
 
@@ -232,7 +235,8 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                         status.tps(),
                         status.circuitOpen(),
                         status.provider(),
-                        status.priority()
+                        status.priority(),
+                        status.enabled()
                 ))
                 .collect(Collectors.toList());
     }
@@ -264,7 +268,8 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 existing.tps(),
                 existing.circuitOpen(),
                 existing.provider(),
-                existing.priority()
+                existing.priority(),
+                existing.enabled()
         ));
 
         if (updated != null && eventPublisher != null) {
@@ -290,7 +295,8 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 tps,
                 existing.circuitOpen(),
                 existing.provider(),
-                existing.priority()
+                existing.priority(),
+                existing.enabled()
         ));
         
         if (updated != null && eventPublisher != null) {
