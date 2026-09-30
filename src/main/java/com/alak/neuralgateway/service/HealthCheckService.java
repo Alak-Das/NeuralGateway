@@ -19,7 +19,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -53,7 +52,6 @@ public class HealthCheckService {
     private final Map<String, Instant> nextProviderProbeAt = new ConcurrentHashMap<>();
     private final Map<String, Instant> nextRecoveryProviderProbeAt = new ConcurrentHashMap<>();
     private final Map<String, Integer> providerFailureCounts = new ConcurrentHashMap<>();
-    private final Map<String, AtomicInteger> providerProbeCursor = new ConcurrentHashMap<>();
 
     @org.springframework.beans.factory.annotation.Autowired
     public HealthCheckService(HealthCheckProperties properties, ModelRegistry modelRegistry,
@@ -198,15 +196,14 @@ public class HealthCheckService {
                     return config != null && config.isHealthCheckEnabled();
                 })
                 .filter(Model::isEnabled)
-                .filter(model -> modelRecoveryTracker.isDue(model.getId(), now))
+                .filter(model -> isRecoveryCandidate(model.getId(), now))
                 .filter(model -> {
                     Instant nextProviderProbe = nextRecoveryProviderProbeAt.get(model.getProviderId());
                     return nextProviderProbe == null || !nextProviderProbe.isAfter(now);
                 })
                 .filter(model -> providerAvailabilityService == null
                         || providerAvailabilityService.isAvailable(model.getProviderId()))
-                .sorted(Comparator.comparingInt((Model model) -> model.getPriority()).reversed()
-                        .thenComparing(Model::getId))
+                .sorted(recoveryCandidateComparator())
                 .filter(new DistinctProviderFilter())
                 .limit(Math.max(1, properties.getRecoveryMaxModelsPerSweep()))
                 .collect(Collectors.toList());
@@ -215,6 +212,33 @@ public class HealthCheckService {
                     Math.max(properties.getRecoveryIntervalMs(), properties.getMinPingGapMs())));
         }
         return dueModels;
+    }
+
+    /**
+     * A model is a recovery candidate if its per-model recovery backoff has elapsed,
+     * or its circuit is OPEN without any active recovery backoff (e.g. a stale OPEN
+     * circuit restored from Redis that this process has never probed). Models already
+     * in recovery backoff stay gated by {@link ModelRecoveryTracker#isDue} so a
+     * genuinely down model is not hammered on the fast recovery cadence.
+     */
+    private boolean isRecoveryCandidate(String modelId, Instant now) {
+        if (modelRecoveryTracker.isDue(modelId, now)) return true;
+        return isBlockedWithoutRecoveryState(modelId);
+    }
+
+    private boolean isBlockedWithoutRecoveryState(String modelId) {
+        return circuitBreakerService.isCircuitOpen(modelId) && !modelRecoveryTracker.hasState(modelId);
+    }
+
+    /**
+     * Recovery sweep ordering: circuit-blocked models without recovery state first
+     * (fastest unblocking), then priority (descending), then stable id order.
+     */
+    private Comparator<Model> recoveryCandidateComparator() {
+        return Comparator
+                .comparing((Model model) -> !isBlockedWithoutRecoveryState(model.getId()))
+                .thenComparing(Comparator.comparingInt((Model model) -> model.getPriority()).reversed())
+                .thenComparing(Model::getId);
     }
 
     private static final class DistinctProviderFilter implements java.util.function.Predicate<Model> {
@@ -365,8 +389,17 @@ public class HealthCheckService {
     }
 
     /**
-     * Get all models prioritized by EMA latency (fastest first) if enabled.
-     * Deduplicates models configured across multiple pipelines to avoid redundant pings.
+     * Selects the models to probe in the next main sweep.
+     * <p>
+     * Instead of the old 1-model-per-provider round-robin (which needed N sweeps to
+     * cover a provider's fleet, e.g. 28 minutes for 7 NVIDIA models at 4-minute
+     * sweeps), every enabled model of a provider whose probe gate has elapsed is
+     * probed in one sweep. Circuit-blocked models are probed first so a stale OPEN
+     * circuit (e.g. restored from Redis) is closed by a verified probe as fast as
+     * possible; the remaining models are ordered by EMA latency (fastest first) and
+     * priority. Provider-level pacing/backoff ({@link #nextProviderProbeAt}) still
+     * bounds how often a provider is contacted, and {@code maxModelsPerSweep} caps
+     * how many of its models run per sweep so a large fleet cannot stall the sweep.
      */
     private List<Model> getPrioritizedModels() {
         List<Model> allModels = new ArrayList<>();
@@ -377,9 +410,17 @@ public class HealthCheckService {
         // Disabled models stay visible in the dashboard but are never probed.
         allModels.removeIf(model -> !model.isEnabled());
 
-        Instant now = Instant.now();
-        Map<String, List<Model>> modelsByProvider = allModels.stream()
-                .distinct()
+        return selectModelsToProbe(allModels.stream().distinct().collect(Collectors.toList()), Instant.now());
+    }
+
+    /**
+     * Core sweep selection: group the candidate models by provider, skip providers
+     * that are paced/backed off or unavailable, and pick every model of each due
+     * provider (blocked first, then EMA/priority, capped per provider).
+     * Package-private for direct unit testing of the selection algorithm.
+     */
+    List<Model> selectModelsToProbe(List<Model> candidates, Instant now) {
+        Map<String, List<Model>> modelsByProvider = candidates.stream()
                 .collect(Collectors.groupingBy(Model::getProviderId));
         List<Model> selectedModels = new ArrayList<>();
         for (Map.Entry<String, List<Model>> provider : modelsByProvider.entrySet()) {
@@ -387,23 +428,42 @@ public class HealthCheckService {
             var config = modelRegistry.getProviderConfig(providerId);
             if (config == null || !config.isHealthCheckEnabled()) continue;
             if (providerAvailabilityService != null && !providerAvailabilityService.isAvailable(providerId)) continue;
+
+            // Provider-level pacing/backoff: skip providers just probed or in backoff.
             Instant nextProbe = nextProviderProbeAt.get(providerId);
             if (nextProbe != null && nextProbe.isAfter(now)) continue;
 
-            List<Model> providerModels = provider.getValue();
-            int index = providerProbeCursor.computeIfAbsent(providerId, ignored -> new AtomicInteger())
-                    .getAndUpdate(current -> (current + 1) % providerModels.size());
-            selectedModels.add(providerModels.get(index));
+            List<Model> due = provider.getValue().stream()
+                    .sorted(providerProbeComparator())
+                    .limit(Math.max(1, properties.getMaxModelsPerSweep()))
+                    .collect(Collectors.toList());
+            selectedModels.addAll(due);
             nextProviderProbeAt.put(providerId, now.plusMillis(Math.max(60_000, config.getHealthCheckIntervalMs())));
         }
 
-        if (properties.isPrioritizeByEma()) {
-            return selectedModels.stream()
-                    .sorted(Comparator.comparingDouble(m -> routingService.getEmaLatency(m.getId())))
-                    .collect(Collectors.toList());
-        }
+        // Order across providers so blocked models are paced first (the returned
+        // order is what the minPingGapMs staggering applies to).
+        return selectedModels.stream()
+                .sorted(providerProbeComparator())
+                .collect(Collectors.toList());
+    }
 
-        return selectedModels;
+    /**
+     * Ordering for main-sweep probing: circuit-blocked models first (their stale
+     * OPEN circuit blocks routing until a verified probe closes it), then EMA
+     * latency (fastest first) when enabled, then priority, then stable id order.
+     */
+    private Comparator<Model> providerProbeComparator() {
+        Comparator<Model> cmp = Comparator.comparing((Model model) -> !isCircuitBlocked(model.getId()));
+        if (properties.isPrioritizeByEma()) {
+            cmp = cmp.thenComparingDouble(model -> routingService.getEmaLatency(model.getId()));
+        }
+        return cmp.thenComparingInt(model -> -model.getPriority())
+                .thenComparing(Model::getId);
+    }
+
+    private boolean isCircuitBlocked(String modelId) {
+        return circuitBreakerService.isCircuitOpen(modelId);
     }
 
     private void backoffProviderProbe(String modelId) {

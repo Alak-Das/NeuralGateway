@@ -42,6 +42,13 @@ public class HealthCheckProperties {
     @Positive
     private int recoveryMaxModelsPerSweep = 2;
 
+    /**
+     * Maximum models probed per provider in one main sweep (bounds sweep duration
+     * for large fleets; blocked models are always at the front of this budget).
+     */
+    @Positive
+    private int maxModelsPerSweep = 16;
+
     @Min(1)
     @Max(1024)
     private int pingMaxTokens = 1;
@@ -93,6 +100,14 @@ public class HealthCheckProperties {
 
     public void setRecoveryMaxModelsPerSweep(int recoveryMaxModelsPerSweep) {
         this.recoveryMaxModelsPerSweep = recoveryMaxModelsPerSweep;
+    }
+
+    public int getMaxModelsPerSweep() {
+        return maxModelsPerSweep;
+    }
+
+    public void setMaxModelsPerSweep(int maxModelsPerSweep) {
+        this.maxModelsPerSweep = maxModelsPerSweep;
     }
 
     public int getPingMaxTokens() {

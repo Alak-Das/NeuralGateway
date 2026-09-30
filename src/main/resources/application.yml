@@ -27,8 +27,16 @@ resilience4j.retry:
       exponentialBackoffMultiplier: 2
 llm:
   health-check:
-    intervalMs: 240000
+    # Main sweep cadence. Each sweep probes every enabled model of every provider
+    # whose probe gate has elapsed (circuit-blocked models first), so 120s keeps the
+    # NVIDIA fleet fresh roughly every 2 min while staying well under its 40 rpm
+    # limit. antseed/explabs are gated by their own per-provider
+    # health-check-interval-ms (6h).
+    intervalMs: 120000
     lock-at-most-for: 5m
+    # Cap on how many models of one provider a single sweep may probe, so a large
+    # fleet cannot make one sweep run for minutes (blocked models always fit first).
+    max-models-per-sweep: 16
     # Some models (e.g. explabs gpt-6-luna) reject max_tokens < 16, which failed
     # every health-check probe. Use 16 tokens so those probes can succeed.
     ping-max-tokens: 16
@@ -46,8 +54,9 @@ llm:
     nvidia:
       base-url: https://integrate.api.nvidia.com/v1
       rate-limit-rpm: 40
-      # NVIDIA recovery pacing: probe at least every 2 min (models are probed
-      # round-robin) and cap the exponential overload backoff at 10 min so down
+      # NVIDIA freshness: every enabled model is probed at least every 2 min (the
+      # main sweep probes all models of a due provider in one pass, blocked models
+      # first) and the exponential overload backoff is capped at 10 min so down
       # models are re-probed quickly instead of waiting up to an hour.
       health-check-interval-ms: 120000
       health-check-max-backoff-ms: 600000
