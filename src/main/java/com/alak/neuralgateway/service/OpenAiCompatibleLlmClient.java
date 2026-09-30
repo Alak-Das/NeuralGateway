@@ -28,6 +28,9 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
     private final WebClient webClient;
     private final ModelRegistry modelRegistry;
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper UPSTREAM_ERROR_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     public OpenAiCompatibleLlmClient(WebClient.Builder webClientBuilder, ModelRegistry modelRegistry) {
         this.modelRegistry = modelRegistry;
 
@@ -185,9 +188,15 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
         String responseBody = e.getResponseBodyAsString();
         Duration retryAfter = parseRetryAfter(e);
         String lowerBody = responseBody == null ? "" : responseBody.toLowerCase(java.util.Locale.ROOT);
+        String upstreamCode = extractUpstreamErrorCode(responseBody);
 
-        boolean quotaExhausted = lowerBody.contains("quota") || lowerBody.contains("api calls / month")
-                || lowerBody.contains("monthly limit") || lowerBody.contains("billing") && lowerBody.contains("limit");
+        // A 4xx parameter/validation rejection (e.g. max_tokens below the provider minimum) is a
+        // model-level problem, NOT a provider-wide one. Never let such an error be mistaken for
+        // quota exhaustion and trip the long provider cooldown.
+        boolean parameterError = upstreamCode != null && (upstreamCode.contains("invalid_parameter")
+                || upstreamCode.contains("validation_error") || upstreamCode.contains("badrequest"));
+
+        boolean quotaExhausted = isQuotaCode(upstreamCode) || (!parameterError && isQuotaPhrase(lowerBody));
         boolean providerOverloaded = status == 503 && (lowerBody.contains("resourceexhausted")
                 || lowerBody.contains("at capacity") || lowerBody.contains("no capacity"));
 
@@ -218,6 +227,51 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
             return new ProviderFailureException(responseBody, status, providerId,
                     ProviderFailureType.TRANSIENT_UPSTREAM, null);
         }
+    }
+
+    /**
+     * Extracts a structured OpenAI-style error code/type from an upstream error body, e.g.
+     * {@code {"error":{"code":"insufficient_quota","type":"insufficient_quota"}}}. Falls back to a
+     * top-level {@code code} field. Returns {@code null} when the body is not JSON or carries no
+     * recognizable code, letting the textual heuristics decide.
+     */
+    private static String extractUpstreamErrorCode(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) return null;
+        try {
+            Object parsed = UPSTREAM_ERROR_MAPPER.readValue(responseBody, Object.class);
+            if (parsed instanceof Map<?, ?> map) {
+                Object error = map.get("error");
+                if (error instanceof Map<?, ?> errorMap) {
+                    String code = asLowerString(errorMap.get("code"));
+                    if (code != null) return code;
+                    String type = asLowerString(errorMap.get("type"));
+                    if (type != null) return type;
+                }
+                return asLowerString(map.get("code"));
+            }
+        } catch (Exception ignored) {
+            // Not JSON or unexpected shape - fall back to textual heuristics.
+        }
+        return null;
+    }
+
+    private static String asLowerString(Object value) {
+        return value instanceof String s && !s.isBlank() ? s.toLowerCase(java.util.Locale.ROOT) : null;
+    }
+
+    private static boolean isQuotaCode(String upstreamCode) {
+        return upstreamCode != null && (upstreamCode.contains("insufficient_quota")
+                || upstreamCode.contains("quota_exceeded") || upstreamCode.contains("quota_exhausted")
+                || upstreamCode.contains("quota reached") || upstreamCode.contains("billing_hard_limit")
+                || upstreamCode.contains("billing_error"));
+    }
+
+    private static boolean isQuotaPhrase(String lowerBody) {
+        return lowerBody.contains("quota exceeded") || lowerBody.contains("exceeded quota")
+                || lowerBody.contains("insufficient quota") || lowerBody.contains("insufficient_quota")
+                || lowerBody.contains("quota exhausted") || lowerBody.contains("quota-exhausted")
+                || lowerBody.contains("api calls / month") || lowerBody.contains("monthly limit")
+                || (lowerBody.contains("billing") && lowerBody.contains("limit"));
     }
 
     private Duration parseRetryAfter(WebClientResponseException e) {
