@@ -29,6 +29,9 @@ llm:
   health-check:
     intervalMs: 240000
     lock-at-most-for: 5m
+    # Some models (e.g. explabs gpt-6-luna) reject max_tokens < 16, which failed
+    # every health-check probe. Use 16 tokens so those probes can succeed.
+    ping-max-tokens: 16
     enabled: ${LLM_HEALTH_CHECK_ENABLED:false}
   logging:
     payload-mode: ${LLM_LOGGING_PAYLOAD_MODE:NONE}
@@ -72,11 +75,13 @@ llm:
       health-check-interval-ms: 21600000
       health-check-max-backoff-ms: 3600000
       overload-cooldown-ms: 300000
+      # AntSeed is a peer-to-peer aggregator that echoes provider-qualified canonical IDs
+      # (e.g. "openai/gpt-oss-120b") in completion responses; relax exact model-ID matching.
+      allow-qualified-model-ids: true
       keys:
         - ${ANTSEED_API_KEY:}
       models:
-        - { id: "step-3.7-flash",                                 priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "deepseek-v4-flash",                              priority: 7,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "glm-5.3-flash",                                  priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "gpt-oss-120b",                                   priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "mimo-v2.6-flash",                                priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "deepseek-v4-flash",                              priority: 7,   pipelines: [ REASONING, CODING ] }
+        - { id: "zai-org/GLM-5.3-Flash",                          priority: 6,   pipelines: [ REASONING, CODING ] }
+        - { id: "openai/gpt-oss-120b",                            priority: 6,   pipelines: [ REASONING, CODING ] }
+        - { id: "Qwen/Qwen3-235B-A22B-Instruct-2507",             priority: 6,   pipelines: [ REASONING, CODING ] }

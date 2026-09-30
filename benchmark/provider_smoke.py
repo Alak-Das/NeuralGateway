@@ -34,8 +34,10 @@ PROVIDERS = {
     "z-ai/glm-5.3-flash": "nvidia",
     "meta/llama-3.2-11b-vision-instruct": "nvidia",
     "mimo-v2.6-pro": "explabs",
-    "step-3.7-flash": "antseed",
     "deepseek-v4-flash": "antseed",
+    "zai-org/GLM-5.3-Flash": "antseed",
+    "openai/gpt-oss-120b": "antseed",
+    "Qwen/Qwen3-235B-A22B-Instruct-2507": "antseed",
 }
 CONFIGURED_MODELS = (
     "moonshotai/kimi-k3",
@@ -46,8 +48,10 @@ CONFIGURED_MODELS = (
     "z-ai/glm-5.3-flash",
     "meta/llama-3.2-11b-vision-instruct",
     "mimo-v2.6-pro",
-    "step-3.7-flash",
     "deepseek-v4-flash",
+    "zai-org/GLM-5.3-Flash",
+    "openai/gpt-oss-120b",
+    "Qwen/Qwen3-235B-A22B-Instruct-2507",
 )
 
 

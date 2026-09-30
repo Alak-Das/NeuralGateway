@@ -46,6 +46,8 @@ export default function StatusTable({ data }: StatusTableProps) {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }).toLowerCase();
   };
 
+  const formatShort = (text: string) => (text.length > 35 ? text.substring(0, 35) + '...' : text);
+
   const formatErrorMessage = (msg: string | null) => {
     if (!msg) return '';
     if (msg === 'Not yet checked') return msg;
@@ -54,9 +56,9 @@ export default function StatusTable({ data }: StatusTableProps) {
       if (msg.trim().startsWith('{') && msg.trim().endsWith('}')) {
         const parsed = JSON.parse(msg);
         if (parsed.status === 429 || parsed.title === 'Too Many Requests') return 'Rate Limited (429)';
-        if (parsed.title) return parsed.title;
-        if (parsed.detail) return parsed.detail;
-        if (parsed.error?.message) return parsed.error.message;
+        if (parsed.title) return formatShort(parsed.title);
+        if (parsed.detail) return formatShort(parsed.detail);
+        if (parsed.error?.message) return formatShort(parsed.error.message);
       }
     } catch (e) {
       // ignore
@@ -265,7 +267,7 @@ export default function StatusTable({ data }: StatusTableProps) {
                       {d.circuitOpen ? 'Routing blocked' : 'No breaker block'}
                     </div>
                   </td>
-                  <td className="py-3 px-4">
+                  <td className="py-3 px-4 error-cell">
                     {!d.errorMessage ? <span className="text-muted opacity-50">&mdash;</span> : (
                       d.errorMessage === 'Not yet checked' ? <span className="text-muted opacity-50 small">Not yet checked</span> :
                       <span className="error-text fw-medium" style={{ fontSize: '0.8rem', color: 'var(--brand-danger)' }} title={d.errorMessage}>

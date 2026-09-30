@@ -43,7 +43,7 @@ public class HealthCheckProperties {
     private int recoveryMaxModelsPerSweep = 2;
 
     @Min(1)
-    @Max(10)
+    @Max(1024)
     private int pingMaxTokens = 1;
 
     private boolean enabled = true;

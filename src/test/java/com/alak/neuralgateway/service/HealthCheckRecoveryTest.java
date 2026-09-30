@@ -162,6 +162,74 @@ class HealthCheckRecoveryTest {
         org.junit.jupiter.api.Assertions.assertFalse(tracker.hasState(model.getId()));
     }
 
+    @Test
+    void pingAcceptsProviderQualifiedModelIdWhenProviderAllowsIt() {
+        Model model = model("gpt-oss-120b", "antseed", 1);
+        LlmProvidersProperties.ProviderConfig config = new LlmProvidersProperties.ProviderConfig();
+        config.setAllowQualifiedModelIds(true);
+        when(modelRegistry.getModel(model.getId())).thenReturn(Optional.of(model));
+        when(modelRegistry.getProviderConfig("antseed")).thenReturn(config);
+        when(providerAvailability.isAvailable("antseed")).thenReturn(true);
+        when(llmProviderClient.call(org.mockito.ArgumentMatchers.eq(model.getId()),
+                org.mockito.ArgumentMatchers.anyMap()))
+                .thenReturn(java.util.Map.of("model", "openai/gpt-oss-120b"));
+
+        var result = healthCheckService.pingModel(model.getId());
+
+        org.junit.jupiter.api.Assertions.assertTrue(result.isUp());
+    }
+
+    @Test
+    void pingRejectsProviderQualifiedModelIdWhenProviderDoesNotAllowIt() {
+        Model model = model("gpt-oss-120b", "antseed", 1);
+        LlmProvidersProperties.ProviderConfig config = new LlmProvidersProperties.ProviderConfig();
+        when(modelRegistry.getModel(model.getId())).thenReturn(Optional.of(model));
+        when(modelRegistry.getProviderConfig("antseed")).thenReturn(config);
+        when(providerAvailability.isAvailable("antseed")).thenReturn(true);
+        when(llmProviderClient.call(org.mockito.ArgumentMatchers.eq(model.getId()),
+                org.mockito.ArgumentMatchers.anyMap()))
+                .thenReturn(java.util.Map.of("model", "openai/gpt-oss-120b"));
+
+        var result = healthCheckService.pingModel(model.getId());
+
+        org.junit.jupiter.api.Assertions.assertFalse(result.isUp());
+        org.junit.jupiter.api.Assertions.assertTrue(result.getErrorMessage().contains("model mismatch"));
+    }
+
+    @Test
+    void pingAcceptsExactCanonicalConfigModelId() {
+        Model model = model("Qwen/Qwen3-235B-A22B-Instruct-2507", "antseed", 1);
+        LlmProvidersProperties.ProviderConfig config = new LlmProvidersProperties.ProviderConfig();
+        config.setAllowQualifiedModelIds(true);
+        when(modelRegistry.getModel(model.getId())).thenReturn(Optional.of(model));
+        when(modelRegistry.getProviderConfig("antseed")).thenReturn(config);
+        when(providerAvailability.isAvailable("antseed")).thenReturn(true);
+        when(llmProviderClient.call(org.mockito.ArgumentMatchers.eq(model.getId()),
+                org.mockito.ArgumentMatchers.anyMap()))
+                .thenReturn(java.util.Map.of("model", "Qwen/Qwen3-235B-A22B-Instruct-2507"));
+
+        var result = healthCheckService.pingModel(model.getId());
+
+        org.junit.jupiter.api.Assertions.assertTrue(result.isUp());
+    }
+
+    @Test
+    void pingStillRejectsMissingModelFieldWhenProviderAllowsQualifiedIds() {
+        Model model = model("openai/gpt-oss-120b", "antseed", 1);
+        LlmProvidersProperties.ProviderConfig config = new LlmProvidersProperties.ProviderConfig();
+        config.setAllowQualifiedModelIds(true);
+        when(modelRegistry.getModel(model.getId())).thenReturn(Optional.of(model));
+        when(modelRegistry.getProviderConfig("antseed")).thenReturn(config);
+        when(providerAvailability.isAvailable("antseed")).thenReturn(true);
+        when(llmProviderClient.call(org.mockito.ArgumentMatchers.eq(model.getId()),
+                org.mockito.ArgumentMatchers.anyMap())).thenReturn(java.util.Map.of());
+
+        var result = healthCheckService.pingModel(model.getId());
+
+        org.junit.jupiter.api.Assertions.assertFalse(result.isUp());
+        org.junit.jupiter.api.Assertions.assertTrue(result.getErrorMessage().contains("model mismatch"));
+    }
+
     private Model model(String id, String provider, int priority) {
         return new Model(id, id, provider, Set.of(Pipeline.CODING), 32_000, priority,
                 Model.ModelCapabilities.NONE);

@@ -27,7 +27,7 @@ per model-run as defense in depth.
 
 - **`load_test.py`** — Conservative, dependency-free HTTP load driver (`benchmark-runner` container). Sends bounded synthetic chat-completion traffic to the isolated gateway, enforces hard caps (8 RPS, 16 workers, 240 requests/model-run), validates provider-reported model IDs, and emits JSON latency/error reports. Refuses to target anything other than the synthetic service (`gateway:8080` or `127.0.0.1:19090`).
 - **`mock_openai.py`** — Deterministic OpenAI-compatible upstream (`mock-upstream` container). Serves `/v1/chat/completions`, `/v1/models`, `/health`, `/stats`, and an admin `/admin/fault` endpoint for injecting HTTP 503 or model-ID mismatches on the isolated network only. Protects fault controls with a synthetic admin key.
-- **`provider_smoke.py`** — Low-volume live-provider smoke check. Runs outside Compose against the running gateway at `127.0.0.1:9090`. Uses the single-model health-ping endpoint (no failover), validates all ten configured models appear in `/v1/models` and `/api/models/status` before pinging, enforces strict pacing (≤28.6 RPM NVIDIA, ≤4 RPS others), and stops on any rate-limit/quota/auth error or two consecutive provider failures. Writes a status/latency summary JSON.
+- **`provider_smoke.py`** — Low-volume live-provider smoke check. Runs outside Compose against the running gateway at `127.0.0.1:9090`. Uses the single-model health-ping endpoint (no failover), validates all twelve configured models appear in `/v1/models` and `/api/models/status` before pinging, enforces strict pacing (≤28.6 RPM NVIDIA, ≤4 RPS others), and stops on any rate-limit/quota/auth error or two consecutive provider failures. Writes a status/latency summary JSON.
 
 Build the gateway artifact first (tests are deliberately not invoked here):
 
@@ -138,18 +138,20 @@ docker compose -p neuralgateway-benchmark -f benchmark/docker-compose.yml down
 The synthetic suite never sends real-provider traffic. To perform the next
 approved stage, run the separate driver against the existing live gateway only
 after reviewing its source. It is pinned to `127.0.0.1:9090`, checks that all
-ten agreed configured model IDs appear in the live `/v1/models` and
+twelve agreed configured model IDs appear in the live `/v1/models` and
 `/api/models/status` responses before sending anything, and invokes exactly one
 `POST /api/models/ping?model=...` per selected model. It sends no chat prompt
 to the completion endpoint, does not retry or fail over, sends no API
 credentials, and writes only a model/status/latency summary. As an additional
-baseline safeguard, it refuses to send any pings if even one of the ten models
+baseline safeguard, it refuses to send any pings if even one of the twelve models
 already has a status entry. The current live gateway does have such history, so
 the script is expected to exit at preflight without creating a summary; do not
 clear or replace that state just to force the smoke run. A small ping can
 nevertheless update live model-health, circuit-breaker, Redis, and UI state.
-The status endpoint currently lists more models than the ten in
-`application.yml`; the driver deliberately ignores those extra IDs.
+`application.yml` currently configures thirteen models; the driver validates the
+twelve agreed IDs (the explabs `gpt-6-luna` is not part of the smoke list). The
+status endpoint may additionally list historical model IDs, which the driver
+deliberately ignores.
 
 The driver tests healthy models first, serializes all calls (maximum one in
 flight), waits at least 2.1 seconds between starts to NVIDIA (28.6 RPM, below
@@ -163,9 +165,15 @@ python -B benchmark/provider_smoke.py --output benchmark/results/provider-smoke.
 ```
 
 The gateway's health-ping endpoint targets the requested physical model
-directly (without completion failover) and now rejects missing or mismatched
-upstream `model` IDs. A successful ping therefore confirms the provider's
-reported ID exactly matches the requested model.
+directly (without completion failover) and rejects missing or mismatched
+upstream `model` IDs. AntSeed models are configured under their
+provider-qualified canonical IDs (e.g. `openai/gpt-oss-120b`,
+`Qwen/Qwen3-235B-A22B-Instruct-2507`, `zai-org/GLM-5.3-Flash`), which the
+aggregator echoes back verbatim, so matching is exact for them. As a safety
+net, `allow-qualified-model-ids: true` additionally tolerates qualified/alias
+IDs (e.g. a bare `gpt-oss-120b` in the response for requested
+`openai/gpt-oss-120b`) while still rejecting a missing `model` field. A
+successful ping therefore confirms the provider served the requested model.
 The previous 4 RPS approved proposal applies only to a later synthetic or
 separately controlled per-provider measurement, not a simultaneous multi-model
 mix against one provider.

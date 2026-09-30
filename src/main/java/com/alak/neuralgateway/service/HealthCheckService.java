@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -253,7 +254,10 @@ public class HealthCheckService {
         try {
             Map<String, Object> response = performPingCall(modelId);
             Object responseModel = response == null ? null : response.get("model");
-            if (!(responseModel instanceof String actualModel) || !modelId.equals(actualModel)) {
+            boolean allowQualified = providerId != null && modelRegistry.getProviderConfig(providerId) != null
+                    && modelRegistry.getProviderConfig(providerId).isAllowQualifiedModelIds();
+            if (!(responseModel instanceof String actualModel)
+                    || !modelIdMatches(modelId, actualModel, allowQualified)) {
                 throw new IllegalStateException("Ping response model mismatch: requested '" + modelId
                         + "', received '" + responseModel + "'");
             }
@@ -315,6 +319,48 @@ public class HealthCheckService {
         ));
 
         return llmProviderClient.call(modelId, pingRequest);
+    }
+
+    /**
+     * Whether the upstream-reported model ID matches the requested model ID.
+     * By default this is an exact match. When the provider opts in via
+     * {@code allowQualifiedModelIds} (aggregators such as AntSeed echo
+     * provider-qualified canonical IDs, e.g. "openai/gpt-oss-120b" for requested
+     * "gpt-oss-120b"), the comparison additionally accepts:
+     * <ul>
+     *   <li>case-insensitive exact equality,</li>
+     *   <li>a "/" + requested suffix (qualified ID with the same base name),</li>
+     *   <li>a response that contains every dash/underscore/dot/slash-separated token
+     *       of the requested ID (tolerates canonical/dated variants such as
+     *       "Qwen/Qwen3-235B-A22B-Instruct-2507" for "qwen3-235b-instruct").</li>
+     * </ul>
+     * A null/missing reported ID always fails, preserving the "reject missing model"
+     * safeguard.
+     */
+    private static boolean modelIdMatches(String requested, String actual, boolean allowQualified) {
+        if (actual == null) {
+            return false;
+        }
+        if (requested.equals(actual)) {
+            return true;
+        }
+        if (!allowQualified) {
+            return false;
+        }
+        String requestedLower = requested.toLowerCase(Locale.ROOT);
+        String actualLower = actual.toLowerCase(Locale.ROOT);
+        if (requestedLower.equals(actualLower)) {
+            return true;
+        }
+        if (actualLower.endsWith("/" + requestedLower)) {
+            return true;
+        }
+        for (String token : requestedLower.split("[-/._]")) {
+            if (!token.isEmpty() && !actualLower.contains(token)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

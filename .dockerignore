@@ -1,0 +1,31 @@
+# Build artifacts
+target/
+build/
+out/
+
+# VCS
+.git/
+.gitignore
+.idea/
+*.iml
+.vscode/
+
+# Logs and scratch
+*.log
+scratch/
+mvn-test-output.log
+mvn-test-err.log
+
+# Secrets (compose reads .env directly for interpolation; not needed in image)
+.env
+.env.local
+
+# Persistent runtime data (bound via compose volumes)
+redis-data/
+open-webui-data/
+
+# Frontend source (built assets are already under src/main/resources/static)
+ui/
+
+# Benchmark tooling (separate compose project, not needed in app image)
+benchmark/

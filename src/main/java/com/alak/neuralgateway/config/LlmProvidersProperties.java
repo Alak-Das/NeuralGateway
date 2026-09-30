@@ -33,6 +33,10 @@ public class LlmProvidersProperties {
         private long authenticationCooldownMs = 86_400_000;
         private List<String> keys;
         private List<ModelConfig> models;
+        /** If true, the health check tolerates provider-qualified/canonical model IDs in the
+         *  upstream response (e.g. "openai/gpt-oss-120b" for requested "gpt-oss-120b").
+         *  Useful for aggregators like AntSeed that echo canonical IDs. */
+        private boolean allowQualifiedModelIds = false;
 
         public String getBaseUrl() {
             return baseUrl;
@@ -62,6 +66,8 @@ public class LlmProvidersProperties {
         public void setQuotaCooldownMs(long quotaCooldownMs) { this.quotaCooldownMs = quotaCooldownMs; }
         public long getAuthenticationCooldownMs() { return authenticationCooldownMs; }
         public void setAuthenticationCooldownMs(long authenticationCooldownMs) { this.authenticationCooldownMs = authenticationCooldownMs; }
+        public boolean isAllowQualifiedModelIds() { return allowQualifiedModelIds; }
+        public void setAllowQualifiedModelIds(boolean allowQualifiedModelIds) { this.allowQualifiedModelIds = allowQualifiedModelIds; }
 
         public List<String> getKeys() {
             return keys;

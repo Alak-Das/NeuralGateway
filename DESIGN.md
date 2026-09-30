@@ -151,6 +151,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - Trigger circuit breaker updates based on health outcomes
 - Run an independent recovery sweep that re-probes only models flagged unhealthy by routed failures, honouring per-model exponential backoff via `ModelRecoveryTracker`
 - Accept routed-failure/success notifications from the gateway facade so recovery probes are scheduled/cleared without waiting for the full sweep (`recordRoutedFailure` / `recordRoutedSuccess`)
+- Verify the upstream-reported `model` ID against the requested model on every ping; by default this is an exact match, and a missing/mismatched ID fails the probe. Providers that opt in via `allowQualifiedModelIds` (e.g. Antseed, an aggregator that echoes provider-qualified canonical IDs) additionally accept tolerant matches (see `modelIdMatches` below)
 
 **Scheduling Configuration:**
 - `initialDelayMs`: 5000ms (5 seconds) initial delay
@@ -161,13 +162,13 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - `recoveryMaxModelsPerSweep`: 2 models max per recovery sweep (distinct providers)
 - `threadPoolSize`: 10 concurrent health checks
 - `pingTimeoutMs`: 120000ms (2 minutes) timeout per individual ping
-- `pingMaxTokens`: 1 token for minimal health check payload
+- `pingMaxTokens`: 16 tokens by default (configurable via `llm.health-check.ping-max-tokens`, bounded 1–1024). Raised above 1 because some providers/models (e.g. explabs `gpt-6-luna`) reject `max_tokens < 16` and would otherwise fail every probe.
 - Recovery sweep ShedLock: `recovery-lock-at-least-for: 1s`, `recovery-lock-at-most-for: 6m`
 
 **Health Check Process:**
 1. Retrieve prioritized model list (sorted by EMA latency if enabled)
 2. For each model, schedule async ping with staggered delay (500ms intervals)
-3. Execute actual ping call to LLM API with minimal request (max_tokens=1)
+3. Execute actual ping call to LLM API with minimal request (max_tokens=pingMaxTokens, default 16)
 4. Measure latency and determine success/failure
 5. Update routing service EMA latency on success
 6. Record success/failure in circuit breaker service
@@ -179,6 +180,13 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 2. Exclude models with pending provider-level probes (`nextRecoveryProviderProbeAt`) and cap at `recoveryMaxModelsPerSweep`, one model per provider
 3. Probe each due model with the same minimal ping; on success, clear its backoff (`recordRoutedSuccess`) and mark the model healthy immediately
 4. On failure, `ModelRecoveryTracker.recordFailure` extends the backoff (doubles from 30s, capped at 120s, ±20% jitter)
+
+**Model-ID Match Verification (`modelIdMatches`):**
+- By default an exact string match is required; a null/missing reported ID always fails the ping (preserves the "reject missing `model` field" safeguard)
+- When the provider sets `allow-qualified-model-ids: true` (Antseed), the comparison additionally accepts:
+  - case-insensitive exact equality
+  - a `"/" + requested` suffix, e.g. `openai/gpt-oss-120b` reported for requested `gpt-oss-120b`
+  - a response containing every `-`/`_`/`.`/`/`-separated token of the requested ID, tolerating canonical/dated variants such as `Qwen/Qwen3-235B-A22B-Instruct-2507` for requested `qwen3-235b-instruct`
 
 #### ModelRecoveryTracker
 **Responsibilities:**
@@ -222,6 +230,7 @@ Each provider defines:
 - Base URL for API calls
 - Rate limit (requests per minute)
 - List of API keys for rotation
+- `allow-qualified-model-ids` (optional, default `false`): relaxes health-ping model-ID matching for aggregator providers (e.g. Antseed) that echo provider-qualified canonical IDs in responses
 - Models with:
   - ID (full model identifier)
   - Priority (lower number = higher priority)
@@ -465,7 +474,7 @@ health-check:
   interval-ms: 240000
   thread-pool-size: 10
   ping-timeout-ms: 5000
-  ping-max-tokens: 1
+  ping-max-tokens: 16
   prioritize-by-ema: true
 
 circuit-breaker:
@@ -564,7 +573,7 @@ circuit-breaker:
    c. For each model with staggered delay:
       ↓
    d. PerformActualPing():
-      i. Create minimal request (model, messages=[{role:"user",content:"ping"}], max_tokens=1)
+      i. Create minimal request (model, messages=[{role:"user",content:"ping"}], max_tokens=16, configurable via llm.health-check.ping-max-tokens)
       ii. Execute HTTP call to LLM provider API
       iii. Measure latency and capture result/exception
       ↓

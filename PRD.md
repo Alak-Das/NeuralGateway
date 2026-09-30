@@ -57,6 +57,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Staggered Ping Timing**: Each model ping is staggered by 500ms to pace requests and avoid thundering herd problems
 - **Parallel Execution**: Health checks execute concurrently using a thread pool to avoid blocking the scheduler thread
 - **Independent Recovery Sweep**: A dedicated low-cost sweep (default every 5s, max 2 models/sweep) probes only models flagged unhealthy by routed failures, honouring per-model exponential backoff so recovery starts in seconds instead of waiting for the next full sweep
+- **Flexible Ping Model-ID Verification**: Health probes verify the upstream-reported model ID; providers that echo qualified canonical IDs (e.g. Antseed's `openai/gpt-oss-120b`) can opt into tolerant matching via `allow-qualified-model-ids`, while a missing `model` field still fails the probe
 
 ### 5. Observability & Monitoring
 - **Real-time SSE Status Stream**: `/api/models/status/stream` endpoint provides live model status updates via Server-Sent Events
@@ -170,7 +171,7 @@ Neural Gateway is a drop-in replacement for OpenAI API endpoints:
 - Redis 7+
 - Docker & Docker Compose
 - NVIDIA NIM API Access
-- Antseed API Access _(optional — enables the `step-3.7-flash` / `deepseek-v4-flash` / `gpt-oss-120b` fleet)_
+- Antseed API Access _(optional — enables the `deepseek-v4-flash` / `openai/gpt-oss-120b` / `Qwen/Qwen3-235B-A22B-Instruct-2507` fleet)_
 - Maven 3.9+
 
 ## Risks & Mitigations

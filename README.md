@@ -38,6 +38,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Redis State Persistence**: Health results (UP/DOWN, latency, failure counts, circuit state) are persisted to Redis and published via Pub/Sub for real-time dashboard updates.
 - **Per-Model Keys with Configurable Data TTL**: All telemetry is stored under individual per-model Redis keys (`gateway:<type>:<modelId>`) instead of monolithic hash keys, allowing each key to expire independently. The retention period is fully configurable via `LLM_DATA_RETENTION_TTL_HOURS` (default: 24 hours) and `LLM_DATA_RETENTION_CLEANUP_INTERVAL_MINUTES` (default: 60 minutes), preventing memory bloat and ensuring the system never relies on stale data.
 - **Independent Recovery Sweep**: A dedicated low-cost sweep (default every 5s, max 2 models per sweep, configurable via `llm.health-check.recoveryIntervalMs` / `recoveryMaxModelsPerSweep`) probes only models flagged unhealthy by routed failures, honouring each model's exponential backoff schedule. Recovery begins in seconds instead of waiting for the next full 4-minute sweep, while skipped providers are never pinged during an active outage.
+- **Configurable Ping Token Budget & Provider ID Matching**: Health probes use a small, configurable token budget (`llm.health-check.ping-max-tokens`, default 16) so stricter models that reject tiny probes (e.g. explabs `gpt-6-luna`) still pass. Providers that echo qualified canonical IDs (e.g. Antseed's `openai/gpt-oss-120b`) can opt in via `allow-qualified-model-ids: true` so probes accept the qualified/alias ID while still rejecting a missing `model` field.
 
 ### 5. Requester Telemetry & Observability
 - **Per-Requester Analytics**: Tracks request counts, token usage (prompt/completion/total), and latency percentiles (p50/p95/p99) grouped by the `X-Requester` header.
@@ -101,7 +102,7 @@ Used by the React monitoring dashboard and operations tooling:
 - Docker & Docker Compose
 - An NVIDIA NIM API key ([build.nvidia.com](https://build.nvidia.com/))
 - An Experiential Labs API key _(optional, enables `mimo-v2.6-pro`, `gpt-6-luna`)_
-- An Antseed API key _(optional, enables `step-3.7-flash`, `deepseek-v4-flash`, `glm-5.3-flash`, `gpt-oss-120b`, `mimo-v2.6-flash`)_
+- An Antseed API key _(optional, enables `deepseek-v4-flash`, `zai-org/GLM-5.3-Flash`, `openai/gpt-oss-120b`, `Qwen/Qwen3-235B-A22B-Instruct-2507`)_
 
 ### Installation & Deployment
 
