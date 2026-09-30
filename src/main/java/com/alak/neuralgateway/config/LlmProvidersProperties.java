@@ -33,10 +33,19 @@ public class LlmProvidersProperties {
         private long authenticationCooldownMs = 86_400_000;
         private List<String> keys;
         private List<ModelConfig> models;
-        /** If true, the health check tolerates provider-qualified/canonical model IDs in the
-         *  upstream response (e.g. "openai/gpt-oss-120b" for requested "gpt-oss-120b").
-         *  Useful for aggregators like AntSeed that echo canonical IDs. */
+        /**
+         * If true, the health check tolerates provider-qualified/canonical model IDs in the
+         * upstream response (e.g. "openai/gpt-oss-120b" for requested "gpt-oss-120b").
+         * Useful for aggregators like AntSeed that echo canonical IDs.
+         */
         private boolean allowQualifiedModelIds = false;
+        /**
+         * Minimum allowed max_tokens for real (routed) requests to this provider.
+         * Some providers (e.g. explabs gpt-6-luna) reject max_tokens below a threshold with a
+         * 400 error. The gateway raises any client-supplied max_tokens below this floor to it.
+         * 0 (default) means no floor is applied.
+         */
+        private int minMaxTokens = 0;
 
         public String getBaseUrl() {
             return baseUrl;
@@ -54,20 +63,69 @@ public class LlmProvidersProperties {
             this.rateLimitRpm = rateLimitRpm;
         }
 
-        public boolean isHealthCheckEnabled() { return healthCheckEnabled; }
-        public void setHealthCheckEnabled(boolean healthCheckEnabled) { this.healthCheckEnabled = healthCheckEnabled; }
-        public long getHealthCheckIntervalMs() { return healthCheckIntervalMs; }
-        public void setHealthCheckIntervalMs(long healthCheckIntervalMs) { this.healthCheckIntervalMs = healthCheckIntervalMs; }
-        public long getHealthCheckMaxBackoffMs() { return healthCheckMaxBackoffMs; }
-        public void setHealthCheckMaxBackoffMs(long healthCheckMaxBackoffMs) { this.healthCheckMaxBackoffMs = healthCheckMaxBackoffMs; }
-        public long getOverloadCooldownMs() { return overloadCooldownMs; }
-        public void setOverloadCooldownMs(long overloadCooldownMs) { this.overloadCooldownMs = overloadCooldownMs; }
-        public long getQuotaCooldownMs() { return quotaCooldownMs; }
-        public void setQuotaCooldownMs(long quotaCooldownMs) { this.quotaCooldownMs = quotaCooldownMs; }
-        public long getAuthenticationCooldownMs() { return authenticationCooldownMs; }
-        public void setAuthenticationCooldownMs(long authenticationCooldownMs) { this.authenticationCooldownMs = authenticationCooldownMs; }
-        public boolean isAllowQualifiedModelIds() { return allowQualifiedModelIds; }
-        public void setAllowQualifiedModelIds(boolean allowQualifiedModelIds) { this.allowQualifiedModelIds = allowQualifiedModelIds; }
+        public boolean isHealthCheckEnabled() {
+            return healthCheckEnabled;
+        }
+
+        public void setHealthCheckEnabled(boolean healthCheckEnabled) {
+            this.healthCheckEnabled = healthCheckEnabled;
+        }
+
+        public long getHealthCheckIntervalMs() {
+            return healthCheckIntervalMs;
+        }
+
+        public void setHealthCheckIntervalMs(long healthCheckIntervalMs) {
+            this.healthCheckIntervalMs = healthCheckIntervalMs;
+        }
+
+        public long getHealthCheckMaxBackoffMs() {
+            return healthCheckMaxBackoffMs;
+        }
+
+        public void setHealthCheckMaxBackoffMs(long healthCheckMaxBackoffMs) {
+            this.healthCheckMaxBackoffMs = healthCheckMaxBackoffMs;
+        }
+
+        public long getOverloadCooldownMs() {
+            return overloadCooldownMs;
+        }
+
+        public void setOverloadCooldownMs(long overloadCooldownMs) {
+            this.overloadCooldownMs = overloadCooldownMs;
+        }
+
+        public long getQuotaCooldownMs() {
+            return quotaCooldownMs;
+        }
+
+        public void setQuotaCooldownMs(long quotaCooldownMs) {
+            this.quotaCooldownMs = quotaCooldownMs;
+        }
+
+        public long getAuthenticationCooldownMs() {
+            return authenticationCooldownMs;
+        }
+
+        public void setAuthenticationCooldownMs(long authenticationCooldownMs) {
+            this.authenticationCooldownMs = authenticationCooldownMs;
+        }
+
+        public boolean isAllowQualifiedModelIds() {
+            return allowQualifiedModelIds;
+        }
+
+        public void setAllowQualifiedModelIds(boolean allowQualifiedModelIds) {
+            this.allowQualifiedModelIds = allowQualifiedModelIds;
+        }
+
+        public int getMinMaxTokens() {
+            return minMaxTokens;
+        }
+
+        public void setMinMaxTokens(int minMaxTokens) {
+            this.minMaxTokens = minMaxTokens;
+        }
 
         public List<String> getKeys() {
             return keys;
@@ -117,9 +175,20 @@ public class LlmProvidersProperties {
             this.priority = priority;
         }
 
-        public int getContextLimit() { return contextLimit; }
-        public void setContextLimit(int contextLimit) { this.contextLimit = contextLimit; }
-        public Map<Model.Pipeline, Integer> getPipelinePriorities() { return pipelinePriorities; }
-        public void setPipelinePriorities(Map<Model.Pipeline, Integer> pipelinePriorities) { this.pipelinePriorities = pipelinePriorities; }
+        public int getContextLimit() {
+            return contextLimit;
+        }
+
+        public void setContextLimit(int contextLimit) {
+            this.contextLimit = contextLimit;
+        }
+
+        public Map<Model.Pipeline, Integer> getPipelinePriorities() {
+            return pipelinePriorities;
+        }
+
+        public void setPipelinePriorities(Map<Model.Pipeline, Integer> pipelinePriorities) {
+            this.pipelinePriorities = pipelinePriorities;
+        }
     }
 }

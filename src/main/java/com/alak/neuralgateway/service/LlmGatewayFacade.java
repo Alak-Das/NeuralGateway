@@ -1,6 +1,7 @@
 package com.alak.neuralgateway.service;
 
 import com.alak.neuralgateway.config.RoutingProperties;
+import com.alak.neuralgateway.config.LlmProvidersProperties;
 import com.alak.neuralgateway.domain.health.HealthCheckResult;
 import com.alak.neuralgateway.domain.model.Model;
 import com.alak.neuralgateway.domain.model.Model.Pipeline;
@@ -158,6 +159,7 @@ public class LlmGatewayFacade {
                 upstreamRequest.put("stream", false);
                 upstreamRequest.put("model", model.getId());
                 upstreamRequest.remove("stream_options");
+                applyMinMaxTokens(upstreamRequest, model);
 
                 Map<String, Object> response = LlmProviderClient.call(model.getId(), upstreamRequest);
 
@@ -538,6 +540,24 @@ public class LlmGatewayFacade {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Clamp max_tokens to a provider-specific minimum floor for real (routed) requests.
+     * Some providers (e.g. explabs gpt-6-luna) reject max_tokens below a threshold with a
+     * 400 error; if a client sends a tiny value, raise it to the configured floor instead of
+     * letting the request fail. 0 / unset means no floor is applied.
+     */
+    private void applyMinMaxTokens(Map<String, Object> upstreamRequest, Model model) {
+        LlmProvidersProperties.ProviderConfig config = modelRegistry.getProviderConfig(model.getProviderId());
+        if (config == null || config.getMinMaxTokens() <= 0) return;
+        int floor = config.getMinMaxTokens();
+        Object current = upstreamRequest.get("max_tokens");
+        if (current instanceof Number n && n.intValue() < floor) {
+            upstreamRequest.put("max_tokens", floor);
+            log.info("Clamped max_tokens from {} to {} for model '{}' (provider '{}' minimum)",
+                    n.intValue(), floor, model.getId(), model.getProviderId());
         }
     }
 

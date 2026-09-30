@@ -55,15 +55,17 @@ llm:
         - { id: "z-ai/glm-5.3",                                   priority: 9,   pipelines: [ REASONING, CODING ] }
         - { id: "nvidia/nemotron-3-ultra-550b-a55b",              priority: 9,   pipelines: [ REASONING, CODING ] }
         - { id: "deepseek-ai/deepseek-v4.1-flash",                priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
-        - {id: "nvidia/nemotron-3-super-120b-a12b",               priority: 7,   pipelines: [REASONING, CODING] }
-        - { id: "z-ai/glm-5.3-flash",                             priority: 6,   pipelines: [REASONING, CODING, VISION] }
-        - { id: "meta/llama-3.2-11b-vision-instruct",             priority: 3,   pipelines: [VISION] }
-    explabs :
+        - { id: "nvidia/nemotron-3-super-120b-a12b",               priority: 7,   pipelines: [ REASONING, CODING ] }
+        - { id: "z-ai/glm-5.3-flash",                             priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "meta/llama-3.2-11b-vision-instruct",             priority: 3,   pipelines: [ VISION ] }
+    explabs:
       base-url: https://api.experientiallabs.ai/v1
       rate-limit-rpm: 300
       health-check-interval-ms: 21600000
       health-check-max-backoff-ms: 3600000
       overload-cooldown-ms: 300000
+      # explabs rejects max_tokens < 16; enforce this floor on real routed requests too.
+      min-max-tokens: 16
       keys:
         - ${EXPLABS_API_KEY:}
       models:
