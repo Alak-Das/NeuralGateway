@@ -47,6 +47,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Emergency Degraded Mode**: If all model circuits in a pipeline trip during upstream provider incidents, the gateway automatically falls back to highest-priority models
 - **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trip model circuit breakers
 - **Auto-Recovery**: Tripped circuit breakers automatically reset to closed as soon as background health checks succeed
+- **Smart Model Recovery Backoff**: Models flagged unhealthy by transient routed failures are re-probed by a dedicated recovery sweep with exponential backoff (30s → 120s cap, ±20% jitter) shared across replicas via Redis; a single successful probe restores the model immediately, and provider-wide outages never flag individual models DOWN
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup
 
 ### 4. Resilient Distributed Health Checker
@@ -55,12 +56,14 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Prioritized Ping Ordering**: Models are sorted by historical EMA latency
 - **Staggered Ping Timing**: Each model ping is staggered by 500ms to pace requests and avoid thundering herd problems
 - **Parallel Execution**: Health checks execute concurrently using a thread pool to avoid blocking the scheduler thread
+- **Independent Recovery Sweep**: A dedicated low-cost sweep (default every 5s, max 2 models/sweep) probes only models flagged unhealthy by routed failures, honouring per-model exponential backoff so recovery starts in seconds instead of waiting for the next full sweep
 
 ### 5. Observability & Monitoring
 - **Real-time SSE Status Stream**: `/api/models/status/stream` endpoint provides live model status updates via Server-Sent Events
 - **Requester Telemetry**: Track usage per client/API key for billing and analytics
 - **TPS Calculation**: Real-time transactions per second metrics for each model
 - **Health Check History**: Persistent storage of health check results in Redis for trend analysis
+- **Status Freshness**: Per-model `FRESH`/`STALE`/`NO PROBE` indicators (24-hour freshness window via `statusFresh`) so operators can distinguish a stale status from a live failure
 - **Swagger UI/OpenAPI Documentation**: Auto-generated API documentation at `/swagger-ui.html`
 
 ### 6. API Compatibility
@@ -133,6 +136,9 @@ Neural Gateway is a drop-in replacement for OpenAI API endpoints:
 6. ✅ Requester telemetry tracks usage per client identifier
 7. ✅ Emergency degraded mode activates when all models in a pipeline are unavailable
 8. ✅ API key rotation works correctly when rate limits are hit
+9. ✅ Models flagged unhealthy by transient routed failures are re-probed by the recovery sweep with exponential backoff and restored on first successful probe
+10. ✅ Provider-wide failures (upstream auth/quota/rate-limit errors) trigger failover without marking individual models DOWN
+11. ✅ Model status exposes a `statusFresh` indicator (24-hour freshness window) for the dashboard
 
 ### Performance Requirements
 1. ✅ 95th percentile routing latency < 50ms under load
@@ -164,6 +170,7 @@ Neural Gateway is a drop-in replacement for OpenAI API endpoints:
 - Redis 7+
 - Docker & Docker Compose
 - NVIDIA NIM API Access
+- Antseed API Access _(optional — enables the `step-3.7-flash` / `deepseek-v4-flash` / `gpt-oss-120b` fleet)_
 - Maven 3.9+
 
 ## Risks & Mitigations
@@ -191,5 +198,5 @@ Neural Gateway is a drop-in replacement for OpenAI API endpoints:
 6. **Customer Satisfaction**: Net promoter score from internal users and stakeholders
 
 ---
-*Document Version: 1.0*
-*Last Updated: September 27, 2026*
+*Document Version: 1.1*
+*Last Updated: September 30, 2026*

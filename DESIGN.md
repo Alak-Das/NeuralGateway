@@ -39,7 +39,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
                         |                                            |
       +-----------------v------------------+       +------------------v------------------+
       |    CircuitBreakerService           |       |   HealthCheckService               |
-      |   (Fault tolerance via Resilience4j)|       | (Periodic health checks via ShedLock)|
+      |   (Fault tolerance via Resilience4j)|       | (Periodic + recovery sweeps, ShedLock)|
       +-----------------+------------------+       +------------------+------------------+
                         |                                |
       +-----------------v------------------+       +------v--------+     +--------------v-----------+
@@ -91,12 +91,14 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - Coordinate fallback mechanisms and emergency degraded mode
 - Normalize tool calls between different provider formats
 - Collect and report payload telemetry
+- Feed routed outcomes into the recovery system (`recordRoutedFailure` / `recordRoutedSuccess`) so models recover via the dedicated sweep, and provider-wide failures (auth/quota/rate-limit) are excluded from per-model recovery scheduling
 
 **Key Methods:**
 - `processChatCompletion(requestBody, requester, transactionId, pipelineName)` - Main entry point
 - `estimateTokens(requestBody)` - Calculate approximate token count from messages
 - `sanitizeRequest(requestBody)` - Normalize provider-specific parameters (e.g., thinking_effort)
 - `getRoutingScore(modelId)` - Retrieve current routing score for a model
+- `recordRoutedFailure(modelId, throwable)` / `recordRoutedSuccess(modelId)` - Notify the recovery tracker of routed outcomes
 - Various getter methods for telemetry and status information
 
 #### RoutingService
@@ -147,13 +149,20 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - Stagger individual pings to avoid thundering herd problems
 - Update model status and telemetry based on check results
 - Trigger circuit breaker updates based on health outcomes
+- Run an independent recovery sweep that re-probes only models flagged unhealthy by routed failures, honouring per-model exponential backoff via `ModelRecoveryTracker`
+- Accept routed-failure/success notifications from the gateway facade so recovery probes are scheduled/cleared without waiting for the full sweep (`recordRoutedFailure` / `recordRoutedSuccess`)
 
 **Scheduling Configuration:**
 - `initialDelayMs`: 5000ms (5 seconds) initial delay
-- `fixedDelayMs`: 240000ms (4 minutes) between sweeps
+- `intervalMs`: 240000ms (4 minutes) between sweeps
+- Main sweep ShedLock: `lock-at-least-for: 10s`, `lock-at-most-for: 5m`
+- `recoveryInitialDelayMs`: 15000ms (15 seconds) initial delay for the recovery sweep
+- `recoveryIntervalMs`: 5000ms (5 seconds) between recovery sweeps
+- `recoveryMaxModelsPerSweep`: 2 models max per recovery sweep (distinct providers)
 - `threadPoolSize`: 10 concurrent health checks
-- `pingTimeoutMs`: 5000ms timeout per individual ping
+- `pingTimeoutMs`: 120000ms (2 minutes) timeout per individual ping
 - `pingMaxTokens`: 1 token for minimal health check payload
+- Recovery sweep ShedLock: `recovery-lock-at-least-for: 1s`, `recovery-lock-at-most-for: 6m`
 
 **Health Check Process:**
 1. Retrieve prioritized model list (sorted by EMA latency if enabled)
@@ -164,6 +173,35 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 6. Record success/failure in circuit breaker service
 7. Persist result to Redis via RedisPersistenceService
 8. Update in-memory model status via ModelStatusUpdater (triggers SSE broadcast)
+
+**Recovery Sweep Process:**
+1. Periodically (default every 5s) collect models whose recovery backoff is due (`ModelRecoveryTracker.isDue`)
+2. Exclude models with pending provider-level probes (`nextRecoveryProviderProbeAt`) and cap at `recoveryMaxModelsPerSweep`, one model per provider
+3. Probe each due model with the same minimal ping; on success, clear its backoff (`recordRoutedSuccess`) and mark the model healthy immediately
+4. On failure, `ModelRecoveryTracker.recordFailure` extends the backoff (doubles from 30s, capped at 120s, ±20% jitter)
+
+#### ModelRecoveryTracker
+**Responsibilities:**
+- Track when a model made unhealthy by a transient routed failure may next be re-probed
+- Implement exponential backoff with bounded jitter to spread recovery probes across models and gateway replicas
+- Distinguish transient model failures (408 / 5xx upstream, `TRANSIENT_UPSTREAM`) from provider-wide failures (auth, quota, rate-limit) — the latter never schedule recovery probes
+- Persist backoff state in Redis for cross-replica coordination, with TTL tied to the configured data retention window
+- Clear backoff state immediately on a successful routed request
+
+**Backoff Algorithm:**
+- Initial delay: 30s (`INITIAL_BACKOFF_MS = 30_000`)
+- Doubles each failure, capped at 120s (`MAX_BACKOFF_MS = 120_000`)
+- Bounded jitter: ±20% (`JITTER_FRACTION = 0.2`) applied as `1.0 ± 0.2 * sample`
+- Delay for failure `n`: `30s << min(max(n-1, 0), 2)`, then multiplied by the jitter multiplier
+
+**Failure Classification (`isTransientModelFailure`):**
+- `true`: `ProviderFailureType.TRANSIENT_UPSTREAM`, upstream 408, upstream 5xx
+- `false` (provider-wide, no recovery scheduling): `ProviderFailureException.isProviderWide()`, `LlmProviderClient.RateLimitException`
+
+**Persistence (via RedisPersistenceService):**
+- `gateway:model:recovery:failures:{modelId}` → failure counter (INCR with retention TTL)
+- `gateway:model:recovery:state:{modelId}` → serialized backoff (`failureCount|nextProbeAtEpochMs`, retention TTL)
+- `clearModelRecoveryBackoff(modelId)` → deletes both keys on success
 
 #### ModelRegistry
 **Responsibilities:**
@@ -205,6 +243,7 @@ Each provider defines:
 - Requester usage: `usage:{requester}` → incrementing counter
 - Model status: `status:{modelId}` → serialized ModelStatus
 - Health check history: `health:history:{modelId}` → list of recent results
+- Model recovery backoff: `gateway:model:recovery:failures:{modelId}` → failure counter, `gateway:model:recovery:state:{modelId}` → serialized backoff (`failureCount|nextProbeAtEpochMs`); both expire with the configured data-retention TTL
 
 **Pub/Sub Channels:**
 - `model:status:updates` - Broadcast ModelStatus changes for SSE consumers
@@ -383,7 +422,7 @@ data: {"timestamp":"2026-09-27T10:30:05Z","instanceId":"neural-gateway-1"}
 - **Resilience4j**: Retry configuration for NVIDIA API calls
 - **LLM**: Provider configuration, logging, health check settings
 - **Routing**: Connection penalty, context validation, fallback attempts
-- **Health Check**: Enabled status, interval, thread pool, timeouts
+- **Health Check**: Enabled status, interval, thread pool, timeouts, recovery sweep
 - **Circuit Breaker**: Failure/success thresholds, reset timeout, auto recovery
 
 **Key Properties:**
@@ -566,6 +605,28 @@ circuit-breaker:
    d. Any state change: Persist to Redis via RedisPersistenceService
 ```
 
+### Recovery Sweep Flow
+```
+1. LlmGatewayFacade routes a request to a model.
+   a. On transient failure (408/5xx upstream, TRANSIENT_UPSTREAM):
+      recordRoutedFailure(modelId, throwable)
+        → ModelRecoveryTracker.recordFailure()
+        → Redis INCR failure counter, store backoff state (TTL = retention window)
+   b. On provider-wide failure (auth/quota/rate-limit): no per-model recovery scheduled
+   c. On success: recordRoutedSuccess(modelId)
+        → ModelRecoveryTracker.recordSuccess() → clear backoff keys
+   ↓
+2. Recovery sweep fires every 5s (ShedLock-protected, 15s initial delay).
+   a. Collect due models: ModelRecoveryTracker.isDue(modelId, now)
+   b. Filter: skip models on unavailable providers, cap at recoveryMaxModelsPerSweep (2), one per provider
+   c. For each due model with staggered 5s gap:
+      i. performActualPing() minimal ping
+      ii. Success → recordRoutedSuccess, mark model healthy immediately (SSE broadcast)
+      iii. Failure/timeout → ModelRecoveryTracker.recordFailure (doubles backoff, 30s→120s cap, ±20% jitter)
+   ↓
+3. Independent from the full 4-minute health-check sweep; a model can recover in seconds.
+```
+
 ### SSE Broadcast Flow
 ```
 1. ModelStatusUpdater.updateStatus()
@@ -653,6 +714,8 @@ circuit-breaker:
 
 ### Recovery Mechanisms
 - **Auto-Recovery**: Circuit breakers automatically test readiness
+- **Smart Model Recovery Backoff**: Models flagged unhealthy by transient routed failures are re-probed by a dedicated low-cost sweep with exponential backoff (30s → 120s, ±20% jitter) coordinated across replicas via Redis; a single successful probe restores the model immediately, without waiting for the next full health-check sweep
+- **Provider-Wide Failure Isolation**: Upstream auth (`401`/`403`/`404`), quota, and rate-limit failures trigger cross-provider failover and never mark individual models DOWN or schedule recovery probes for them
 - **State Restoration**: Full state recovery from Redis on startup
 - **Health-Based Healing**: Failed models automatically retested
 - **Manual Override**: Admin endpoints for forced circuit resets
@@ -1186,9 +1249,13 @@ data: [DONE]
 - `health-check.enabled`: Enable/disable health checks (default: true)
 - `health-check.interval-ms`: Time between sweeps in milliseconds (default: 240000)
 - `health-check.thread-pool-size`: Concurrent health checks (default: 10)
-- `health-check.ping-timeout-ms`: Timeout per individual ping (default: 5000)
+- `health-check.ping-timeout-ms`: Timeout per individual ping (default: 120000)
 - `health-check.ping-max-tokens`: Tokens for health check request (default: 1)
+- `health-check.min-ping-gap-ms`: Minimum gap between consecutive pings (default: 5000)
 - `health-check.prioritize-by-ema`: Sort models by EMA latency (default: true)
+- `health-check.recovery-initial-delay-ms`: Initial delay before first recovery sweep (default: 15000)
+- `health-check.recovery-interval-ms`: Delay between independent recovery sweeps (default: 5000)
+- `health-check.recovery-max-models-per-sweep`: Max due unhealthy models probed per recovery sweep (default: 2)
 
 **Circuit Breaker Settings**
 - `circuit-breaker.failure-threshold`: Consecutive failures to trip (default: 3)

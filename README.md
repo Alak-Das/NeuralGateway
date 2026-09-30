@@ -1,6 +1,6 @@
 # Neural Gateway
 
-**Neural Gateway by Alak** is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple AI providers — including NVIDIA NIM and **Experiential Labs**.
+**Neural Gateway by Alak** is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple AI providers — including NVIDIA NIM, **Experiential Labs**, and **Antseed**.
 
 ---
 
@@ -22,9 +22,10 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Dynamic API Key Cooldown**: When an upstream provider responds with HTTP 429 Too Many Requests, the offending API key is immediately isolated with a 30-second cooldown, rotating traffic instantly to healthy keys.
 - **Emergency Degraded Mode**: If all model circuits in a pipeline trip during upstream provider incidents, the gateway automatically falls back to highest-priority models ordered by lowest latency, eliminating 100% gateway blackouts and enabling traffic-driven self-healing.
 - **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trip model circuit breakers.
-- **Multi-Provider Failover**: Requests are routed across **all configured providers** (NVIDIA NIM, Experiential Labs, etc.) as a single logical fleet. Provider-specific failures — including upstream `401`/`403`/`404` responses and quota errors such as `token_quota_exceeded` — trigger transparent failover to the next candidate model, which may live on a different provider entirely.
+- **Multi-Provider Failover**: Requests are routed across **all configured providers** (NVIDIA NIM, Experiential Labs, Antseed, etc.) as a single logical fleet. Provider-specific failures — including upstream `401`/`403`/`404` responses and quota errors such as `token_quota_exceeded` — trigger transparent failover to the next candidate model, which may live on a different provider entirely.
 - **Request Sanitization for Cross-Provider Compatibility**: Non-standard client fields are normalised before dispatch — `thinking_effort` and Anthropic-style `thinking` blocks are translated to `reasoning_effort`, and `reasoning_effort` is coerced to the OpenAI-standard set (`none`, `low`, `medium`, `high`). This prevents `400 wrong_api_format` rejections from stricter providers and lets the gateway fail over instead of surfacing a spurious client error.
 - **Auto-Recovery**: Tripped circuit breakers automatically reset to closed as soon as background health checks succeed.
+- **Smart Model Recovery Backoff**: Models marked unhealthy by a transient routed failure are re-probed by a dedicated recovery sweep with exponential backoff (30s → 120s cap, ±20% jitter) that is shared across gateway replicas via Redis. A single successful probe clears the backoff and restores the model immediately — no need to wait for the full health-check cycle. Provider-wide outages (upstream `401`/`403`/`404`, quota errors, rate limits) never falsely flag an individual model as DOWN, so failover and the dashboard stay accurate.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
 - **Resilient Fallback Routing**: During cold-starts or temporary upstream outages, candidate models are sorted by lowest historical EMA score and tried with up to 3 fallback attempts.
 - **Fail-Fast Failover**: Transparently retries candidate models on server-side failures with strict attempt caps to eliminate cascading delays.
@@ -36,6 +37,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Jittered Concurrency**: Each sweep pings up to 10 models in parallel with configurable jitter (`±5s`) to prevent thundering herd patterns against providers.
 - **Redis State Persistence**: Health results (UP/DOWN, latency, failure counts, circuit state) are persisted to Redis and published via Pub/Sub for real-time dashboard updates.
 - **Per-Model Keys with Configurable Data TTL**: All telemetry is stored under individual per-model Redis keys (`gateway:<type>:<modelId>`) instead of monolithic hash keys, allowing each key to expire independently. The retention period is fully configurable via `LLM_DATA_RETENTION_TTL_HOURS` (default: 24 hours) and `LLM_DATA_RETENTION_CLEANUP_INTERVAL_MINUTES` (default: 60 minutes), preventing memory bloat and ensuring the system never relies on stale data.
+- **Independent Recovery Sweep**: A dedicated low-cost sweep (default every 5s, max 2 models per sweep, configurable via `llm.health-check.recoveryIntervalMs` / `recoveryMaxModelsPerSweep`) probes only models flagged unhealthy by routed failures, honouring each model's exponential backoff schedule. Recovery begins in seconds instead of waiting for the next full 4-minute sweep, while skipped providers are never pinged during an active outage.
 
 ### 5. Requester Telemetry & Observability
 - **Per-Requester Analytics**: Tracks request counts, token usage (prompt/completion/total), and latency percentiles (p50/p95/p99) grouped by the `X-Requester` header.
@@ -43,6 +45,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Enhanced Dashboard Visualization**: React-based frontend now includes **Success Rate History** charts alongside latency and usage metrics, enabling operators to monitor model reliability trends over time.
 - **Structured Logging with MDC**: Every request carries a transaction ID and requester identity through MDC (Mapped Diagnostic Context) for end-to-end traceability.
 - **Background Probe Identification**: Health check results now distinguish between automated background sweeps and user-initiated pings, allowing for filtered analytics and cleaner observability data.
+- **Status Freshness Indicators**: Each model row shows a `FRESH` / `STALE` / `NO PROBE` badge based on the last probe timestamp (24-hour freshness window, exposed as `statusFresh` on the model status payload), plus a `PROBE DOWN` label and a circuit-block hint (`Routing blocked` / `No breaker block`) so operators can tell a stale status from a live failure at a glance.
 - **Swagger/OpenAPI Documentation**: Interactive API explorer available at `/swagger-ui.html` and `/v3/api-docs`.
 
 ### 6. Open WebUI Integration
@@ -97,7 +100,8 @@ Used by the React monitoring dashboard and operations tooling:
 ### Prerequisites
 - Docker & Docker Compose
 - An NVIDIA NIM API key ([build.nvidia.com](https://build.nvidia.com/))
-- An Experiential Labs API key _(optional, enables `mimo-v2.6-pro`)_
+- An Experiential Labs API key _(optional, enables `mimo-v2.6-pro`, `gpt-6-luna`)_
+- An Antseed API key _(optional, enables `step-3.7-flash`, `deepseek-v4-flash`, `glm-5.3-flash`, `gpt-oss-120b`, `mimo-v2.6-flash`)_
 
 ### Installation & Deployment
 
@@ -112,10 +116,12 @@ Used by the React monitoring dashboard and operations tooling:
    ```env
    NVIDIA_API_KEY=nvapi-your-key-here
    EXPLABS_API_KEY=xpl-your-key-here
+   ANTSEED_API_KEY=ant-your-key-here
    ```
    You can also configure multiple keys for automatic rotation and rate-limit distribution:
    - `NVIDIA_API_KEY_1`, `NVIDIA_API_KEY_2`, `NVIDIA_API_KEY_3`
    - `EXPLABS_API_KEY` (single key supported)
+   - `ANTSEED_API_KEY` (single key supported, optional — enables the Antseed fleet)
 
 3. **Launch the Gateway:**
    ```bash
@@ -207,6 +213,7 @@ This standard OpenAI interface works seamlessly with Open WebUI, Cline, Cursor, 
 ## 📚 Documentation
 - **[Product Requirements Document (PRD)](PRD.md)** — Product vision, problem statement, and requirements.
 - **[Design Document](DESIGN.md)** — Architecture overview, system layers, and technical design.
+- **[Benchmark Guide](benchmark/README.md)** — Isolated synthetic-only benchmark suite (mock upstream + disposable Redis on an internal network) and a bounded live-provider smoke test.
 
 ---
 

@@ -19,6 +19,7 @@ import java.util.UUID;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicBoolean;
+
 import reactor.core.publisher.Flux;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,9 +92,9 @@ public class LlmGatewayFacade {
     /**
      * Process a chat completion request for the specified pipeline.
      */
-    public Map<String, Object> processChatCompletion(Map<String, Object> requestBody, 
-                                                     String requester, 
-                                                     String transactionId, 
+    public Map<String, Object> processChatCompletion(Map<String, Object> requestBody,
+                                                     String requester,
+                                                     String transactionId,
                                                      String pipelineName) {
         Pipeline pipeline = Pipeline.valueOf(pipelineName.toUpperCase());
         sanitizeRequest(requestBody);
@@ -104,13 +105,13 @@ public class LlmGatewayFacade {
                 log.info("[TxID: {}] Request payload: {}", transactionId, payloadSummary);
             }
         }
-        
+
         // Estimate tokens for context window validation
         int estimatedTokens = estimateTokens(requestBody);
 
         // Select candidate models
         List<Model> candidates = routingService.selectModels(pipeline, estimatedTokens);
-        
+
         if (candidates.isEmpty()) {
             throw noEligibleProvider(pipeline, null);
         }
@@ -137,13 +138,13 @@ public class LlmGatewayFacade {
                         model.getId(), model.getProviderId());
                 continue;
             }
-            
+
             // Increment usage tracking
             modelStatusService.incrementUsage(model.getId());
-            
+
             // Track active connections
             routingService.incrementActiveConnections(model.getId());
-            
+
             long startTime = System.currentTimeMillis();
             try {
                 // Check circuit breaker
@@ -157,17 +158,18 @@ public class LlmGatewayFacade {
                 upstreamRequest.put("stream", false);
                 upstreamRequest.put("model", model.getId());
                 upstreamRequest.remove("stream_options");
-                
+
                 Map<String, Object> response = LlmProviderClient.call(model.getId(), upstreamRequest);
-                
+
                 long latency = System.currentTimeMillis() - startTime;
-                
+
                 // Update telemetry and health status on success
                 routingService.updateEmaLatency(model.getId(), latency);
                 circuitBreakerService.recordSuccess(model.getId());
+                healthCheckService.recordRoutedSuccess(model.getId());
                 recordProviderSuccess(model);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), true, latency, java.time.Instant.now(), null));
-                
+
                 // Normalize tool calls
                 toolCallNormalizer.normalizeToolCalls(response, requestBody, transactionId);
 
@@ -179,12 +181,12 @@ public class LlmGatewayFacade {
                 if (tokensUsed > 0 && requester != null && !requester.isEmpty()) {
                     redisPersistenceService.incrementRequesterUsage(requester, tokensUsed);
                 }
-                
+
                 // Decrement active connections
                 routingService.decrementActiveConnections(model.getId());
-                
+
                 return response;
-                
+
             } catch (LlmProviderClient.UpstreamServiceException e) {
                 // 5xx errors - failover to next model
                 long latency = System.currentTimeMillis() - startTime;
@@ -193,8 +195,9 @@ public class LlmGatewayFacade {
                         transactionId, model.getId(), latency, e.getMessage());
                 if (!recordProviderFailure(model, e)) {
                     circuitBreakerService.recordFailure(model.getId(), e);
+                    healthCheckService.recordRoutedFailure(model.getId(), e);
+                    modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                 }
-                modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                 routingService.decrementActiveConnections(model.getId());
                 continue;
             } catch (IllegalArgumentException e) {
@@ -204,7 +207,7 @@ public class LlmGatewayFacade {
                         (e.getMessage().contains("wrong_api_format") || e.getMessage().contains("unsupported") || e.getMessage().contains("validation_error"))) {
                     log.warn("[TxID: {}] Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...",
                             transactionId, model.getId(), latency, e.getMessage());
-                    circuitBreakerService.recordFailure(model.getId(), e);
+                    healthCheckService.recordRoutedFailure(model.getId(), e);
                     routingService.decrementActiveConnections(model.getId());
                     continue;
                 }
@@ -218,6 +221,7 @@ public class LlmGatewayFacade {
                 log.warn("[TxID: {}] Model '{}' execution failed ({}ms): {}. Failing over to next candidate...",
                         transactionId, model.getId(), latency, e.getMessage());
                 circuitBreakerService.recordFailure(model.getId(), e);
+                healthCheckService.recordRoutedFailure(model.getId(), e);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                 routingService.decrementActiveConnections(model.getId());
                 continue;
@@ -248,7 +252,7 @@ public class LlmGatewayFacade {
         int estimatedTokens = estimateTokens(requestBody);
 
         List<Model> candidates = routingService.selectModels(pipeline, estimatedTokens);
-        
+
         if (candidates.isEmpty()) {
             throw noEligibleProvider(pipeline, null);
         }
@@ -307,29 +311,39 @@ public class LlmGatewayFacade {
             upstreamRequest.put("stream", true);
             upstreamRequest.put("model", model.getId());
 
-            Flux<String> upstream = LlmProviderClient.callStream(model.getId(), upstreamRequest)
-                    .doOnNext(event -> emittedAnyData.set(true))
-                    .doOnComplete(() -> {
-                        long latency = System.currentTimeMillis() - startTime;
-                        routingService.updateEmaLatency(model.getId(), latency);
-                        if (circuitOutcomeRecorded.compareAndSet(false, true)) {
-                            circuitBreakerService.recordSuccess(model.getId());
-                        }
-                        recordProviderSuccess(model);
-                        releaseConnection.run();
-                        modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
-                                model.getId(), true, latency, java.time.Instant.now(), null));
-                        if (estimatedTokens > 0 && requester != null && !requester.isEmpty()) {
-                            redisPersistenceService.incrementRequesterUsage(requester, estimatedTokens);
-                        }
-                    })
-                    .doOnError(error -> releaseConnection.run())
-                    .doOnCancel(() -> {
-                        releaseConnection.run();
-                        if (circuitOutcomeRecorded.compareAndSet(false, true)) {
-                            circuitBreakerService.releasePermission(model.getId());
-                        }
-                    });
+            Flux<String> upstream;
+            try {
+                upstream = LlmProviderClient.callStream(model.getId(), upstreamRequest)
+                        .doOnNext(event -> emittedAnyData.set(true))
+                        .doOnComplete(() -> {
+                            long latency = System.currentTimeMillis() - startTime;
+                            routingService.updateEmaLatency(model.getId(), latency);
+                            if (circuitOutcomeRecorded.compareAndSet(false, true)) {
+                                circuitBreakerService.recordSuccess(model.getId());
+                            }
+                            healthCheckService.recordRoutedSuccess(model.getId());
+                            recordProviderSuccess(model);
+                            releaseConnection.run();
+                            modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
+                                    model.getId(), true, latency, java.time.Instant.now(), null));
+                            if (estimatedTokens > 0 && requester != null && !requester.isEmpty()) {
+                                redisPersistenceService.incrementRequesterUsage(requester, estimatedTokens);
+                            }
+                        })
+                        .doOnError(error -> releaseConnection.run())
+                        .doOnCancel(() -> {
+                            releaseConnection.run();
+                            if (circuitOutcomeRecorded.compareAndSet(false, true)) {
+                                circuitBreakerService.releasePermission(model.getId());
+                            }
+                        });
+            } catch (Throwable assemblyError) {
+                // If callStream throws before returning a Flux (synchronous validation/assembly
+                // failure), the doOnError release below was never assembled - release manually
+                // so the active-connection counter for this model is not leaked.
+                releaseConnection.run();
+                upstream = Flux.error(assemblyError);
+            }
 
             return upstream.onErrorResume(error -> {
                 long latency = System.currentTimeMillis() - startTime;
@@ -344,11 +358,12 @@ public class LlmGatewayFacade {
                     boolean providerWide = recordProviderFailure(model, error);
                     if (recordAsFailure && !providerWide) {
                         circuitBreakerService.recordFailure(model.getId(), error);
+                        healthCheckService.recordRoutedFailure(model.getId(), error);
                     } else if (!recordAsFailure) {
                         circuitBreakerService.releasePermission(model.getId());
                     }
                 }
-                if (recordAsFailure) {
+                if (recordAsFailure && !ModelRecoveryTracker.isProviderWideFailure(error)) {
                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
                             model.getId(), false, latency, java.time.Instant.now(), error.getMessage()));
                 }
@@ -371,9 +386,19 @@ public class LlmGatewayFacade {
     }
 
     private boolean recordProviderFailure(Model model, Throwable error) {
-        if (providerAvailabilityService == null || !(error instanceof ProviderFailureException failure)) return false;
-        providerAvailabilityService.recordFailure(failure);
-        return failure.isProviderWide();
+        if (error instanceof ProviderFailureException failure) {
+            if (!failure.isProviderWide()) return false;
+            if (providerAvailabilityService != null) providerAvailabilityService.recordFailure(failure);
+            return true;
+        }
+        if (error instanceof LlmProviderClient.RateLimitException rateLimit) {
+            if (providerAvailabilityService != null) {
+                providerAvailabilityService.recordFailure(new ProviderFailureException(rateLimit.getMessage(),
+                        rateLimit.getStatusCode(), rateLimit.getProviderId(), ProviderFailureType.RATE_LIMIT, null));
+            }
+            return true;
+        }
+        return false;
     }
 
     private void recordProviderSuccess(Model model) {
@@ -427,20 +452,20 @@ public class LlmGatewayFacade {
 
     /**
      * Get requester telemetry.
-     * 
+     *
      * @return list of requester usage counts formatted for UI
      */
     public List<Map<String, Object>> getRequesterTelemetry() {
         Map<String, Long> usageMap = redisPersistenceService.getRequesterUsage();
         List<Map<String, Object>> result = new ArrayList<>();
-        
+
         for (Map.Entry<String, Long> entry : usageMap.entrySet()) {
             Map<String, Object> map = new HashMap<>();
             map.put("requester", entry.getKey());
             map.put("count", entry.getValue());
             result.add(map);
         }
-        
+
         // Sort by count descending
         result.sort((a, b) -> ((Long) b.get("count")).compareTo((Long) a.get("count")));
         return result;
@@ -493,13 +518,10 @@ public class LlmGatewayFacade {
                 String effort = effortObj.toString().trim().toLowerCase(java.util.Locale.ROOT);
                 switch (effort) {
                     case "xhigh", "max", "maximum", "very_high", "very-high", "extra_high", "extra-high", "high" ->
-                        requestBody.put("reasoning_effort", "high");
-                    case "medium", "med", "mid", "moderate" ->
-                        requestBody.put("reasoning_effort", "medium");
-                    case "low", "min", "minimum", "minimal" ->
-                        requestBody.put("reasoning_effort", "low");
-                    case "none", "off", "false", "disabled", "0" ->
-                        requestBody.put("reasoning_effort", "none");
+                            requestBody.put("reasoning_effort", "high");
+                    case "medium", "med", "mid", "moderate" -> requestBody.put("reasoning_effort", "medium");
+                    case "low", "min", "minimum", "minimal" -> requestBody.put("reasoning_effort", "low");
+                    case "none", "off", "false", "disabled", "0" -> requestBody.put("reasoning_effort", "none");
                     default -> {
                         if (effort.contains("hi") || effort.contains("max")) {
                             requestBody.put("reasoning_effort", "high");
@@ -572,7 +594,8 @@ public class LlmGatewayFacade {
                     return num.longValue();
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return 0;
     }
 

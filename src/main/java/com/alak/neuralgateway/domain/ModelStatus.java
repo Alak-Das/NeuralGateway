@@ -1,7 +1,9 @@
 package com.alak.neuralgateway.domain;
 
 import com.alak.neuralgateway.domain.health.HealthCheckResult;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -25,4 +27,14 @@ public record ModelStatus(
         int priority
 ) {
     // Record automatically generates constructor, getters, equals, hashCode, toString
+
+    /**
+     * Indicates whether this status was checked within the last day. The raw
+     * lastChecked timestamp remains available for clients needing a custom age.
+     */
+    @JsonProperty("statusFresh")
+    public boolean isStatusFresh() {
+        return lastChecked != null && !lastChecked.isBefore(Instant.now().minus(Duration.ofHours(24)))
+                && !lastChecked.isAfter(Instant.now());
+    }
 }

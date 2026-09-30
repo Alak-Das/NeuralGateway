@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+results/
+
+# The repo root .gitignore ignores all *.py; re-include the benchmark drivers.
+!load_test.py
+!mock_openai.py
+!provider_smoke.py
+!test_load_test.py

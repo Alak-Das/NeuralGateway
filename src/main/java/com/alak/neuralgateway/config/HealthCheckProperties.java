@@ -34,6 +34,14 @@ public class HealthCheckProperties {
     @Positive
     private long minPingGapMs = 5000;
 
+    /** Delay between independent recovery sweeps. */
+    @Positive
+    private long recoveryIntervalMs = 5000;
+
+    /** Maximum due unhealthy models probed by one recovery sweep. */
+    @Positive
+    private int recoveryMaxModelsPerSweep = 2;
+
     @Min(1)
     @Max(10)
     private int pingMaxTokens = 1;
@@ -69,6 +77,22 @@ public class HealthCheckProperties {
 
     public void setMinPingGapMs(long minPingGapMs) {
         this.minPingGapMs = minPingGapMs;
+    }
+
+    public long getRecoveryIntervalMs() {
+        return recoveryIntervalMs;
+    }
+
+    public void setRecoveryIntervalMs(long recoveryIntervalMs) {
+        this.recoveryIntervalMs = recoveryIntervalMs;
+    }
+
+    public int getRecoveryMaxModelsPerSweep() {
+        return recoveryMaxModelsPerSweep;
+    }
+
+    public void setRecoveryMaxModelsPerSweep(int recoveryMaxModelsPerSweep) {
+        this.recoveryMaxModelsPerSweep = recoveryMaxModelsPerSweep;
     }
 
     public int getPingMaxTokens() {

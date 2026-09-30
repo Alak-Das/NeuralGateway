@@ -54,9 +54,6 @@ llm:
         - { id: "deepseek-ai/deepseek-v4.1-flash",                priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
         - {id: "nvidia/nemotron-3-super-120b-a12b",               priority: 7,   pipelines: [REASONING, CODING] }
         - { id: "z-ai/glm-5.3-flash",                             priority: 6,   pipelines: [REASONING, CODING, VISION] }
-        - { id: "poolside/laguna-xs-2.1",                         priority: 5,   pipelines: [REASONING, CODING] }
-        - { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  priority: 5,   pipelines: [REASONING, CODING, VISION] }
-        - { id: "google/gemma-4-31b-it",                          priority: 5,   pipelines: [REASONING, CODING, VISION] }
         - { id: "meta/llama-3.2-11b-vision-instruct",             priority: 3,   pipelines: [VISION] }
     explabs :
       base-url: https://api.experientiallabs.ai/v1
@@ -67,4 +64,19 @@ llm:
       keys:
         - ${EXPLABS_API_KEY:}
       models:
-        - { id: "mimo-v2.6-pro",                                   priority: 10,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "mimo-v2.6-pro",                                  priority: 10,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "gpt-6-luna",                                     priority: 9,   pipelines: [ REASONING, CODING, VISION ] }
+    antseed:
+      base-url: http://host.docker.internal:8377/v1
+      rate-limit-rpm: 300
+      health-check-interval-ms: 21600000
+      health-check-max-backoff-ms: 3600000
+      overload-cooldown-ms: 300000
+      keys:
+        - ${ANTSEED_API_KEY:}
+      models:
+        - { id: "step-3.7-flash",                                 priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "deepseek-v4-flash",                              priority: 7,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "glm-5.3-flash",                                  priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "gpt-oss-120b",                                   priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "mimo-v2.6-flash",                                priority: 6,   pipelines: [ REASONING, CODING, VISION ] }

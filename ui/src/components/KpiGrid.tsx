@@ -18,12 +18,12 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const checkedModels = totalModels - uncheckedModels;
   const upModels = data.filter(d => d.isUp && !d.circuitOpen && d.errorMessage !== 'Not yet checked').length;
   const trippedCount = data.filter(d => d.circuitOpen).length;
-  const realDownCount = data.filter(d => !d.isUp && !d.circuitOpen && d.errorMessage !== 'Not yet checked').length;
+  const probeDownCount = data.filter(d => !d.isUp && d.errorMessage !== 'Not yet checked').length;
   const healthColor = checkedModels === 0
     ? 'text-muted'
-    : realDownCount > 0 && upModels === 0
+    : probeDownCount > 0 && upModels === 0
       ? 'text-danger'
-      : realDownCount > 0 || uncheckedModels > 0 || trippedCount > 0
+      : probeDownCount > 0 || uncheckedModels > 0 || trippedCount > 0
         ? 'text-warning'
         : 'text-success';
 
@@ -167,19 +167,19 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
 
   return (
     <div className="row g-4 mb-4" id="kpiGrid">
-      {/* Fleet Health */}
+      {/* Routing readiness */}
       <div className="col-12 col-sm-6 col-lg-4 col-xl">
         <div className="card border-0 shadow-sm rounded-4 h-100 position-relative overflow-hidden d-flex flex-column p-0">
           <div className="p-3 pb-0 d-flex flex-column" style={{ zIndex: 2 }}>
             <div className="text-secondary fw-semibold mb-1" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-              <i className="bi bi-server me-2"></i>Fleet Health
+              <i className="bi bi-server me-2"></i>Routing Ready
             </div>
             <div className="fw-bolder d-flex align-items-baseline" style={{ fontSize: '2rem', lineHeight: '1.1' }}>
-              <span className={healthColor} title="Healthy models / models checked">{checkedModels > 0 ? upModels : '—'}</span>
+              <span className={healthColor} title="Models with a successful probe and a closed circuit breaker">{checkedModels > 0 ? upModels : '—'}</span>
               <span className="text-muted ms-2" style={{ fontSize: '1.1rem' }}>/ {checkedModels} checked</span>
             </div>
             <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
-              {uncheckedModels} unchecked{realDownCount > 0 ? ` · ${realDownCount} down` : ''}{trippedCount > 0 ? ` · ${trippedCount} circuit open` : ''}
+              {uncheckedModels} unchecked{probeDownCount > 0 ? ` · ${probeDownCount} probe down` : ''}{trippedCount > 0 ? ` · ${trippedCount} circuit open` : ''}
             </div>
           </div>
           <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>

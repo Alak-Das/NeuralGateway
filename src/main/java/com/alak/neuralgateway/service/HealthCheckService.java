@@ -42,25 +42,45 @@ public class HealthCheckService {
     private final RoutingService routingService;
     private final CircuitBreakerService circuitBreakerService;
     private final ModelStatusUpdater modelStatusUpdater;
+    private final ProviderAvailabilityService providerAvailabilityService;
+    private final ModelRecoveryTracker modelRecoveryTracker;
 
     // Thread pool for parallel health checks to avoid blocking the scheduler thread
     private final ExecutorService healthCheckExecutor;
     private final AtomicBoolean healthCheckSweepInProgress = new AtomicBoolean(false);
+    private final AtomicBoolean recoverySweepInProgress = new AtomicBoolean(false);
     private final Map<String, Instant> nextProviderProbeAt = new ConcurrentHashMap<>();
+    private final Map<String, Instant> nextRecoveryProviderProbeAt = new ConcurrentHashMap<>();
     private final Map<String, Integer> providerFailureCounts = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> providerProbeCursor = new ConcurrentHashMap<>();
 
+    @org.springframework.beans.factory.annotation.Autowired
     public HealthCheckService(HealthCheckProperties properties, ModelRegistry modelRegistry,
                               LlmProviderClient llmProviderClient,
                               RoutingService routingService, CircuitBreakerService circuitBreakerService,
-                              ModelStatusUpdater modelStatusUpdater) {
+                              ModelStatusUpdater modelStatusUpdater,
+                              ProviderAvailabilityService providerAvailabilityService,
+                              ModelRecoveryTracker modelRecoveryTracker) {
         this.properties = properties;
         this.modelRegistry = modelRegistry;
         this.llmProviderClient = llmProviderClient;
         this.routingService = routingService;
         this.circuitBreakerService = circuitBreakerService;
         this.modelStatusUpdater = modelStatusUpdater;
+        this.providerAvailabilityService = providerAvailabilityService;
+        this.modelRecoveryTracker = modelRecoveryTracker;
         this.healthCheckExecutor = Executors.newFixedThreadPool(properties.getThreadPoolSize() > 0 ? properties.getThreadPoolSize() : 10);
+    }
+
+    /**
+     * Backward-compatible constructor for direct service instantiation.
+     */
+    public HealthCheckService(HealthCheckProperties properties, ModelRegistry modelRegistry,
+                              LlmProviderClient llmProviderClient,
+                              RoutingService routingService, CircuitBreakerService circuitBreakerService,
+                              ModelStatusUpdater modelStatusUpdater) {
+        this(properties, modelRegistry, llmProviderClient, routingService, circuitBreakerService,
+                modelStatusUpdater, null, new ModelRecoveryTracker());
     }
 
     /**
@@ -80,23 +100,23 @@ public class HealthCheckService {
 
         List<Model> modelsToPing = getPrioritizedModels();
         List<CompletableFuture<?>> healthChecks = new ArrayList<>();
-        
+
         for (int i = 0; i < modelsToPing.size(); i++) {
             Model model = modelsToPing.get(i);
             long delayMs = i * properties.getMinPingGapMs();
 
             CompletableFuture<Void> healthCheck = CompletableFuture.supplyAsync(
-                    () -> performActualPing(model.getId()),
-                    CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS, healthCheckExecutor))
-            // The delay paces when the ping starts, so don't let its timeout expire before it runs.
-            .orTimeout(delayMs + properties.getPingTimeoutMs(), TimeUnit.MILLISECONDS)
-            .handle((result, ex) -> {
-                if (ex != null) {
-                    return new HealthCheckResult(model.getId(), false, properties.getPingTimeoutMs(), Instant.now(), "Timeout/Error: " + ex.getMessage(), true);
-                }
-                return result;
-            })
-            .thenAccept(result -> updateModelStatusFromResult(model.getId(), result));
+                            () -> performActualPing(model.getId()),
+                            CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS, healthCheckExecutor))
+                    // The delay paces when the ping starts, so don't let its timeout expire before it runs.
+                    .orTimeout(delayMs + properties.getPingTimeoutMs(), TimeUnit.MILLISECONDS)
+                    .handle((result, ex) -> {
+                        if (ex != null) {
+                            return new HealthCheckResult(model.getId(), false, properties.getPingTimeoutMs(), Instant.now(), "Timeout/Error: " + ex.getMessage(), true);
+                        }
+                        return result;
+                    })
+                    .thenAccept(result -> updateModelStatusFromResult(model.getId(), result));
             healthChecks.add(healthCheck);
         }
 
@@ -106,6 +126,101 @@ public class HealthCheckService {
             CompletableFuture.allOf(healthChecks.toArray(CompletableFuture[]::new)).join();
         } finally {
             healthCheckSweepInProgress.set(false);
+        }
+    }
+
+    /**
+     * Independently probes a small, prioritized batch of unhealthy models whose
+     * per-model recovery backoff has elapsed. Provider cooldowns always win.
+     */
+    @Scheduled(initialDelayString = "${llm.health-check.recovery-initial-delay-ms:15000}",
+            fixedDelayString = "${llm.health-check.recovery-interval-ms:5000}")
+    @SchedulerLock(name = "HealthCheckService_performRecoverySweep",
+            lockAtLeastFor = "${llm.health-check.recovery-lock-at-least-for:1s}",
+            lockAtMostFor = "${llm.health-check.recovery-lock-at-most-for:6m}")
+    public void performRecoverySweep() {
+        if (!properties.isEnabled() || !recoverySweepInProgress.compareAndSet(false, true)) {
+            return;
+        }
+
+        try {
+            List<Model> dueModels = getDueRecoveryModels(Instant.now());
+
+            for (int i = 0; i < dueModels.size(); i++) {
+                Model model = dueModels.get(i);
+                if (providerAvailabilityService != null
+                        && !providerAvailabilityService.isAvailable(model.getProviderId())) continue;
+                long delayMs = i * properties.getMinPingGapMs();
+                AtomicBoolean recoveryFailureRecorded = new AtomicBoolean(false);
+                CompletableFuture<Void> probe = CompletableFuture.supplyAsync(
+                                () -> performActualPing(model.getId(), recoveryFailureRecorded),
+                                CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS, healthCheckExecutor))
+                        .orTimeout(delayMs + properties.getPingTimeoutMs(), TimeUnit.MILLISECONDS)
+                        .handle((result, error) -> {
+                            if (error == null) return result;
+                            if (recoveryFailureRecorded.compareAndSet(false, true)) {
+                                modelRecoveryTracker.recordFailure(model.getId());
+                            }
+                            return new HealthCheckResult(model.getId(), false, properties.getPingTimeoutMs(),
+                                    Instant.now(), "Timeout/Error: " + error.getMessage(), true);
+                        })
+                        .thenAccept(result -> updateModelStatusFromResult(model.getId(), result));
+                probe.join();
+            }
+        } finally {
+            recoverySweepInProgress.set(false);
+        }
+    }
+
+    /**
+     * Record transient model-level failures observed during routed requests.
+     */
+    public void recordRoutedFailure(String modelId, Throwable failure) {
+        if (ModelRecoveryTracker.isTransientModelFailure(failure)) {
+            modelRecoveryTracker.recordFailure(modelId);
+        }
+    }
+
+    /**
+     * Clear recovery backoff after a routed request succeeds.
+     */
+    public void recordRoutedSuccess(String modelId) {
+        modelRecoveryTracker.recordSuccess(modelId);
+    }
+
+    List<Model> getDueRecoveryModels(Instant now) {
+        List<Model> dueModels = modelRegistry.getAllModelIds().stream()
+                .map(modelRegistry::getModel)
+                .flatMap(java.util.Optional::stream)
+                .filter(model -> {
+                    var config = modelRegistry.getProviderConfig(model.getProviderId());
+                    return config != null && config.isHealthCheckEnabled();
+                })
+                .filter(model -> modelRecoveryTracker.isDue(model.getId(), now))
+                .filter(model -> {
+                    Instant nextProviderProbe = nextRecoveryProviderProbeAt.get(model.getProviderId());
+                    return nextProviderProbe == null || !nextProviderProbe.isAfter(now);
+                })
+                .filter(model -> providerAvailabilityService == null
+                        || providerAvailabilityService.isAvailable(model.getProviderId()))
+                .sorted(Comparator.comparingInt((Model model) -> model.getPriority()).reversed()
+                        .thenComparing(Model::getId))
+                .filter(new DistinctProviderFilter())
+                .limit(Math.max(1, properties.getRecoveryMaxModelsPerSweep()))
+                .collect(Collectors.toList());
+        for (Model model : dueModels) {
+            nextRecoveryProviderProbeAt.put(model.getProviderId(), now.plusMillis(
+                    Math.max(properties.getRecoveryIntervalMs(), properties.getMinPingGapMs())));
+        }
+        return dueModels;
+    }
+
+    private static final class DistinctProviderFilter implements java.util.function.Predicate<Model> {
+        private final java.util.Set<String> selectedProviders = new java.util.HashSet<>();
+
+        @Override
+        public boolean test(Model model) {
+            return selectedProviders.add(model.getProviderId());
         }
     }
 
@@ -120,15 +235,31 @@ public class HealthCheckService {
      * Performs the actual ping logic without blocking synchronization.
      */
     private HealthCheckResult performActualPing(String modelId) {
+        return performActualPing(modelId, null);
+    }
+
+    private HealthCheckResult performActualPing(String modelId, AtomicBoolean recoveryFailureRecorded) {
         long startTime = System.currentTimeMillis();
+        String providerId = modelRegistry.getModel(modelId).map(Model::getProviderId).orElse(null);
+        if (providerId != null && providerAvailabilityService != null
+                && !providerAvailabilityService.isAvailable(providerId)) {
+            return new HealthCheckResult(modelId, false, 0, Instant.now(), "Provider is in cooldown", true);
+        }
+
         boolean isUp = false;
         long latency = 0;
         String errorMessage = null;
 
         try {
-            performPingCall(modelId);
+            Map<String, Object> response = performPingCall(modelId);
+            Object responseModel = response == null ? null : response.get("model");
+            if (!(responseModel instanceof String actualModel) || !modelId.equals(actualModel)) {
+                throw new IllegalStateException("Ping response model mismatch: requested '" + modelId
+                        + "', received '" + responseModel + "'");
+            }
             latency = System.currentTimeMillis() - startTime;
             isUp = true;
+            modelRecoveryTracker.recordSuccess(modelId);
         } catch (LlmProviderClient.UpstreamServiceException e) {
             latency = System.currentTimeMillis() - startTime;
             // Preserve HTTP status code so the UI can recognize auth failures (401/403) distinctly.
@@ -140,6 +271,21 @@ public class HealthCheckService {
             }
             log.warn("Health check ping failed for model '{}': {}", modelId, errorMessage);
             log.debug("Health check failure details for model '{}'", modelId, e);
+            if (ModelRecoveryTracker.isProviderWideFailure(e)) {
+                if (providerAvailabilityService != null) {
+                    if (e instanceof ProviderFailureException failure) {
+                        providerAvailabilityService.recordFailure(failure);
+                    } else if (e instanceof LlmProviderClient.RateLimitException rateLimit) {
+                        providerAvailabilityService.recordFailure(new ProviderFailureException(
+                                rateLimit.getMessage(), rateLimit.getStatusCode(), rateLimit.getProviderId(),
+                                ProviderFailureType.RATE_LIMIT, null));
+                    }
+                }
+            } else if (ModelRecoveryTracker.isTransientModelFailure(e)) {
+                if (recoveryFailureRecorded == null || recoveryFailureRecorded.compareAndSet(false, true)) {
+                    modelRecoveryTracker.recordFailure(modelId);
+                }
+            }
             if (statusCode == 429 || statusCode == 503) {
                 backoffProviderProbe(modelId);
             }
@@ -148,6 +294,9 @@ public class HealthCheckService {
             errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
             log.warn("Health check ping failed for model '{}': {}", modelId, errorMessage);
             log.debug("Health check failure details for model '{}'", modelId, e);
+            if (ModelRecoveryTracker.isTransientModelFailure(e)) {
+                modelRecoveryTracker.recordFailure(modelId);
+            }
         }
 
         return new HealthCheckResult(modelId, isUp, latency, Instant.now(), errorMessage, true);
@@ -156,7 +305,7 @@ public class HealthCheckService {
     /**
      * Perform the actual ping call to the LLM API.
      */
-    private void performPingCall(String modelId) {
+    private Map<String, Object> performPingCall(String modelId) {
         // Create a minimal request with max_tokens=1. Must be mutable for the client.
         Map<String, Object> pingRequest = new java.util.HashMap<>(Map.of(
                 "model", modelId,
@@ -164,8 +313,8 @@ public class HealthCheckService {
                 "max_tokens", properties.getPingMaxTokens(),
                 "stream", false
         ));
-        
-        llmProviderClient.call(modelId, pingRequest);
+
+        return llmProviderClient.call(modelId, pingRequest);
     }
 
     /**
@@ -187,6 +336,7 @@ public class HealthCheckService {
             String providerId = provider.getKey();
             var config = modelRegistry.getProviderConfig(providerId);
             if (config == null || !config.isHealthCheckEnabled()) continue;
+            if (providerAvailabilityService != null && !providerAvailabilityService.isAvailable(providerId)) continue;
             Instant nextProbe = nextProviderProbeAt.get(providerId);
             if (nextProbe != null && nextProbe.isAfter(now)) continue;
 
@@ -225,10 +375,15 @@ public class HealthCheckService {
     private void updateModelStatusFromResult(String modelId, HealthCheckResult result) {
         // Update routing telemetry
         if (result.isUp()) {
+            modelRecoveryTracker.recordSuccess(modelId);
             providerFailureCounts.remove(modelRegistry.getModel(modelId).map(Model::getProviderId).orElse(""));
             routingService.updateEmaLatency(modelId, result.getLatencyMs());
             circuitBreakerService.recordSuccess(modelId);
         } else {
+            String providerId = modelRegistry.getModel(modelId).map(Model::getProviderId).orElse(null);
+            boolean providerUnavailable = providerId != null && providerAvailabilityService != null
+                    && !providerAvailabilityService.isAvailable(providerId);
+            if (providerUnavailable) return;
             circuitBreakerService.recordFailure(modelId, new RuntimeException(result.getErrorMessage()));
         }
 

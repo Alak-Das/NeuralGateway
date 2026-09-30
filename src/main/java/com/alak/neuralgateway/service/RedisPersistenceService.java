@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -14,6 +15,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.time.Duration;
+import java.time.Instant;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -34,6 +38,18 @@ public class RedisPersistenceService {
     private static final String TPS_KEY_PREFIX = "gateway:model:tps:";
     private static final String REQUESTER_USAGE_KEY_PREFIX = "gateway:requester:usage:";
     private static final String PROVIDER_UNAVAILABLE_KEY_PREFIX = "gateway:provider:unavailable:";
+    private static final String MODEL_RECOVERY_FAILURES_KEY_PREFIX = "gateway:model:recovery:failures:";
+    private static final String MODEL_RECOVERY_STATE_KEY_PREFIX = "gateway:model:recovery:state:";
+    private static final DefaultRedisScript<List> RECORD_RECOVERY_FAILURE_SCRIPT = new DefaultRedisScript<>("""
+            local failures = redis.call('INCR', KEYS[1])
+            redis.call('EXPIRE', KEYS[1], ARGV[1])
+            local shift = math.min(math.max(failures - 1, 0), 2)
+            local baseDelay = math.min(tonumber(ARGV[4]), tonumber(ARGV[3]) * (2 ^ shift))
+            local delay = math.max(1, math.min(tonumber(ARGV[4]), math.floor(baseDelay * tonumber(ARGV[5]) + 0.5)))
+            local nextProbeAt = tonumber(ARGV[2]) + delay
+            redis.call('SET', KEYS[2], string.format('%d', failures) .. '|' .. string.format('%.0f', nextProbeAt), 'EX', ARGV[1])
+            return { string.format('%d', failures), string.format('%.0f', nextProbeAt) }
+            """, List.class);
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -251,7 +267,7 @@ public class RedisPersistenceService {
             // Use Redis SCAN to find all requester usage keys (non-blocking)
             String pattern = REQUESTER_USAGE_KEY_PREFIX + "*";
             Set<String> keys = redisTemplate.keys(pattern);
-            
+
             if (keys != null && !keys.isEmpty()) {
                 for (String key : keys) {
                     String value = redisTemplate.opsForValue().get(key);
@@ -274,7 +290,8 @@ public class RedisPersistenceService {
     }
 
     public void setProviderUnavailable(String providerId, String reason, java.time.Duration cooldown) {
-        if (providerId == null || providerId.isBlank() || cooldown == null || cooldown.isZero() || cooldown.isNegative()) return;
+        if (providerId == null || providerId.isBlank() || cooldown == null || cooldown.isZero() || cooldown.isNegative())
+            return;
         redisTemplate.opsForValue().set(PROVIDER_UNAVAILABLE_KEY_PREFIX + providerId, reason, cooldown);
     }
 
@@ -284,6 +301,61 @@ public class RedisPersistenceService {
     }
 
     public void clearProviderUnavailable(String providerId) {
-        if (providerId != null && !providerId.isBlank()) redisTemplate.delete(PROVIDER_UNAVAILABLE_KEY_PREFIX + providerId);
+        if (providerId != null && !providerId.isBlank())
+            redisTemplate.delete(PROVIDER_UNAVAILABLE_KEY_PREFIX + providerId);
+    }
+
+    /**
+     * Atomically increments recovery failures and stores the next probe time so
+     * every gateway replica observes the same backoff. Redis expires both values
+     * after the configured state-retention period.
+     */
+    public RecoveryBackoff recordModelRecoveryFailure(String modelId, long initialBackoffMs,
+                                                      long maxBackoffMs, double jitterMultiplier,
+                                                      Duration retention) {
+        if (modelId == null || modelId.isBlank()) throw new IllegalArgumentException("modelId is required");
+        Duration ttl = retention == null || retention.isZero() || retention.isNegative()
+                ? Duration.ofHours(24) : retention;
+        String failuresKey = MODEL_RECOVERY_FAILURES_KEY_PREFIX + modelId;
+        String stateKey = MODEL_RECOVERY_STATE_KEY_PREFIX + modelId;
+        List<?> result = redisTemplate.execute(RECORD_RECOVERY_FAILURE_SCRIPT,
+                List.of(failuresKey, stateKey), String.valueOf(Math.max(1, ttl.toSeconds())),
+                String.valueOf(System.currentTimeMillis()), String.valueOf(initialBackoffMs),
+                String.valueOf(maxBackoffMs), String.valueOf(jitterMultiplier));
+        if (result == null || result.size() < 2) {
+            throw new IllegalStateException("Redis did not return model recovery state");
+        }
+        return new RecoveryBackoff(Math.toIntExact(numberValue(result.get(0))),
+                Instant.ofEpochMilli(numberValue(result.get(1))));
+    }
+
+    public Optional<RecoveryBackoff> getModelRecoveryBackoff(String modelId) {
+        if (modelId == null || modelId.isBlank()) return Optional.empty();
+        String value = redisTemplate.opsForValue().get(MODEL_RECOVERY_STATE_KEY_PREFIX + modelId);
+        if (value == null) return Optional.empty();
+        try {
+            String[] parts = value.split("\\|", 2);
+            if (parts.length != 2) return Optional.empty();
+            return Optional.of(new RecoveryBackoff(Integer.parseInt(parts[0]),
+                    Instant.ofEpochMilli(Long.parseLong(parts[1]))));
+        } catch (NumberFormatException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    public void clearModelRecoveryBackoff(String modelId) {
+        if (modelId == null || modelId.isBlank()) return;
+        redisTemplate.delete(List.of(MODEL_RECOVERY_FAILURES_KEY_PREFIX + modelId,
+                MODEL_RECOVERY_STATE_KEY_PREFIX + modelId));
+    }
+
+    private long numberValue(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        String text = value instanceof byte[] bytes
+                ? new String(bytes, StandardCharsets.UTF_8) : String.valueOf(value);
+        return Long.parseLong(text);
+    }
+
+    public record RecoveryBackoff(int failureCount, Instant nextProbeAt) {
     }
 }

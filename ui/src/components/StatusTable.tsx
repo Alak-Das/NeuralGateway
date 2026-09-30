@@ -84,13 +84,21 @@ export default function StatusTable({ data }: StatusTableProps) {
   }, [data]);
 
   const isUnchecked = (model: ModelStatus) => model.errorMessage === 'Not yet checked';
+  const getProbeStatus = (model: ModelStatus) => isUnchecked(model) ? 'unknown' : (model.isUp ? 'up' : 'down');
+  const isStatusFresh = (model: ModelStatus) => {
+    if (model.statusFresh != null) return model.statusFresh;
+    if (!model.lastChecked) return false;
+    const checkedAt = Date.parse(model.lastChecked);
+    const ageMs = Date.now() - checkedAt;
+    return Number.isFinite(checkedAt) && ageMs >= 0 && ageMs <= 24 * 60 * 60 * 1000;
+  };
 
   const filteredData = useMemo(() => {
     return data.filter(d => {
       const catMatch = !categoryFilter || d.categories.includes(categoryFilter);
       let statusMatch = true;
-      if (statusFilter === 'up') statusMatch = d.isUp && !d.circuitOpen && !isUnchecked(d);
-      else if (statusFilter === 'down') statusMatch = !d.isUp && !d.circuitOpen && !isUnchecked(d);
+      if (statusFilter === 'up') statusMatch = getProbeStatus(d) === 'up';
+      else if (statusFilter === 'down') statusMatch = getProbeStatus(d) === 'down';
       else if (statusFilter === 'unknown') statusMatch = isUnchecked(d);
       else if (statusFilter === 'circuit') statusMatch = d.circuitOpen;
       return catMatch && statusMatch;
@@ -99,8 +107,8 @@ export default function StatusTable({ data }: StatusTableProps) {
       switch (sortCol) {
         case 'model': valA = a.model; valB = b.model; break;
         case 'status':
-          valA = a.circuitOpen ? -1 : (isUnchecked(a) ? 0 : (a.isUp ? 2 : 1));
-          valB = b.circuitOpen ? -1 : (isUnchecked(b) ? 0 : (b.isUp ? 2 : 1));
+          valA = getProbeStatus(a) === 'unknown' ? 0 : (getProbeStatus(a) === 'down' ? 1 : 2);
+          valB = getProbeStatus(b) === 'unknown' ? 0 : (getProbeStatus(b) === 'down' ? 1 : 2);
           break;
         case 'latency': valA = a.latencyMs; valB = b.latencyMs; break;
         case 'tps': valA = a.tps; valB = b.tps; break;
@@ -121,11 +129,11 @@ export default function StatusTable({ data }: StatusTableProps) {
   }, [data, categoryFilter, statusFilter, sortCol, sortDir]);
 
   const exportCSV = () => {
-    const headers = ['Model', 'Categories', 'Status', 'Latency (ms)', 'TPS', 'Total Uses', 'Active Conns', 'Circuit Breaker', 'Last Error', 'Last Updated'];
+    const headers = ['Model', 'Categories', 'Probe Result', 'Latency (ms)', 'TPS', 'Total Uses', 'Active Conns', 'Circuit Breaker', 'Last Error', 'Last Probe'];
     const rows = filteredData.map(d => [
       d.model,
       d.categories.join('; '),
-      d.circuitOpen ? 'CIRCUIT OPEN' : (isUnchecked(d) ? 'UNKNOWN' : (d.isUp ? 'UP' : 'DOWN')),
+      getProbeStatus(d) === 'unknown' ? 'NOT CHECKED' : (d.isUp ? 'UP' : 'DOWN'),
       d.latencyMs,
       d.tps.toFixed(2),
       d.totalUses,
@@ -169,9 +177,9 @@ export default function StatusTable({ data }: StatusTableProps) {
               <span className="input-group-text bg-transparent border-end-0"><i className="bi bi-activity"></i></span>
               <select className="form-select border-start-0 ps-0" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
                 <option value="">All Statuses</option>
-                <option value="up">Up (Healthy)</option>
-                <option value="down">Down</option>
-                <option value="unknown">Unknown (Not checked)</option>
+                <option value="up">Probe Up</option>
+                <option value="down">Probe Down</option>
+                <option value="unknown">Probe Not Checked</option>
                 <option value="circuit">Circuit Open</option>
               </select>
             </div>
@@ -189,14 +197,14 @@ export default function StatusTable({ data }: StatusTableProps) {
             <tr>
               <th className="sortable px-4" onClick={() => handleSort('model')}>Model {getSortIcon('model')}</th>
               <th className="px-4">Category</th>
-              <th className="sortable px-4" onClick={() => handleSort('status')}>Status {getSortIcon('status')}</th>
+               <th className="sortable px-4" onClick={() => handleSort('status')}>Probe Result {getSortIcon('status')}</th>
               <th className="sortable px-4" onClick={() => handleSort('latency')}>Latency {getSortIcon('latency')}</th>
               <th className="sortable px-4" onClick={() => handleSort('tps')}>TPS {getSortIcon('tps')}</th>
               <th className="sortable px-4" onClick={() => handleSort('uses')}>Total Uses {getSortIcon('uses')}</th>
               <th className="sortable px-4" onClick={() => handleSort('conns')}>Active Conns {getSortIcon('conns')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('circuit')}>Circuit Breaker {getSortIcon('circuit')}</th>
+              <th className="sortable px-4" onClick={() => handleSort('circuit')}>Circuit Breaker / Routing {getSortIcon('circuit')}</th>
               <th className="sortable px-4" onClick={() => handleSort('error')}>Last Error {getSortIcon('error')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('updated')}>Last Updated {getSortIcon('updated')}</th>
+               <th className="sortable px-4" onClick={() => handleSort('updated')}>Last Probe {getSortIcon('updated')}</th>
             </tr>
           </thead>
           <tbody>
@@ -206,7 +214,7 @@ export default function StatusTable({ data }: StatusTableProps) {
                   <div className="text-center py-5">
                     <i className="bi bi-search text-muted opacity-50" style={{ fontSize: '4rem' }}></i>
                     <h5 className="fw-bold mt-3 text-secondary">No models match the current filters</h5>
-                    <p className="text-muted">Try clearing or adjusting the category and status filters.</p>
+                    <p className="text-muted">Try clearing or adjusting the category, probe result or circuit filters.</p>
                     <button className="btn btn-outline-secondary btn-sm mt-2 rounded-pill fw-medium" onClick={() => { setCategoryFilter(''); setStatusFilter(''); }}>Clear Filters</button>
                   </div>
                 </td>
@@ -233,18 +241,16 @@ export default function StatusTable({ data }: StatusTableProps) {
                     ))}
                   </td>
                   <td className="py-3 px-4">
-                    {d.circuitOpen ? (
-                      <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 px-2 py-1"><i className="bi bi-exclamation-triangle-fill me-1"></i>CIRCUIT OPEN</span>
-                    ) : isUnchecked(d) ? (
-                      <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1"><i className="bi bi-question-circle-fill me-1"></i>UNKNOWN</span>
+                    {isUnchecked(d) ? (
+                      <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1"><i className="bi bi-question-circle-fill me-1"></i>NOT CHECKED</span>
                     ) : d.isUp ? (
-                      <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1"><i className="bi bi-circle-fill me-1" style={{ fontSize: '0.5rem', verticalAlign: 'middle' }}></i>UP</span>
+                      <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1"><i className="bi bi-circle-fill me-1" style={{ fontSize: '0.5rem', verticalAlign: 'middle' }}></i>PROBE UP</span>
                     ) : (
-                      <span className="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1"><i className="bi bi-arrow-down-circle-fill me-1"></i>DOWN</span>
+                      <span className="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1"><i className="bi bi-arrow-down-circle-fill me-1"></i>PROBE DOWN</span>
                     )}
                   </td>
                   <td className="py-3 px-4 fw-medium text-nowrap">
-                    {isUnchecked(d) ? <span className="text-muted opacity-50">&mdash;</span> : !d.isUp && !d.circuitOpen ? <span className="text-danger opacity-75">N/A</span> : (
+                    {isUnchecked(d) ? <span className="text-muted opacity-50">&mdash;</span> : !d.isUp ? <span className="text-danger opacity-75">N/A</span> : (
                       d.latencyMs > 1000 ? <span className="text-warning">{(d.latencyMs / 1000).toFixed(2)}s</span> : <span>{d.latencyMs}ms</span>
                     )}
                   </td>
@@ -255,6 +261,9 @@ export default function StatusTable({ data }: StatusTableProps) {
                     <span className={`badge ${d.circuitOpen ? 'bg-danger text-white' : 'bg-success bg-opacity-10 text-success border border-success border-opacity-25'} px-2 py-1`}>
                       {d.circuitOpen ? 'OPEN' : 'CLOSED'}
                     </span>
+                    <div className={`small mt-1 ${d.circuitOpen ? 'text-danger' : 'text-muted'}`} style={{ fontSize: '0.7rem' }}>
+                      {d.circuitOpen ? 'Routing blocked' : 'No breaker block'}
+                    </div>
                   </td>
                   <td className="py-3 px-4">
                     {!d.errorMessage ? <span className="text-muted opacity-50">&mdash;</span> : (
@@ -265,8 +274,13 @@ export default function StatusTable({ data }: StatusTableProps) {
                     )}
                   </td>
                   <td className="py-3 px-4 text-nowrap">
-                    <div className="fw-medium" style={{ fontSize: '0.85rem' }} title={d.lastChecked ? new Date(d.lastChecked).toLocaleString() : ''}>{formatTimeAgo(d.lastChecked)}</div>
-                    <div className="text-muted" style={{ fontSize: '0.75rem' }}>{formatTimeOnly(d.lastChecked)}</div>
+                    <div className="fw-medium" style={{ fontSize: '0.85rem' }} title={d.lastChecked ? `Last probe: ${new Date(d.lastChecked).toLocaleString()}` : 'No probe recorded'}>{formatTimeAgo(d.lastChecked)}</div>
+                    <div className="d-flex align-items-center gap-2 mt-1">
+                      <span className={`badge ${isStatusFresh(d) ? 'bg-success bg-opacity-10 text-success border border-success border-opacity-25' : 'bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25'}`} style={{ fontSize: '0.65rem' }}>
+                        {isStatusFresh(d) ? 'FRESH' : d.lastChecked ? 'STALE' : 'NO PROBE'}
+                      </span>
+                      <span className="text-muted" style={{ fontSize: '0.75rem' }}>{formatTimeOnly(d.lastChecked)}</span>
+                    </div>
                   </td>
                 </tr>
               ))

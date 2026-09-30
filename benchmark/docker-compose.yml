@@ -1,0 +1,102 @@
+services:
+  gateway:
+    image: neuralgateway-neural-gateway:latest
+    pull_policy: never
+    working_dir: /app
+    volumes:
+      - ../target/neural-gateway-0.0.1-SNAPSHOT.jar:/app/app.jar:ro
+    environment:
+      SPRING_APPLICATION_JSON: >-
+        {
+          "server":{"port":8080},
+          "spring":{"data":{"redis":{"host":"benchmark-redis","port":6379}}},
+          "llm":{
+            "health-check":{"enabled":false},
+            "providers":{
+              "nvidia":{
+                "base-url":"http://mock-upstream:8377/v1",
+                "rate-limit-rpm":40,
+                "models":[
+                  {"id":"moonshotai/kimi-k3","priority":10,"pipelines":["REASONING","CODING","VISION"]},
+                  {"id":"z-ai/glm-5.3","priority":9,"pipelines":["REASONING","CODING"]},
+                  {"id":"nvidia/nemotron-3-ultra-550b-a55b","priority":9,"pipelines":["REASONING","CODING"]},
+                  {"id":"deepseek-ai/deepseek-v4.1-flash","priority":8,"pipelines":["REASONING","CODING","VISION"]},
+                  {"id":"nvidia/nemotron-3-super-120b-a12b","priority":7,"pipelines":["REASONING","CODING"]},
+                  {"id":"z-ai/glm-5.3-flash","priority":6,"pipelines":["REASONING","CODING","VISION"]},
+                  {"id":"meta/llama-3.2-11b-vision-instruct","priority":3,"pipelines":["VISION"]}
+                ]
+              },
+              "explabs":{
+                "base-url":"http://mock-upstream:8377/v1",
+                "rate-limit-rpm":300,
+                "models":[
+                  {"id":"mimo-v2.6-pro","priority":10,"pipelines":["REASONING","CODING","VISION"]}
+                ]
+              },
+              "antseed":{
+                "base-url":"http://mock-upstream:8377/v1",
+                "rate-limit-rpm":300,
+                "models":[
+                  {"id":"step-3.7-flash","priority":9,"pipelines":["REASONING","CODING","VISION"]},
+                  {"id":"deepseek-v4-flash","priority":7,"pipelines":["REASONING","CODING","VISION"]}
+                ]
+              }
+            }
+          }
+        }
+    depends_on:
+      benchmark-redis:
+        condition: service_healthy
+      mock-upstream:
+        condition: service_healthy
+    networks:
+      - benchmark-net
+
+  benchmark-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+    networks:
+      - benchmark-net
+
+  mock-upstream:
+    image: python:3.11-slim
+    pull_policy: never
+    command: ["python", "-u", "/app/mock_openai.py"]
+    environment:
+      MOCK_DELAY_MS: ${MOCK_DELAY_MS:-5}
+      MOCK_FAULT_MODE: ${MOCK_FAULT_MODE:-none}
+      MOCK_ADMIN_SECRET: ${MOCK_ADMIN_SECRET:-benchmark-private-fault-control}
+    volumes:
+      - ./mock_openai.py:/app/mock_openai.py:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/health', timeout=2)"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+    networks:
+      - benchmark-net
+
+  benchmark-runner:
+    image: python:3.11-slim
+    pull_policy: never
+    profiles: ["runner"]
+    entrypoint: ["python", "/app/load_test.py"]
+    environment:
+      MOCK_ADMIN_SECRET: ${MOCK_ADMIN_SECRET:-benchmark-private-fault-control}
+    volumes:
+      - ./load_test.py:/app/load_test.py:ro
+      - ./results:/reports
+    depends_on:
+      gateway:
+        condition: service_started
+    networks:
+      - benchmark-net
+
+networks:
+  benchmark-net:
+    internal: true
