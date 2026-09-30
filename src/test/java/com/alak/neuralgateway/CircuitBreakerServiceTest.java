@@ -62,4 +62,29 @@ public class CircuitBreakerServiceTest {
         
         assertTrue(circuitBreakerService.isCircuitOpen(modelId));
     }
+
+    @Test
+    void testMarkHealthyClosesOpenCircuitAndSyncsRedis() {
+        String modelId = "test-model";
+        circuitBreakerService.forceOpen(modelId);
+        assertTrue(circuitBreakerService.isCircuitOpen(modelId));
+
+        circuitBreakerService.markHealthy(modelId);
+
+        assertFalse(circuitBreakerService.isCircuitOpen(modelId));
+        assertEquals(CircuitState.CLOSED, circuitBreakerService.getState(modelId));
+        verify(redisService, atLeastOnce()).setCircuitOpen(modelId, false);
+        verify(redisService, atLeastOnce()).saveConsecutiveErrors(modelId, 0);
+    }
+
+    @Test
+    void testMarkHealthyOnClosedCircuitStillSyncsRedisWithoutError() {
+        String modelId = "test-model";
+
+        circuitBreakerService.markHealthy(modelId);
+
+        assertEquals(CircuitState.CLOSED, circuitBreakerService.getState(modelId));
+        verify(redisService).setCircuitOpen(modelId, false);
+        verify(redisService).saveConsecutiveErrors(modelId, 0);
+    }
 }

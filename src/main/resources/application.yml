@@ -32,7 +32,10 @@ llm:
     # Some models (e.g. explabs gpt-6-luna) reject max_tokens < 16, which failed
     # every health-check probe. Use 16 tokens so those probes can succeed.
     ping-max-tokens: 16
-    enabled: ${LLM_HEALTH_CHECK_ENABLED:false}
+    # Health checks are ON by default: without them, models that go down are never
+    # re-probed, so the dashboard keeps showing stale statuses and stale OPEN circuits
+    # forever. Set LLM_HEALTH_CHECK_ENABLED=false to opt out.
+    enabled: ${LLM_HEALTH_CHECK_ENABLED:true}
   logging:
     payload-mode: ${LLM_LOGGING_PAYLOAD_MODE:NONE}
     preview-max-chars: ${LLM_LOGGING_PREVIEW_MAX_CHARS:120}
@@ -43,8 +46,11 @@ llm:
     nvidia:
       base-url: https://integrate.api.nvidia.com/v1
       rate-limit-rpm: 40
-      health-check-interval-ms: 1800000
-      health-check-max-backoff-ms: 3600000
+      # NVIDIA recovery pacing: probe at least every 2 min (models are probed
+      # round-robin) and cap the exponential overload backoff at 10 min so down
+      # models are re-probed quickly instead of waiting up to an hour.
+      health-check-interval-ms: 120000
+      health-check-max-backoff-ms: 600000
       overload-cooldown-ms: 300000
       keys:
         - ${NVIDIA_API_KEY_1:}

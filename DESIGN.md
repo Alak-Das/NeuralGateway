@@ -1,3 +1,4 @@
+
 # Neural Gateway Design Document
 
 ## Architecture Overview
@@ -129,6 +130,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - Manage circuit breaker state transitions (CLOSED → OPEN → HALF_OPEN → CLOSED)
 - Persist circuit state to Redis for consistency across instances
 - Provide manual reset and force-open capabilities for operations
+- Force-close OPEN/HALF_OPEN/FORCED_OPEN breakers via markHealthy() after a verified healthy probe, syncing the CLOSED state to Redis so a recovered model unblocks immediately
 - Execute protected calls with automatic success/failure recording
 
 **Configuration (from CircuitBreakerProperties):**
@@ -153,6 +155,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - Run an independent recovery sweep that re-probes only models flagged unhealthy by routed failures, honouring per-model exponential backoff via `ModelRecoveryTracker`
 - Accept routed-failure/success notifications from the gateway facade so recovery probes are scheduled/cleared without waiting for the full sweep (`recordRoutedFailure` / `recordRoutedSuccess`)
 - Verify the upstream-reported `model` ID against the requested model on every ping; by default this is an exact match, and a missing/mismatched ID fails the probe. Providers that opt in via `allowQualifiedModelIds` (e.g. Antseed, an aggregator that echoes provider-qualified canonical IDs) additionally accept tolerant matches (see `modelIdMatches` below)
+- On a successful probe, close any stale OPEN circuit (`CircuitBreakerService.markHealthy`) — e.g. one restored from Redis — and sync the CLOSED state to Redis, so routing and the dashboard unblock immediately instead of waiting for the passive half-open timeout
 
 **Scheduling Configuration:**
 - `initialDelayMs`: 5000ms (5 seconds) initial delay
@@ -580,7 +583,7 @@ circuit-breaker:
       iii. Measure latency and capture result/exception
       ↓
    e. UpdateModelStatusFromResult():
-      i. If success: update EMA latency in RoutingService, record success in CircuitBreakerService
+      i. If success: update EMA latency in RoutingService, record success in CircuitBreakerService, then call markHealthy() to force-close any stale OPEN/HALF_OPEN circuit and sync CLOSED state to Redis
       ii. If failure: record failure in CircuitBreakerService
       iii. Persist result to Redis via RedisPersistenceService
       iv. Update in-memory status via ModelStatusUpdater (triggers SSE broadcast)
@@ -1326,6 +1329,12 @@ data: [DONE]
 - Confirm: No keys are exhausted or invalid
 - Action: Add additional API keys or reduce concurrent load
 
+**Symptom: Models not showing as available / stuck `Routing blocked`**
+- Check: Health checks are enabled (`llm.health-check.enabled`, default `true`; `LLM_HEALTH_CHECK_ENABLED`)
+- Verify: The 4-minute sweep / NVIDIA 2-minute re-probe is running (watch `HealthCheckService` logs)
+- Confirm: A stale OPEN circuit isn't blocking routing — a successful probe calls `CircuitBreakerService.markHealthy()` to force-close it
+- Action: The dashboard shows an amber `UP · BLOCKED` badge when the probe succeeds but the circuit is still OPEN; wait for the next probe or call `POST /api/models/circuit-reset?model={name}` to unblock manually
+
 **Symptom: Missing models in status endpoint**
 - Check: Model configuration in application.yml
 - Verify: Model IDs match exactly what providers expect
@@ -1341,5 +1350,5 @@ data: [DONE]
 
 ---
 *Document Version: 1.0*
-*Last Updated: September 27, 2026*
+*Last Updated: September 30, 2026*
 *Author: Neural Gateway Architecture Team*

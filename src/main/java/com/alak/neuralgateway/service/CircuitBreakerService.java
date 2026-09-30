@@ -5,6 +5,8 @@ import com.alak.neuralgateway.domain.circuit.CircuitState;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -16,6 +18,8 @@ import java.util.function.Supplier;
  */
 @Service
 public class CircuitBreakerService {
+
+    private static final Logger log = LoggerFactory.getLogger(CircuitBreakerService.class);
 
     private final CircuitBreakerProperties properties;
     private final RedisPersistenceService redisPersistence;
@@ -106,6 +110,27 @@ public class CircuitBreakerService {
     public void recordFailure(String modelId, Throwable throwable) {
         long duration = 1;
         getCircuitBreaker(modelId).onError(duration, java.util.concurrent.TimeUnit.MILLISECONDS, throwable);
+    }
+
+    /**
+     * Treat a verified healthy probe as authoritative and close the circuit.
+     * <p>
+     * A probe performs a real upstream call, so its success is strong evidence that the
+     * model recovered. Without this, a breaker restored OPEN from Redis would stay OPEN
+     * (blocking routing and the dashboard) until the passive half-open timeout elapsed.
+     * Safe with resilience4j 2.2.0: OPEN, HALF_OPEN and FORCED_OPEN to CLOSED are all
+     * legal transitions; the state guard simply avoids recreating the CLOSED state.
+     */
+    public void markHealthy(String modelId) {
+        CircuitBreaker cb = getCircuitBreaker(modelId);
+        if (cb.getState() != CircuitBreaker.State.CLOSED) {
+            cb.transitionToClosedState();
+            log.info("Circuit breaker for model '{}' closed after verified healthy probe", modelId);
+        }
+        // Keep Redis authoritative even when no state-transition event fired
+        // (e.g. breaker already CLOSED while Redis still held OPEN=true).
+        redisPersistence.setCircuitOpen(modelId, false);
+        redisPersistence.saveConsecutiveErrors(modelId, 0);
     }
 
     /**

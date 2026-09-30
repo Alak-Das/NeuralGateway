@@ -251,6 +251,8 @@ export default function StatusTable({ data }: StatusTableProps) {
                   <td className="py-3 px-4">
                     {isUnchecked(d) ? (
                       <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1"><i className="bi bi-question-circle-fill me-1"></i>NOT CHECKED</span>
+                    ) : d.isUp && d.circuitOpen ? (
+                      <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 px-2 py-1" title="Probe succeeded but the circuit breaker is OPEN - requests are currently blocked"><i className="bi bi-shield-exclamation me-1"></i>UP&nbsp;&middot;&nbsp;BLOCKED</span>
                     ) : d.isUp ? (
                       <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1"><i className="bi bi-circle-fill me-1" style={{ fontSize: '0.5rem', verticalAlign: 'middle' }}></i>PROBE UP</span>
                     ) : (

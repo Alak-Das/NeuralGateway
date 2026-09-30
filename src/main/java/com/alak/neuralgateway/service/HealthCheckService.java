@@ -429,6 +429,10 @@ public class HealthCheckService {
             providerFailureCounts.remove(modelRegistry.getModel(modelId).map(Model::getProviderId).orElse(""));
             routingService.updateEmaLatency(modelId, result.getLatencyMs());
             circuitBreakerService.recordSuccess(modelId);
+            // A successful probe is authoritative evidence of recovery: close a stale
+            // OPEN circuit (e.g. restored from Redis) so routing and the dashboard
+            // unblock immediately instead of waiting for the passive half-open timeout.
+            circuitBreakerService.markHealthy(modelId);
         } else {
             String providerId = modelRegistry.getModel(modelId).map(Model::getProviderId).orElse(null);
             boolean providerUnavailable = providerId != null && providerAvailabilityService != null

@@ -23,9 +23,14 @@ All notable changes to Neural Gateway are documented in this file.
 - **LlmProvidersProperties uses `Boolean.TRUE.equals()`** for the `enabled` field default, so absent/null YAML values are treated as disabled.
 - **ModelStatusService** now marks disabled models as DOWN in the model status and emits SSE updates for their transition.
 - **RoutingService** filters out disabled models from routing candidates.
+- **Health checks enabled by default** — `llm.health-check.enabled` now defaults to `true` (override via `LLM_HEALTH_CHECK_ENABLED=false`). Previously, models that went down were never re-probed, leaving stale statuses and stale OPEN circuits in the dashboard.
+- **Faster NVIDIA recovery pacing** — NVIDIA `health-check-interval-ms` lowered from 30 min to 2 min and `health-check-max-backoff-ms` capped at 10 min, so a down model is re-probed within minutes instead of waiting up to an hour.
 
 ### Added
 
 - **Unit tests** for the disabled-model behavior:
   - `ModelRegistryDisabledTest` — verifies `getModelsByPipeline()` excludes disabled models, tests `getEnabledModels()` and `findById()`.
   - `ApplicationYamlEnabledFlagTest` — verifies that `enabled: false` in `application.yml` correctly disables specific models (e.g. `explabs/gpt-6-luna`), while models without the flag default to disabled.
+- **`CircuitBreakerService.markHealthy()`** — force-closes OPEN/HALF_OPEN/FORCED_OPEN breakers after a verified healthy probe and syncs the CLOSED state (`circuitOpen=false`, `consecutiveErrors=0`) to Redis even when the breaker is already CLOSED, preventing Redis/breaker divergence. Wired into `HealthCheckService.updateModelStatusFromResult()` on probe success.
+- **Dashboard `UP · BLOCKED` badge** — the status table shows an amber warning badge when a model's probe succeeds (`isUp`) but its circuit is OPEN (`circuitOpen`), clarifying that the model is healthy but requests are still blocked.
+- **Unit tests** — `testMarkHealthyClosesOpenCircuitAndSyncsRedis` and `testMarkHealthyOnClosedCircuitStillSyncsRedisWithoutError` in `CircuitBreakerServiceTest`; `ApplicationYamlEnabledFlagTest` updated to assert the 11 enabled / 2 intentionally disabled (explabs) model split.

@@ -13,19 +13,23 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies that the shipped application.yml binds into {@link LlmProvidersProperties}
- * with every model carrying the new {@code enabled} flag (all currently {@code true}).
+ * with the {@code enabled} flag respected: all nvidia/antseed models enabled, and the
+ * two explabs preview models ({@code mimo-v2.6-pro}, {@code gpt-6-luna}) intentionally
+ * disabled.
  */
 class ApplicationYamlEnabledFlagTest {
 
     @Test
-    void allThirteenModelsBindWithEnabledTrue() throws IOException {
+    void allThirteenModelsBindWithCorrectEnabledFlags() throws IOException {
         List<PropertySource<?>> sources = new YamlPropertySourceLoader()
                 .load("application", new ClassPathResource("application.yml"));
 
@@ -51,12 +55,25 @@ class ApplicationYamlEnabledFlagTest {
                 .sum();
         assertEquals(13, totalModels, "Expected 13 models total in application.yml");
 
+        long enabledModels = providers.values().stream()
+                .flatMap(p -> p.getModels() == null ? Stream.empty() : p.getModels().stream())
+                .filter(LlmProvidersProperties.ModelConfig::isEnabled)
+                .count();
+        assertEquals(11, enabledModels, "Expected 11 enabled models");
+        assertEquals(2, totalModels - enabledModels, "Expected 2 disabled models");
+
+        Set<String> disabledIds = providers.values().stream()
+                .flatMap(p -> p.getModels() == null ? Stream.empty() : p.getModels().stream())
+                .filter(m -> !m.isEnabled())
+                .map(LlmProvidersProperties.ModelConfig::getId)
+                .collect(Collectors.toSet());
+        assertEquals(Set.of("mimo-v2.6-pro", "gpt-6-luna"), disabledIds,
+                "explabs preview models must stay disabled");
+
         providers.forEach((providerId, providerConfig) -> {
             assertNotNull(providerConfig.getModels(), providerId + " must declare models");
             for (LlmProvidersProperties.ModelConfig model : providerConfig.getModels()) {
                 assertNotNull(model.getId(), providerId + " model must have an id");
-                assertTrue(model.isEnabled(),
-                        () -> "Model '" + model.getId() + "' must bind enabled: true");
             }
         });
     }
