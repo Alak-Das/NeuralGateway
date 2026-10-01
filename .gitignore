@@ -52,6 +52,7 @@ ui/node_modules/
 ui/dist/
 ui/fix*.js
 ui/writer.js/
+ui/IMPROVEMENTS_SUMMARY.md
 
 # Open WebUI data (persistent volume, should not be tracked)
 open-webui-data/
