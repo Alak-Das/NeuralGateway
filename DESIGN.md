@@ -881,24 +881,24 @@ services:
 ### Request Format
 ```json
 {
-  "model": "optional-model-override",  // If omitted, uses pipeline routing
+  "model": "optional-model-override",
   "messages": [
     {
       "role": "system|user|assistant|tool",
       "content": "string|[{type:text|image_url, text|image_url:{url}}]"
     }
   ],
-  "max_tokens": 100,                  // Optional, defaults to model max
-  "temperature": 0.7,                 // Optional, 0.0-2.0
-  "top_p": 1.0,                       // Optional, 0.0-1.0
-  "n": 1,                             // Optional, number of completions
-  "stream": false,                    // Optional, enables Server-Sent Events
-  "stop": ["\\n"],                    // Optional, stop sequences
-  "presence_penalty": 0.0,            // Optional, -2.0 to 2.0
-  "frequency_penalty": 0.0,           // Optional, -2.0 to 2.0
-  "logit_bias": {},                   // Optional, token bias map
-  "user": "optional-end-user-id",     // Optional, for abuse monitoring
-  "tools": [                          // Optional, function definitions
+  "max_tokens": 100,
+  "temperature": 0.7,
+  "top_p": 1.0,
+  "n": 1,
+  "stream": false,
+  "stop": ["\\n"],
+  "presence_penalty": 0.0,
+  "frequency_penalty": 0.0,
+  "logit_bias": {},
+  "user": "optional-end-user-id",
+  "tools": [
     {
       "type": "function",
       "function": {
@@ -920,13 +920,13 @@ services:
       }
     }
   ],
-  "tool_choice": "none|auto|required", // Optional, tool usage control
-  "response_format": {                 // Optional, constrains output format
-    "type": "text"                     // or { "type": "json_object" }
+  "tool_choice": "none|auto|required",
+  "response_format": {
+    "type": "text"
   },
-  "seed": null,                        // Optional, for deterministic sampling
-  "service_tier": null,                // Optional, specifies service level
-  "max_completion_tokens": null        // Optional, alternative to max_tokens
+  "seed": null,
+  "service_tier": null,
+  "max_completion_tokens": null
 }
 ```
 
