@@ -6,9 +6,7 @@ import com.alak.neuralgateway.domain.model.Model.Pipeline;
 import com.alak.neuralgateway.domain.routing.RoutingScore;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,28 +21,17 @@ public class RoutingService {
 
     private final RoutingProperties properties;
     private final ModelRegistry modelRegistry;
-    private final CircuitBreakerService circuitBreakerService;
     private final ModelStatusProvider modelStatusProvider;
-    private final ProviderAvailabilityService providerAvailabilityService;
 
     // In-memory telemetry for routing score calculation
     private final Map<String, AtomicInteger> activeConnectionsMap = new ConcurrentHashMap<>();
     private final Map<String, Double> emaLatencyMap = new ConcurrentHashMap<>();
 
     public RoutingService(RoutingProperties properties, ModelRegistry modelRegistry,
-                          CircuitBreakerService circuitBreakerService, ModelStatusProvider modelStatusProvider) {
-        this(properties, modelRegistry, circuitBreakerService, modelStatusProvider, null);
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
-    public RoutingService(RoutingProperties properties, ModelRegistry modelRegistry,
-                          CircuitBreakerService circuitBreakerService, ModelStatusProvider modelStatusProvider,
-                          ProviderAvailabilityService providerAvailabilityService) {
+                          ModelStatusProvider modelStatusProvider) {
         this.properties = properties;
         this.modelRegistry = modelRegistry;
-        this.circuitBreakerService = circuitBreakerService;
         this.modelStatusProvider = modelStatusProvider;
-        this.providerAvailabilityService = providerAvailabilityService;
     }
 
     /**
@@ -106,23 +93,19 @@ public class RoutingService {
      * Lower scores are better.
      */
     public RoutingScore calculateRoutingScore(String modelId) {
-        return calculateRoutingScore(modelId, null);
-    }
-
-    private RoutingScore calculateRoutingScore(String modelId, Pipeline pipeline) {
         double emaLatency = getEmaLatency(modelId);
         int activeConnections = activeConnectionsMap.getOrDefault(modelId, new AtomicInteger(0)).get();
         Model model = modelRegistry.getModel(modelId).orElse(null);
-        int priority = model != null ? (pipeline == null ? model.getPriority() : model.getPriority(pipeline)) : 1;
+        int priority = model != null ? model.getPriority() : 1;
         return new RoutingScore(emaLatency, activeConnections, properties.getConnectionPenaltyMs(), priority);
     }
 
     /**
-     * Select the best model for a pipeline based on routing score, health, and context window.
-     * Returns a prioritized list of candidate models (primary + fallbacks).
+     * Select models for a pipeline based on health status and priority.
+     * Returns a prioritized list of candidate models sorted by priority (highest first).
      */
     public List<Model> selectModels(Pipeline pipeline, int estimatedTokens) {
-        // Disabled models are never eligible for routing (including degraded-mode fallbacks).
+        // Disabled models are never eligible for routing.
         List<Model> pipelineModels = modelRegistry.getModelsByPipeline(pipeline).stream()
                 .filter(Model::isEnabled)
                 .collect(Collectors.toList());
@@ -134,83 +117,49 @@ public class RoutingService {
                     .collect(Collectors.toList());
         }
 
-        pipelineModels = pipelineModels.stream()
-                .filter(model -> providerAvailabilityService == null || providerAvailabilityService.isAvailable(model.getProviderId()))
-                .collect(Collectors.toList());
-
-        // Filter by health and circuit breaker
+        // Filter by health status only (no circuit breaker check)
         List<Model> healthyModels = pipelineModels.stream()
                 .filter(model -> modelStatusProvider.isModelUp(model.getId()))
-                .filter(model -> !circuitBreakerService.isCircuitOpen(model.getId()))
                 .collect(Collectors.toList());
 
-        // Sort by routing score (ascending - lower is better)
-        healthyModels.sort((m1, m2) -> calculateRoutingScore(m1.getId(), pipeline).compareTo(calculateRoutingScore(m2.getId(), pipeline)));
+        Comparator<Model> routingOrder = Comparator
+                .comparing((Model model) -> calculateRoutingScore(model, pipeline))
+                .thenComparing(Model::getId);
 
-        // Get fallbacks (must NOT have OPEN circuit breaker)
-        List<Model> fallbackModels = pipelineModels.stream()
-                .filter(model -> !healthyModels.contains(model))
-                .filter(model -> !circuitBreakerService.isCircuitOpen(model.getId())) // Filter out fully OPEN
-                .sorted((m1, m2) -> calculateRoutingScore(m1.getId(), pipeline).compareTo(calculateRoutingScore(m2.getId(), pipeline)))
-                .collect(Collectors.toList());
+        // Priority leads the routing score; active connections and latency break ties.
+        healthyModels.sort(routingOrder);
 
-        // Keep open circuits at the tail so they can receive a single half-open
-        // recovery attempt when their reset window expires, after available models.
-        List<Model> openCircuitFallbacks = pipelineModels.stream()
-                .filter(model -> circuitBreakerService.isCircuitOpen(model.getId()))
-                .sorted((m1, m2) -> calculateRoutingScore(m1.getId(), pipeline).compareTo(calculateRoutingScore(m2.getId(), pipeline)))
-                .collect(Collectors.toList());
-
-        // Combine healthy models and fallbacks. A provider-wide overload must not
-        // prevent trying models registered under the other providers.
-        List<Model> candidates = new ArrayList<>(healthyModels);
-        int remainingSlots = properties.getMaxFallbackAttempts() - candidates.size();
-        if (remainingSlots > 0) {
-            candidates.addAll(fallbackModels.stream().limit(remainingSlots).collect(Collectors.toList()));
-        }
-        remainingSlots = properties.getMaxFallbackAttempts() - candidates.size();
-        if (remainingSlots > 0) {
-            candidates.addAll(openCircuitFallbacks.stream().limit(remainingSlots).collect(Collectors.toList()));
+        int maxCandidates = Math.max(1, properties.getMaxFallbackAttempts());
+        List<Model> candidates = healthyModels.stream()
+                .limit(maxCandidates)
+                .collect(Collectors.toCollection(java.util.ArrayList::new));
+        int remainingFallbackSlots = properties.getMaxFallbackAttempts() - candidates.size();
+        if (remainingFallbackSlots > 0) {
+            List<Model> fallbackModels = pipelineModels.stream()
+                    .filter(model -> !healthyModels.contains(model))
+                    .sorted(routingOrder)
+                    .limit(remainingFallbackSlots)
+                    .toList();
+            candidates.addAll(fallbackModels);
         }
 
-        // Emergency Degraded Mode: If all circuits are OPEN or no models are healthy,
-        // NEVER return an empty list and take down the entire gateway!
-        // Select the top candidates by priority and lowest historical latency to act as canary probes.
+        // Emergency degraded mode still offers bounded enabled candidates when
+        // every eligible model is currently reported unhealthy.
         if (candidates.isEmpty() && !pipelineModels.isEmpty()) {
-            List<Model> recoveryCandidates = pipelineModels.stream()
-                    .sorted((m1, m2) -> calculateRoutingScore(m1.getId(), pipeline).compareTo(calculateRoutingScore(m2.getId(), pipeline)))
-                    .limit(Math.max(1, properties.getMaxFallbackAttempts()))
+            pipelineModels.sort(routingOrder);
+            return pipelineModels.stream()
+                    .limit(maxCandidates)
                     .collect(Collectors.toList());
-            return diversifyProviders(recoveryCandidates);
         }
-
-        return diversifyProviders(candidates);
+        return candidates;
     }
 
-    /**
-     * Spread failover attempts across independent providers before trying a
-     * second model from the same provider. This avoids multiplying a shared
-     * provider outage into many equivalent failed calls.
-     */
-    private List<Model> diversifyProviders(List<Model> candidates) {
-        Map<String, List<Model>> byProvider = new LinkedHashMap<>();
-        for (Model model : candidates) {
-            byProvider.computeIfAbsent(model.getProviderId(), ignored -> new ArrayList<>()).add(model);
-        }
-        List<Model> diversified = new ArrayList<>(candidates.size());
-        boolean added;
-        int index = 0;
-        do {
-            added = false;
-            for (List<Model> providerModels : byProvider.values()) {
-                if (index < providerModels.size()) {
-                    diversified.add(providerModels.get(index));
-                    added = true;
-                }
-            }
-            index++;
-        } while (added);
-        return diversified;
+    private RoutingScore calculateRoutingScore(Model model, Pipeline pipeline) {
+        return new RoutingScore(
+                getEmaLatency(model.getId()),
+                getActiveConnections(model.getId()),
+                properties.getConnectionPenaltyMs(),
+                model.getPriority(pipeline));
     }
 
     /**

@@ -44,8 +44,7 @@ public class ProviderAvailabilityService {
 
     public void recordSuccess(String providerId) {
         String reason = redisPersistence.getProviderUnavailableReason(providerId);
-        if (reason != null && !ProviderFailureType.QUOTA_EXHAUSTED.name().equals(reason)
-                && !ProviderFailureType.AUTHENTICATION.name().equals(reason)) {
+        if (reason != null && !ProviderFailureType.QUOTA_EXHAUSTED.name().equals(reason)) {
             redisPersistence.clearProviderUnavailable(providerId);
         }
     }

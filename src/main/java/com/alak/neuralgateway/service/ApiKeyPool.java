@@ -18,9 +18,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * cooldowns, and routes requests to an available key.
  */
 public class ApiKeyPool {
+    private static final Duration AUTHENTICATION_COOLDOWN = Duration.ofMinutes(1);
 
     private final List<KeyEntry> keys = new ArrayList<>();
     private final Map<String, Instant> cooldownUntil = new ConcurrentHashMap<>();
+    private final Map<String, Instant> authenticationCooldownUntil = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> cooldownFailures = new ConcurrentHashMap<>();
     private final AtomicInteger roundRobin = new AtomicInteger(0);
     private final Map<String, AtomicInteger> activeConnections = new ConcurrentHashMap<>();
@@ -89,7 +91,25 @@ public class ApiKeyPool {
     }
 
     public void markKeyHealthy(String key) {
-        if (key != null && !key.isEmpty()) cooldownFailures.remove(key);
+        if (key != null && !key.isEmpty()) {
+            cooldownFailures.remove(key);
+            cooldownUntil.remove(key);
+            authenticationCooldownUntil.remove(key);
+        }
+    }
+
+    /**
+     * Quarantine a key rejected with 401/403 while the rest of the configured
+     * key pool is tried.
+     */
+    public void markKeyAuthenticationFailure(String key) {
+        if (key != null && !key.isEmpty()) {
+            authenticationCooldownUntil.put(key, Instant.now().plus(AUTHENTICATION_COOLDOWN));
+        }
+    }
+
+    public int getConfiguredKeyCount() {
+        return keys.size();
     }
 
     public boolean isCoolingDown(String key) {
@@ -113,6 +133,12 @@ public class ApiKeyPool {
             return ""; // Allow providers that don't need authentication
         }
 
+        if (keys.stream().allMatch(entry -> isAuthenticationCoolingDown(entry.key()))) {
+            throw new ProviderFailureException(
+                    "All configured API keys for provider " + providerId + " were rejected by the upstream provider.",
+                    401, providerId, ProviderFailureType.AUTHENTICATION, AUTHENTICATION_COOLDOWN);
+        }
+
         int startIdx = roundRobin.getAndUpdate(i -> (i + 1) % keys.size());
 
         // First pass: try keys that are NOT currently cooling down AND have NO active connections
@@ -120,7 +146,8 @@ public class ApiKeyPool {
             int idx = (startIdx + i) % keys.size();
             KeyEntry entry = keys.get(idx);
             
-            if (isCoolingDown(entry.key()) || getActiveConnections(entry.key()) > 0) {
+            if (isAuthenticationCoolingDown(entry.key()) || isCoolingDown(entry.key())
+                    || getActiveConnections(entry.key()) > 0) {
                 continue;
             }
 
@@ -134,7 +161,7 @@ public class ApiKeyPool {
             int idx = (startIdx + i) % keys.size();
             KeyEntry entry = keys.get(idx);
             
-            if (isCoolingDown(entry.key())) {
+            if (isAuthenticationCoolingDown(entry.key()) || isCoolingDown(entry.key())) {
                 continue;
             }
 
@@ -147,6 +174,16 @@ public class ApiKeyPool {
                 "All API keys for provider " + providerId + " have exceeded their rate limits.",
                 providerId, "", ""
         );
+    }
+
+    private boolean isAuthenticationCoolingDown(String key) {
+        Instant until = authenticationCooldownUntil.get(key);
+        if (until == null) return false;
+        if (Instant.now().isAfter(until)) {
+            authenticationCooldownUntil.remove(key, until);
+            return false;
+        }
+        return true;
     }
 
     private record KeyEntry(String key, RateLimiter limiter) {}

@@ -184,9 +184,6 @@ public class LlmGatewayFacade {
                     redisPersistenceService.incrementRequesterUsage(requester, tokensUsed);
                 }
 
-                // Decrement active connections
-                routingService.decrementActiveConnections(model.getId());
-
                 return response;
 
             } catch (LlmProviderClient.UpstreamServiceException e) {
@@ -200,7 +197,6 @@ public class LlmGatewayFacade {
                     healthCheckService.recordRoutedFailure(model.getId(), e);
                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                 }
-                routingService.decrementActiveConnections(model.getId());
                 continue;
             } catch (IllegalArgumentException e) {
                 long latency = System.currentTimeMillis() - startTime;
@@ -210,11 +206,9 @@ public class LlmGatewayFacade {
                     log.warn("[TxID: {}] Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...",
                             transactionId, model.getId(), latency, e.getMessage());
                     healthCheckService.recordRoutedFailure(model.getId(), e);
-                    routingService.decrementActiveConnections(model.getId());
                     continue;
                 }
                 // Genuine client 4xx errors - don't failover, return immediately
-                routingService.decrementActiveConnections(model.getId());
                 throw e;
             } catch (Exception e) {
                 // Other errors - failover
@@ -225,8 +219,11 @@ public class LlmGatewayFacade {
                 circuitBreakerService.recordFailure(model.getId(), e);
                 healthCheckService.recordRoutedFailure(model.getId(), e);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
-                routingService.decrementActiveConnections(model.getId());
                 continue;
+            } finally {
+                // Release exactly once for success, failover, and exceptions thrown
+                // while processing a successful upstream response.
+                routingService.decrementActiveConnections(model.getId());
             }
         }
 

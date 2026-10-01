@@ -486,7 +486,11 @@ public class HealthCheckService {
         // Update routing telemetry
         if (result.isUp()) {
             modelRecoveryTracker.recordSuccess(modelId);
-            providerFailureCounts.remove(modelRegistry.getModel(modelId).map(Model::getProviderId).orElse(""));
+            String providerId = modelRegistry.getModel(modelId).map(Model::getProviderId).orElse("");
+            providerFailureCounts.remove(providerId);
+            if (providerAvailabilityService != null && !providerId.isEmpty()) {
+                providerAvailabilityService.recordSuccess(providerId);
+            }
             routingService.updateEmaLatency(modelId, result.getLatencyMs());
             circuitBreakerService.recordSuccess(modelId);
             // A successful probe is authoritative evidence of recovery: close a stale

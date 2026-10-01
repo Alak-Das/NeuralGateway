@@ -2,6 +2,8 @@ package com.alak.neuralgateway;
 
 import com.alak.neuralgateway.service.ApiKeyPool;
 import com.alak.neuralgateway.service.LlmProviderClient.RateLimitException;
+import com.alak.neuralgateway.service.ProviderFailureException;
+import com.alak.neuralgateway.service.ProviderFailureType;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -53,5 +55,33 @@ public class ApiKeyPoolTest {
         ApiKeyPool pool = new ApiKeyPool("test-provider", List.of("dup-key", "dup-key", "  dup-key  "), 60);
         assertEquals("dup-key", pool.getAvailableKey());
         assertEquals("dup-key", pool.getAvailableKey());
+    }
+
+    @Test
+    void authenticationFailureQuarantinesOnlyRejectedKey() {
+        ApiKeyPool pool = new ApiKeyPool("test-provider", List.of("key-1", "key-2"), 60);
+        pool.markKeyAuthenticationFailure("key-1");
+
+        assertEquals("key-2", pool.getAvailableKey());
+    }
+
+    @Test
+    void allAuthenticationRejectedKeysReportProviderAuthenticationFailure() {
+        ApiKeyPool pool = new ApiKeyPool("test-provider", List.of("key-1", "key-2"), 60);
+        pool.markKeyAuthenticationFailure("key-1");
+        pool.markKeyAuthenticationFailure("key-2");
+
+        ProviderFailureException failure = assertThrows(ProviderFailureException.class, pool::getAvailableKey);
+        assertEquals(ProviderFailureType.AUTHENTICATION, failure.getFailureType());
+        assertEquals("test-provider", failure.getProviderId());
+    }
+
+    @Test
+    void successfulKeyClearsItsAuthenticationCooldown() {
+        ApiKeyPool pool = new ApiKeyPool("test-provider", List.of("key-1"), 60);
+        pool.markKeyAuthenticationFailure("key-1");
+        pool.markKeyHealthy("key-1");
+
+        assertEquals("key-1", pool.getAvailableKey());
     }
 }

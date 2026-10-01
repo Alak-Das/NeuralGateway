@@ -87,7 +87,10 @@ export default function StatusTable({ data }: StatusTableProps) {
 
   const isUnchecked = (model: ModelStatus) => model.errorMessage === 'Not yet checked';
   const isDisabled = (model: ModelStatus) => model.enabled === false;
-  const getProbeStatus = (model: ModelStatus) => isUnchecked(model) ? 'unknown' : (model.isUp ? 'up' : 'down');
+  const getStatus = (model: ModelStatus): 'up' | 'down' => {
+    const isUp = (model as any).up !== undefined ? (model as any).up : model.isUp;
+    return isUp ? 'up' : 'down';
+  };
   const isStatusFresh = (model: ModelStatus) => {
     if (model.statusFresh != null) return model.statusFresh;
     if (!model.lastChecked) return false;
@@ -100,31 +103,28 @@ export default function StatusTable({ data }: StatusTableProps) {
     return data.filter(d => {
       const catMatch = !categoryFilter || d.categories.includes(categoryFilter);
       let statusMatch = true;
-      if (statusFilter === 'up') statusMatch = getProbeStatus(d) === 'up';
-      else if (statusFilter === 'down') statusMatch = getProbeStatus(d) === 'down';
-      else if (statusFilter === 'unknown') statusMatch = isUnchecked(d);
-      else if (statusFilter === 'circuit') statusMatch = d.circuitOpen;
+      if (statusFilter === 'up') statusMatch = getStatus(d) === 'up';
+      else if (statusFilter === 'down') statusMatch = getStatus(d) === 'down';
       return catMatch && statusMatch;
     }).sort((a, b) => {
       let valA: any = 0; let valB: any = 0;
       switch (sortCol) {
         case 'model': valA = a.model; valB = b.model; break;
         case 'status':
-          valA = getProbeStatus(a) === 'unknown' ? 0 : (getProbeStatus(a) === 'down' ? 1 : 2);
-          valB = getProbeStatus(b) === 'unknown' ? 0 : (getProbeStatus(b) === 'down' ? 1 : 2);
+          valA = getStatus(a) === 'up' ? 1 : 0;
+          valB = getStatus(b) === 'up' ? 1 : 0;
           break;
         case 'latency': valA = a.latencyMs; valB = b.latencyMs; break;
         case 'tps': valA = a.tps; valB = b.tps; break;
         case 'uses': valA = a.totalUses; valB = b.totalUses; break;
         case 'conns': valA = a.activeConnections; valB = b.activeConnections; break;
-        case 'circuit': valA = a.circuitOpen ? 1 : 0; valB = b.circuitOpen ? 1 : 0; break;
         case 'error': valA = a.errorMessage || ''; valB = b.errorMessage || ''; break;
         case 'updated': valA = a.lastChecked ? new Date(a.lastChecked).getTime() : 0; valB = b.lastChecked ? new Date(b.lastChecked).getTime() : 0; break;
         default: valA = a.model; valB = b.model;
       }
       if (valA < valB) return sortDir === 'asc' ? -1 : 1;
       if (valA > valB) return sortDir === 'asc' ? 1 : -1;
-      if (sortCol === 'status' || sortCol === 'circuit') {
+      if (sortCol === 'status') {
         return (b.priority ?? 0) - (a.priority ?? 0);
       }
       return 0;
@@ -132,16 +132,15 @@ export default function StatusTable({ data }: StatusTableProps) {
   }, [data, categoryFilter, statusFilter, sortCol, sortDir]);
 
   const exportCSV = () => {
-    const headers = ['Model', 'Categories', 'Probe Result', 'Latency (ms)', 'TPS', 'Total Uses', 'Active Conns', 'Circuit Breaker', 'Last Error', 'Last Probe'];
+    const headers = ['Model', 'Categories', 'Status', 'Latency (ms)', 'TPS', 'Total Uses', 'Active Conns', 'Last Error', 'Last Check'];
     const rows = filteredData.map(d => [
       d.model,
       d.categories.join('; '),
-      getProbeStatus(d) === 'unknown' ? 'NOT CHECKED' : (d.isUp ? 'UP' : 'DOWN'),
+      getStatus(d) === 'up' ? 'UP' : 'DOWN',
       d.latencyMs,
       d.tps.toFixed(2),
       d.totalUses,
       d.activeConnections,
-      d.circuitOpen ? 'Open' : 'Closed',
       d.errorMessage || '',
       d.lastChecked ? new Date(d.lastChecked).toISOString() : ''
     ]);
@@ -180,10 +179,8 @@ export default function StatusTable({ data }: StatusTableProps) {
               <span className="input-group-text bg-transparent border-end-0"><i className="bi bi-activity"></i></span>
               <select className="form-select border-start-0 ps-0" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
                 <option value="">All Statuses</option>
-                <option value="up">Probe Up</option>
-                <option value="down">Probe Down</option>
-                <option value="unknown">Probe Not Checked</option>
-                <option value="circuit">Circuit Open</option>
+                <option value="up">UP</option>
+                <option value="down">DOWN</option>
               </select>
             </div>
           </div>
@@ -200,24 +197,23 @@ export default function StatusTable({ data }: StatusTableProps) {
             <tr>
               <th className="sortable px-4" onClick={() => handleSort('model')}>Model {getSortIcon('model')}</th>
               <th className="px-4">Category</th>
-               <th className="sortable px-4" onClick={() => handleSort('status')}>Probe Result {getSortIcon('status')}</th>
+              <th className="sortable px-4" onClick={() => handleSort('status')}>Status {getSortIcon('status')}</th>
               <th className="sortable px-4" onClick={() => handleSort('latency')}>Latency {getSortIcon('latency')}</th>
               <th className="sortable px-4" onClick={() => handleSort('tps')}>TPS {getSortIcon('tps')}</th>
               <th className="sortable px-4" onClick={() => handleSort('uses')}>Total Uses {getSortIcon('uses')}</th>
               <th className="sortable px-4" onClick={() => handleSort('conns')}>Active Conns {getSortIcon('conns')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('circuit')}>Circuit Breaker / Routing {getSortIcon('circuit')}</th>
               <th className="sortable px-4" onClick={() => handleSort('error')}>Last Error {getSortIcon('error')}</th>
-               <th className="sortable px-4" onClick={() => handleSort('updated')}>Last Probe {getSortIcon('updated')}</th>
+              <th className="sortable px-4" onClick={() => handleSort('updated')}>Last Check {getSortIcon('updated')}</th>
             </tr>
           </thead>
           <tbody>
             {filteredData.length === 0 ? (
               <tr>
-                <td colSpan={10}>
+                <td colSpan={9}>
                   <div className="text-center py-5">
                     <i className="bi bi-search text-muted opacity-50" style={{ fontSize: '4rem' }}></i>
                     <h5 className="fw-bold mt-3 text-secondary">No models match the current filters</h5>
-                    <p className="text-muted">Try clearing or adjusting the category, probe result or circuit filters.</p>
+                    <p className="text-muted">Try clearing or adjusting the category or status filters.</p>
                     <button className="btn btn-outline-secondary btn-sm mt-2 rounded-pill fw-medium" onClick={() => { setCategoryFilter(''); setStatusFilter(''); }}>Clear Filters</button>
                   </div>
                 </td>
@@ -249,32 +245,24 @@ export default function StatusTable({ data }: StatusTableProps) {
                     ))}
                   </td>
                   <td className="py-3 px-4">
-                    {isUnchecked(d) ? (
-                      <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1"><i className="bi bi-question-circle-fill me-1"></i>NOT CHECKED</span>
-                    ) : d.isUp && d.circuitOpen ? (
-                      <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 px-2 py-1" title="Probe succeeded but the circuit breaker is OPEN - requests are currently blocked"><i className="bi bi-shield-exclamation me-1"></i>UP&nbsp;&middot;&nbsp;BLOCKED</span>
-                    ) : d.isUp ? (
-                      <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1"><i className="bi bi-circle-fill me-1" style={{ fontSize: '0.5rem', verticalAlign: 'middle' }}></i>PROBE UP</span>
+                    {getStatus(d) === 'up' ? (
+                      <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-2 fw-bold" style={{ fontSize: '0.85rem' }}>
+                        <i className="bi bi-circle-fill me-1" style={{ fontSize: '0.5rem', verticalAlign: 'middle' }}></i>UP
+                      </span>
                     ) : (
-                      <span className="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1"><i className="bi bi-arrow-down-circle-fill me-1"></i>PROBE DOWN</span>
+                      <span className="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-3 py-2 fw-bold" style={{ fontSize: '0.85rem' }}>
+                        <i className="bi bi-circle-fill me-1" style={{ fontSize: '0.5rem', verticalAlign: 'middle' }}></i>DOWN
+                      </span>
                     )}
                   </td>
                   <td className="py-3 px-4 fw-medium text-nowrap">
-                    {isUnchecked(d) ? <span className="text-muted opacity-50">&mdash;</span> : !d.isUp ? <span className="text-danger opacity-75">N/A</span> : (
+                    {getStatus(d) === 'down' ? <span className="text-danger opacity-75">N/A</span> : (
                       d.latencyMs > 1000 ? <span className="text-warning">{(d.latencyMs / 1000).toFixed(2)}s</span> : <span>{d.latencyMs}ms</span>
                     )}
                   </td>
                   <td className="py-3 px-4 fw-medium">{d.tps > 0 ? d.tps.toFixed(2) : <span className="text-muted opacity-50">&mdash;</span>}</td>
                   <td className="py-3 px-4 fw-medium">{formatNumber(d.totalUses)}</td>
                   <td className="py-3 px-4 fw-medium">{d.activeConnections}</td>
-                  <td className="py-3 px-4">
-                    <span className={`badge ${d.circuitOpen ? 'bg-danger text-white' : 'bg-success bg-opacity-10 text-success border border-success border-opacity-25'} px-2 py-1`}>
-                      {d.circuitOpen ? 'OPEN' : 'CLOSED'}
-                    </span>
-                    <div className={`small mt-1 ${d.circuitOpen ? 'text-danger' : 'text-muted'}`} style={{ fontSize: '0.7rem' }}>
-                      {d.circuitOpen ? 'Routing blocked' : 'No breaker block'}
-                    </div>
-                  </td>
                   <td className="py-3 px-4 error-cell">
                     {!d.errorMessage ? <span className="text-muted opacity-50">&mdash;</span> : (
                       d.errorMessage === 'Not yet checked' ? <span className="text-muted opacity-50 small">Not yet checked</span> :
@@ -284,10 +272,10 @@ export default function StatusTable({ data }: StatusTableProps) {
                     )}
                   </td>
                   <td className="py-3 px-4 text-nowrap">
-                    <div className="fw-medium" style={{ fontSize: '0.85rem' }} title={d.lastChecked ? `Last probe: ${new Date(d.lastChecked).toLocaleString()}` : 'No probe recorded'}>{formatTimeAgo(d.lastChecked)}</div>
+                    <div className="fw-medium" style={{ fontSize: '0.85rem' }} title={d.lastChecked ? `Last check: ${new Date(d.lastChecked).toLocaleString()}` : 'No check recorded'}>{formatTimeAgo(d.lastChecked)}</div>
                     <div className="d-flex align-items-center gap-2 mt-1">
                       <span className={`badge ${isStatusFresh(d) ? 'bg-success bg-opacity-10 text-success border border-success border-opacity-25' : 'bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25'}`} style={{ fontSize: '0.65rem' }}>
-                        {isStatusFresh(d) ? 'FRESH' : d.lastChecked ? 'STALE' : 'NO PROBE'}
+                        {isStatusFresh(d) ? 'FRESH' : d.lastChecked ? 'STALE' : 'NO CHECK'}
                       </span>
                       <span className="text-muted" style={{ fontSize: '0.75rem' }}>{formatTimeOnly(d.lastChecked)}</span>
                     </div>

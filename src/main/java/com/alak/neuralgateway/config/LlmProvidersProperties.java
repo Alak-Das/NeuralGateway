@@ -30,7 +30,7 @@ public class LlmProvidersProperties {
         private long healthCheckMaxBackoffMs = 3_600_000;
         private long overloadCooldownMs = 300_000;
         private long quotaCooldownMs = 86_400_000;
-        private long authenticationCooldownMs = 86_400_000;
+        private long authenticationCooldownMs = 60_000;
         private List<String> keys;
         private List<ModelConfig> models;
         /**

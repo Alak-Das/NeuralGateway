@@ -16,21 +16,23 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const totalModels = data.length;
   const uncheckedModels = data.filter(d => d.errorMessage === 'Not yet checked').length;
   const checkedModels = totalModels - uncheckedModels;
-  const upModels = data.filter(d => d.isUp && !d.circuitOpen && d.errorMessage !== 'Not yet checked').length;
-  const trippedCount = data.filter(d => d.circuitOpen).length;
-  const probeDownCount = data.filter(d => !d.isUp && d.errorMessage !== 'Not yet checked').length;
+  const getIsUp = (d: any) => d.up !== undefined ? d.up : d.isUp;
+  const upModels = data.filter(d => getIsUp(d) && d.errorMessage !== 'Not yet checked').length;
+  const downCount = data.filter(d => !getIsUp(d) && d.errorMessage !== 'Not yet checked').length;
+  const realDownCount = downCount;
+  const trippedCount = 0; // Circuit breakers removed
   const healthColor = checkedModels === 0
     ? 'text-muted'
-    : probeDownCount > 0 && upModels === 0
+    : downCount > 0 && upModels === 0
       ? 'text-danger'
-      : probeDownCount > 0 || uncheckedModels > 0 || trippedCount > 0
+      : downCount > 0 || uncheckedModels > 0
         ? 'text-warning'
         : 'text-success';
 
   const totalTps = data.reduce((sum, d) => sum + (d.tps || 0), 0);
   const totalConns = data.reduce((sum, d) => sum + (d.activeConnections || 0), 0);
   
-  const upLatencies = data.filter(d => d.isUp && !d.circuitOpen && d.latencyMs > 0).map(d => d.latencyMs);
+  const upLatencies = data.filter(d => getIsUp(d) && d.latencyMs > 0).map(d => d.latencyMs);
   const avgLatencyMs = upLatencies.length > 0 ? upLatencies.reduce((a, b) => a + b, 0) / upLatencies.length : 0;
   
   const currentActiveModels = data.filter(d => (d.activeConnections || 0) > 0);
@@ -179,7 +181,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
               <span className="text-muted ms-2" style={{ fontSize: '1.1rem' }}>/ {checkedModels} checked</span>
             </div>
             <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
-              {uncheckedModels} unchecked{probeDownCount > 0 ? ` · ${probeDownCount} probe down` : ''}{trippedCount > 0 ? ` · ${trippedCount} circuit open` : ''}
+              {uncheckedModels} unchecked{downCount > 0 ? ` · ${downCount} down` : ''}
             </div>
           </div>
           <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>

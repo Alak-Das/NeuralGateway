@@ -4,7 +4,6 @@ import com.alak.neuralgateway.config.RoutingProperties;
 import com.alak.neuralgateway.domain.model.Model;
 import com.alak.neuralgateway.domain.model.Model.Pipeline;
 import com.alak.neuralgateway.domain.model.Model.ModelCapabilities;
-import com.alak.neuralgateway.service.CircuitBreakerService;
 import com.alak.neuralgateway.service.ModelRegistry;
 import com.alak.neuralgateway.service.ModelStatusProvider;
 import com.alak.neuralgateway.service.RoutingService;
@@ -25,8 +24,6 @@ public class RoutingServiceTest {
     @Mock
     private ModelRegistry modelRegistry;
     @Mock
-    private CircuitBreakerService circuitBreakerService;
-    @Mock
     private ModelStatusProvider modelStatusProvider;
 
     private RoutingProperties properties;
@@ -39,7 +36,7 @@ public class RoutingServiceTest {
         properties.setMaxFallbackAttempts(3);
         properties.setConnectionPenaltyMs(50); // expects int
 
-        routingService = new RoutingService(properties, modelRegistry, circuitBreakerService, modelStatusProvider);
+        routingService = new RoutingService(properties, modelRegistry, modelStatusProvider);
     }
 
     @Test
@@ -51,7 +48,6 @@ public class RoutingServiceTest {
         lenient().when(modelRegistry.getModel("small")).thenReturn(java.util.Optional.of(smallModel));
         lenient().when(modelRegistry.getModel("large")).thenReturn(java.util.Optional.of(largeModel));
         when(modelStatusProvider.isModelUp(anyString())).thenReturn(true);
-        when(circuitBreakerService.isCircuitOpen(anyString())).thenReturn(false);
 
         // Request requires 10k tokens (small model should be filtered out)
         List<Model> candidates = routingService.selectModels(Pipeline.CODING, 10000);
@@ -69,7 +65,6 @@ public class RoutingServiceTest {
         lenient().when(modelRegistry.getModel("m1")).thenReturn(java.util.Optional.of(model1));
         lenient().when(modelRegistry.getModel("m2")).thenReturn(java.util.Optional.of(model2));
         when(modelStatusProvider.isModelUp(anyString())).thenReturn(true);
-        when(circuitBreakerService.isCircuitOpen(anyString())).thenReturn(false);
 
         // Initialize maps
         routingService.initializeModel("m1");
@@ -100,12 +95,55 @@ public class RoutingServiceTest {
 
         // Both models have open circuit breakers and are down
         when(modelStatusProvider.isModelUp(anyString())).thenReturn(false);
-        when(circuitBreakerService.isCircuitOpen(anyString())).thenReturn(true);
-
         List<Model> candidates = routingService.selectModels(Pipeline.CODING, 100);
 
         // Emergency degraded mode must never return an empty list when models exist!
         assertFalse(candidates.isEmpty(), "Candidates must not be empty in degraded mode");
         assertEquals(2, candidates.size());
+    }
+
+    @Test
+    void unhealthyModelsRemainAvailableAsFailoverCandidatesAfterHealthyModels() {
+        Model healthy = new Model("healthy", "Healthy", "nvidia",
+                java.util.Collections.singleton(Pipeline.CODING), 8000, 5,
+                new ModelCapabilities(false, false, false));
+        Model unhealthy = new Model("unhealthy", "Unhealthy", "nvidia",
+                java.util.Collections.singleton(Pipeline.CODING), 8000, 10,
+                new ModelCapabilities(false, false, false));
+        when(modelRegistry.getModelsByPipeline(Pipeline.CODING)).thenReturn(List.of(unhealthy, healthy));
+        when(modelStatusProvider.isModelUp("healthy")).thenReturn(true);
+        when(modelStatusProvider.isModelUp("unhealthy")).thenReturn(false);
+
+        List<Model> candidates = routingService.selectModels(Pipeline.CODING, 100);
+
+        assertEquals(List.of("healthy", "unhealthy"), candidates.stream().map(Model::getId).toList(),
+                "Healthy models should lead, but unhealthy enabled models must remain available for failover");
+    }
+
+    @Test
+    void candidateCountDoesNotExceedConfiguredFallbackLimit() {
+        properties.setMaxFallbackAttempts(1);
+        Model first = new Model("first", "First", "nvidia",
+                java.util.Collections.singleton(Pipeline.CODING), 8000, 10,
+                new ModelCapabilities(false, false, false));
+        Model second = new Model("second", "Second", "nvidia",
+                java.util.Collections.singleton(Pipeline.CODING), 8000, 9,
+                new ModelCapabilities(false, false, false));
+        when(modelRegistry.getModelsByPipeline(Pipeline.CODING)).thenReturn(List.of(first, second));
+        when(modelStatusProvider.isModelUp(anyString())).thenReturn(true);
+
+        List<Model> candidates = routingService.selectModels(Pipeline.CODING, 100);
+
+        assertEquals(List.of("first"), candidates.stream().map(Model::getId).toList());
+    }
+
+    @Test
+    void decrementActiveConnectionsNeverMakesTheCountNegative() {
+        routingService.decrementActiveConnections("m1");
+        routingService.incrementActiveConnections("m1");
+        routingService.decrementActiveConnections("m1");
+        routingService.decrementActiveConnections("m1");
+
+        assertEquals(0, routingService.getActiveConnections("m1"));
     }
 }

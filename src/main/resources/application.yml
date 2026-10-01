@@ -72,7 +72,6 @@ llm:
         - { id: "deepseek-ai/deepseek-v4.1-flash",                enabled: true, priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
         - { id: "nvidia/nemotron-3-super-120b-a12b",              enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }
         - { id: "z-ai/glm-5.3-flash",                             enabled: true, priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "meta/llama-3.2-11b-vision-instruct",             enabled: true, priority: 3,   pipelines: [ VISION ] }
     explabs:
       base-url: https://api.experientiallabs.ai/v1
       rate-limit-rpm: 300
@@ -98,7 +97,4 @@ llm:
       keys:
         - ${ANTSEED_API_KEY:}
       models:
-        - { id: "deepseek-v4-flash",                              enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }
-        - { id: "zai-org/GLM-5.3-Flash",                          enabled: true, priority: 6,   pipelines: [ REASONING, CODING ] }
-        - { id: "openai/gpt-oss-120b",                            enabled: true, priority: 6,   pipelines: [ REASONING, CODING ] }
-        - { id: "Qwen/Qwen3-235B-A22B-Instruct-2507",             enabled: true, priority: 6,   pipelines: [ REASONING, CODING ] }
+        - { id: "antseed",                                        enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }

@@ -19,12 +19,14 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -71,6 +73,24 @@ class LlmGatewayFacadeProviderFailureTest {
         verify(circuitBreakerService, never()).recordFailure(eq(limited.getId()), any());
         verify(healthCheckService, never()).recordRoutedFailure(eq(limited.getId()), any());
         verify(modelStatusService, never()).updateStatus(eq(limited.getId()), any(HealthCheckResult.class));
+        verify(routingService, times(1)).decrementActiveConnections(limited.getId());
+        verify(routingService, times(1)).decrementActiveConnections(fallback.getId());
+    }
+
+    @Test
+    void nonStreamingPostProcessingFailureStillReleasesTheActiveConnectionOnce() {
+        Model model = model("model", "provider-a");
+        when(routingService.selectModels(eq(Pipeline.CODING), anyInt())).thenReturn(new ArrayList<>(List.of(model)));
+        when(providerAvailabilityService.isAvailable("provider-a")).thenReturn(true);
+        when(llmProviderClient.call(eq(model.getId()), anyMap())).thenReturn(Map.of("id", "success"));
+        org.mockito.Mockito.doThrow(new IllegalStateException("post-processing failed"))
+                .when(toolCallNormalizer).normalizeToolCalls(anyMap(), anyMap(), eq("tx"));
+
+        assertThrows(RuntimeException.class,
+                () -> facade.processChatCompletion(request(), null, "tx", "CODING"));
+
+        verify(routingService, times(1)).incrementActiveConnections(model.getId());
+        verify(routingService, times(1)).decrementActiveConnections(model.getId());
     }
 
     @Test

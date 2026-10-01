@@ -95,7 +95,6 @@ class ModelRegistryDisabledTest {
     @Test
     void routingExcludesDisabledModels() {
         ModelRegistry modelRegistry = mock(ModelRegistry.class);
-        CircuitBreakerService circuitBreakerService = mock(CircuitBreakerService.class);
         ModelStatusProvider modelStatusProvider = mock(ModelStatusProvider.class);
 
         Model enabled = model("enabled-model", "provider-one", 10, true);
@@ -105,14 +104,13 @@ class ModelRegistryDisabledTest {
         lenient().when(modelRegistry.getModel("enabled-model")).thenReturn(Optional.of(enabled));
         lenient().when(modelRegistry.getModel("disabled-model")).thenReturn(Optional.of(disabled));
         when(modelStatusProvider.isModelUp(anyString())).thenReturn(true);
-        when(circuitBreakerService.isCircuitOpen(anyString())).thenReturn(false);
 
         RoutingProperties properties = new RoutingProperties();
         properties.setContextWindowValidationEnabled(true);
         properties.setMaxFallbackAttempts(3);
         properties.setConnectionPenaltyMs(50);
 
-        RoutingService routingService = new RoutingService(properties, modelRegistry, circuitBreakerService, modelStatusProvider);
+        RoutingService routingService = new RoutingService(properties, modelRegistry, modelStatusProvider);
 
         List<Model> candidates = routingService.selectModels(Pipeline.CODING, 100);
 
@@ -123,7 +121,6 @@ class ModelRegistryDisabledTest {
     @Test
     void routingNeverSelectsDisabledModelEvenInDegradedMode() {
         ModelRegistry modelRegistry = mock(ModelRegistry.class);
-        CircuitBreakerService circuitBreakerService = mock(CircuitBreakerService.class);
         ModelStatusProvider modelStatusProvider = mock(ModelStatusProvider.class);
 
         // Only a disabled model in the pipeline
@@ -132,14 +129,13 @@ class ModelRegistryDisabledTest {
         when(modelRegistry.getModelsByPipeline(Pipeline.CODING)).thenReturn(List.of(disabled));
         lenient().when(modelRegistry.getModel("disabled-model")).thenReturn(Optional.of(disabled));
         when(modelStatusProvider.isModelUp(anyString())).thenReturn(false);
-        when(circuitBreakerService.isCircuitOpen(anyString())).thenReturn(true);
 
         RoutingProperties properties = new RoutingProperties();
         properties.setContextWindowValidationEnabled(true);
         properties.setMaxFallbackAttempts(3);
         properties.setConnectionPenaltyMs(50);
 
-        RoutingService routingService = new RoutingService(properties, modelRegistry, circuitBreakerService, modelStatusProvider);
+        RoutingService routingService = new RoutingService(properties, modelRegistry, modelStatusProvider);
 
         List<Model> candidates = routingService.selectModels(Pipeline.CODING, 100);
 
