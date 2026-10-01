@@ -30,6 +30,7 @@ ChartJS.register(
 
 // Theme context to access current theme (provided by App)
 import { ThemeContext } from '../theme/ThemeContext';
+import { formatNumber } from '../utils/formatters';
 
 interface ChartsProps {
   data: ModelStatus[];
@@ -47,21 +48,6 @@ export default function Charts({ data }: ChartsProps) {
     themeColors.chartHelpers.getCategoricalColors(count, isDark);
 
   // Get semantic colors for specific metrics
-  const latencyLineColor = themeColors.chartHelpers.getMetricColor('latencyLine', isDark);
-  const latencyFillColor = themeColors.chartHelpers.getMetricFillColor('latencyFill', isDark);
-  const errorLineColor = themeColors.chartHelpers.getMetricColor('errorLine', isDark);
-  const errorFillColor = themeColors.chartHelpers.getMetricFillColor('errorFill', isDark);
-  const backgroundProbeColor = themeColors.chartHelpers.getMetricColor('backgroundProbe', isDark);
-  const backgroundProbeFillColor = themeColors.chartHelpers.getMetricFillColor('backgroundProbeFill', isDark);
-
-  const formatNumber = (num: number | null | undefined) => {
-    if (num == null || isNaN(num)) return '0';
-    if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
-    if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toLocaleString();
-  };
-
   const hasLatencyMeasurement = (historyEntry: ModelStatus['history'][number]) =>
     Number.isFinite(historyEntry.latencyMs) && historyEntry.latencyMs >= 0;
 

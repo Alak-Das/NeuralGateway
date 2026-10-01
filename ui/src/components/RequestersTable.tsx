@@ -1,19 +1,11 @@
-import React from 'react';
 import { RequesterStatus } from '../types';
+import { formatNumber } from '../utils/formatters';
 
 interface RequestersTableProps {
   requesters: RequesterStatus[];
 }
 
 export default function RequestersTable({ requesters }: RequestersTableProps) {
-  const formatNumber = (num: number | null | undefined) => {
-    if (num == null || isNaN(num)) return '0';
-    if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
-    if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toLocaleString();
-  };
-
   return (
     <div className="card border-0 shadow-sm rounded-4 overflow-hidden">
       <div className="card-header bg-transparent border-bottom d-flex justify-content-between align-items-center p-3 px-4">
@@ -66,4 +58,3 @@ export default function RequestersTable({ requesters }: RequestersTableProps) {
     </div>
   );
 }
-

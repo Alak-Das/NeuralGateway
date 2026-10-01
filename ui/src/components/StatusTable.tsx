@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { ModelStatus } from '../types';
+import { formatNumber, formatTimeAgo, formatTimeOnly, formatShort } from '../utils/formatters';
 
 interface StatusTableProps {
   data: ModelStatus[];
@@ -20,33 +21,7 @@ export default function StatusTable({ data }: StatusTableProps) {
     }
   };
 
-  const formatNumber = (num: number | null | undefined) => {
-    if (num == null || isNaN(num)) return '0';
-    if (num >= 1000000000) return (num / 1000000000).toFixed(2) + 'B';
-    if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
-  };
 
-  const formatTimeAgo = (dateStr: string | null) => {
-    if (!dateStr) return 'Never';
-    const date = new Date(dateStr);
-    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
-    if (seconds < 60) return 'Just now';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  };
-
-  const formatTimeOnly = (dateStr: string | null) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }).toLowerCase();
-  };
-
-  const formatShort = (text: string) => (text.length > 35 ? text.substring(0, 35) + '...' : text);
 
   const formatErrorMessage = (msg: string | null) => {
     if (!msg) return '';
@@ -85,7 +60,6 @@ export default function StatusTable({ data }: StatusTableProps) {
     return Array.from(cats).sort();
   }, [data]);
 
-  const isUnchecked = (model: ModelStatus) => model.errorMessage === 'Not yet checked';
   const isDisabled = (model: ModelStatus) => model.enabled === false;
   const getStatus = (model: ModelStatus): 'up' | 'down' => {
     const isUp = (model as any).up !== undefined ? (model as any).up : model.isUp;

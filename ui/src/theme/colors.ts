@@ -87,15 +87,23 @@ export const themeColors = {
       return colors;
     },
 
-    // Get semantic color for specific metric type
+    // Get semantic line color for specific metric type (e.g., 'latencyLine', 'errorLine')
     getMetricColor: (metric: keyof typeof graphElements, isDark: boolean): string => {
       const element = graphElements[metric];
       return isDark ? element.dark : element.light;
     },
 
-    // Get fill color for specific metric type
+    // Get semantic fill color for specific metric type (e.g., 'latencyFill', 'errorFill')
+    // Accepts fill metric keys directly (e.g., 'latencyFill', 'errorFill', 'throughputFill', etc.)
     getMetricFillColor: (metric: keyof typeof graphElements, isDark: boolean): string => {
       const element = graphElements[metric];
+      return isDark ? element.dark : element.light;
+    },
+
+    // Get fill color by base metric name (e.g., 'latencyLine' -> returns latencyFill color)
+    getFillColorForMetric: (baseMetric: 'latencyLine' | 'errorLine' | 'throughputLine' | 'saturationLine' | 'availabilityLine' | 'backgroundProbe', isDark: boolean): string => {
+      const fillKey = baseMetric.replace('Line', 'Fill') as keyof typeof graphElements;
+      const element = graphElements[fillKey];
       return isDark ? element.dark : element.light;
     },
   },

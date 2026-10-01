@@ -4,16 +4,17 @@ All notable changes to Neural Gateway are documented in this file.
 
 ---
 
-## [Unreleased] — 2026-09-30
+## [Unreleased] — 2026-01-10
 
 ### Fixed
 
-- **`noEligibleProvider()` now filters by `Model::isEnabled`** (`LlmGatewayFacade.java` line 412).  
-  Previously, `getModelsByPipeline()` collected all models assigned to a pipeline, including disabled ones. When a model (e.g. an explabs model) was disabled **after** its provider had been marked `QUOTA_EXHAUSTED` in Redis, the stale state was still included in the error message, making it appear that an enabled provider was failing.  
-  **Fix:** Added `.filter(Model::isEnabled)` so the error message only reports providers that have at least one **enabled** model for the pipeline.
-
-- **Docker Compose Redis env var mismatch** (`docker-compose.yml`).  
-  Changed `SPRING_DATA_REDIS_HOST` to `REDIS_HOST` to match the actual property key read in `application.yml`. The old key was silently ignored, causing the app to try connecting to `localhost` instead of the `redis` container.
+- **UI Build Errors** - Fixed TypeScript/build errors in React components:
+  - Removed unused variables and imports from `Charts.tsx` (`latencyLineColor`, `latencyFillColor`, `errorLineColor`, `errorFillColor`, `backgroundProbeColor`, `backgroundProbeFillColor`)
+  - Removed unused imports and variables from `KpiGrid.tsx` (`formatTimeAgo`, `themeColors`, `fifteenMinsAgo`, `trippedCount`)
+  - Fixed React import issues in `App.tsx`, `KpiGrid.tsx`, `RequestersTable.tsx`, `StatusTable.tsx` (removed unused default React imports)
+  - Fixed `isUnchecked` unused function in `StatusTable.tsx`
+  - Used `lastUpdated` prop in `KpiGrid.tsx` to display "Updated X ago" timestamp
+  - Added `formatTimeAgo` import to `KpiGrid.tsx`
 
 ### Changed
 
@@ -34,3 +35,16 @@ All notable changes to Neural Gateway are documented in this file.
 - **`CircuitBreakerService.markHealthy()`** — force-closes OPEN/HALF_OPEN/FORCED_OPEN breakers after a verified healthy probe and syncs the CLOSED state (`circuitOpen=false`, `consecutiveErrors=0`) to Redis even when the breaker is already CLOSED, preventing Redis/breaker divergence. Wired into `HealthCheckService.updateModelStatusFromResult()` on probe success.
 - **Dashboard `UP · BLOCKED` badge** — the status table shows an amber warning badge when a model's probe succeeds (`isUp`) but its circuit is OPEN (`circuitOpen`), clarifying that the model is healthy but requests are still blocked.
 - **Unit tests** — `testMarkHealthyClosesOpenCircuitAndSyncsRedis` and `testMarkHealthyOnClosedCircuitStillSyncsRedisWithoutError` in `CircuitBreakerServiceTest`; `ApplicationYamlEnabledFlagTest` updated to assert the 11 enabled / 2 intentionally disabled (explabs) model split.
+
+---
+
+## [Unreleased] — 2026-09-30
+
+### Fixed
+
+- **`noEligibleProvider()` now filters by `Model::isEnabled`** (`LlmGatewayFacade.java` line 412).  
+  Previously, `getModelsByPipeline()` collected all models assigned to a pipeline, including disabled ones. When a model (e.g. an explabs model) was disabled **after** its provider had been marked `QUOTA_EXHAUSTED` in Redis, the stale state was still included in the error message, making it appear that an enabled provider was failing.  
+  **Fix:** Added `.filter(Model::isEnabled)` so the error message only reports providers that have at least one **enabled** model for the pipeline.
+
+- **Docker Compose Redis env var mismatch** (`docker-compose.yml`).  
+  Changed `SPRING_DATA_REDIS_HOST` to `REDIS_HOST` to match the actual property key read in `application.yml`. The old key was silently ignored, causing the app to try connecting to `localhost` instead of the `redis` container.

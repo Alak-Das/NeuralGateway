@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState, useContext } from 'react';
 import { ModelStatus } from '../types';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend } from 'chart.js';
+import { ThemeContext } from '../theme/ThemeContext';
+import { formatNumber, formatTimeAgo } from '../utils/formatters';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -10,17 +12,25 @@ interface KpiGridProps {
   lastUpdated: Date | null;
 }
 
+const getIsUp = (status: ModelStatus): boolean => status.isUp ?? false;
+
 export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const [activeRotationIndex, setActiveRotationIndex] = useState(0);
+  const theme = useContext(ThemeContext);
+  const isDark = theme === 'dark';
+
+  // Theme-aware sparkline colors
+  const usageLineColor = isDark ? '#06b6d4' : '#0891b2';
+  const usageFillColor = isDark ? 'rgba(6, 182, 212, 0.2)' : 'rgba(8, 145, 178, 0.15)';
+  const latencyLineColor = isDark ? '#f59e0b' : '#d97706';
+  const latencyFillColor = isDark ? 'rgba(245, 158, 11, 0.2)' : 'rgba(217, 119, 6, 0.15)';
 
   const totalModels = data.length;
   const uncheckedModels = data.filter(d => d.errorMessage === 'Not yet checked').length;
   const checkedModels = totalModels - uncheckedModels;
-  const getIsUp = (d: any) => d.up !== undefined ? d.up : d.isUp;
   const upModels = data.filter(d => getIsUp(d) && d.errorMessage !== 'Not yet checked').length;
   const downCount = data.filter(d => !getIsUp(d) && d.errorMessage !== 'Not yet checked').length;
-  const realDownCount = downCount;
-  const trippedCount = 0; // Circuit breakers removed
+  
   const healthColor = checkedModels === 0
     ? 'text-muted'
     : downCount > 0 && upModels === 0
@@ -46,7 +56,6 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
 
   // Calculate Sparkline Data
   const now = new Date();
-  const fifteenMinsAgo = now.getTime() - 15 * 60 * 1000;
 
   const sparklineData = Array.from({ length: 15 }, (_, i) => {
     const d = new Date(now.getTime() - (14 - i) * 60 * 1000);
@@ -76,17 +85,18 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
         const t = date.getTime();
         
         if (timeMap.has(t)) {
-          if (!h.isBackgroundProbe) {
-             usageByMin[t] = (usageByMin[t] || 0) + 1;
+          if (h.isBackgroundProbe === false) {
+            usageByMin[t] = (usageByMin[t] || 0) + 1;
           }
           
           if (!errorByMin[t]) errorByMin[t] = { total: 0, errors: 0 };
           errorByMin[t].total++;
-          if (!(h.up !== undefined ? h.up : h.isUp)) {
+          const isUp = h.up ?? h.isUp ?? false;
+          if (!isUp) {
             errorByMin[t].errors++;
           }
 
-          if ((h.up !== undefined ? h.up : h.isUp) && h.latencyMs > 0) {
+          if (isUp && h.latencyMs > 0) {
             if (!latencyByMin[t]) latencyByMin[t] = { totalMs: 0, count: 0 };
             latencyByMin[t].totalMs += h.latencyMs;
             latencyByMin[t].count++;
@@ -182,6 +192,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
             </div>
             <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
               {uncheckedModels} unchecked{downCount > 0 ? ` · ${downCount} down` : ''}
+              {lastUpdated ? ` · Updated ${formatTimeAgo(lastUpdated.toISOString())}` : ''}
             </div>
           </div>
           <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>
@@ -248,7 +259,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
               <i className="bi bi-diagram-3 text-info me-2"></i>Active Conns
             </div>
             <div className="fw-bolder text-main" style={{ fontSize: '2.5rem', letterSpacing: '-1px', lineHeight: '1.1' }}>
-              {totalConns}
+              {formatNumber(totalConns)}
             </div>
           </div>
           <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>
@@ -256,7 +267,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
               <Line 
                 data={{ 
                   labels: sparklineData.map(d => d.time), 
-                  datasets: [{ data: sparklineData.map(d => d.usage), borderColor: '#06b6d4', backgroundColor: 'rgba(6, 182, 212, 0.2)', fill: true, stepped: true, pointRadius: 0 }] 
+                  datasets: [{ data: sparklineData.map(d => d.usage), borderColor: usageLineColor, backgroundColor: usageFillColor, fill: true, stepped: true, pointRadius: 0 }] 
                 }} 
                 options={{ ...sparklineOptions, maintainAspectRatio: false, layout: { padding: 0 }, scales: { x: { display: false }, y: { display: false, min: -0.5 } } }} 
               />
@@ -282,7 +293,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
               <Line 
                 data={{ 
                   labels: sparklineData.map(d => d.time), 
-                  datasets: [{ data: sparklineData.map(d => d.latency), borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.2)', fill: true, pointRadius: 0, tension: 0.4 }] 
+                  datasets: [{ data: sparklineData.map(d => d.latency), borderColor: latencyLineColor, backgroundColor: latencyFillColor, fill: true, pointRadius: 0, tension: 0.4 }] 
                 }} 
                 options={{ ...sparklineOptions, maintainAspectRatio: false, layout: { padding: 0 }, scales: { x: { display: false }, y: { display: false, min: -10 } } }} 
               />

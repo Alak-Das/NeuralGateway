@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { ModelStatus, RequesterStatus } from './types';
 import KpiGrid from './components/KpiGrid';
 import StatusTable from './components/StatusTable';
