@@ -8,6 +8,8 @@ All notable changes to Neural Gateway are documented in this file.
 
 ### Fixed
 
+- **AntSeed provider model-ID validation** — `HealthCheckService` now skips exact model-ID matching for the `antseed` provider (case-insensitive). AntSeed is a peer-to-peer aggregator that echoes provider-qualified canonical IDs (e.g., `openai/gpt-oss-120b`) in completion responses; the health-check ping now accepts any returned model name instead of treating it as a mismatch. Updated `HealthCheckRecoveryTest` to reflect the new behavior.
+
 - **UI Build Errors** - Fixed TypeScript/build errors in React components:
   - Removed unused variables and imports from `Charts.tsx` (`latencyLineColor`, `latencyFillColor`, `errorLineColor`, `errorFillColor`, `backgroundProbeColor`, `backgroundProbeFillColor`)
   - Removed unused imports and variables from `KpiGrid.tsx` (`formatTimeAgo`, `themeColors`, `fifteenMinsAgo`, `trippedCount`)

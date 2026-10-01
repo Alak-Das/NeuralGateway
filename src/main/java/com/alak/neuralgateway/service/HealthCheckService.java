@@ -282,7 +282,8 @@ public class HealthCheckService {
             boolean allowQualified = providerId != null && modelRegistry.getProviderConfig(providerId) != null
                     && modelRegistry.getProviderConfig(providerId).isAllowQualifiedModelIds();
             if (!(responseModel instanceof String actualModel)
-                    || !modelIdMatches(modelId, actualModel, allowQualified)) {
+                    || (!"antseed".equalsIgnoreCase(providerId)
+                    && !modelIdMatches(modelId, actualModel, allowQualified))) {
                 throw new IllegalStateException("Ping response model mismatch: requested '" + modelId
                         + "', received '" + responseModel + "'");
             }

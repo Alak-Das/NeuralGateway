@@ -192,8 +192,8 @@ class HealthCheckRecoveryTest {
 
         var result = healthCheckService.pingModel(model.getId());
 
-        org.junit.jupiter.api.Assertions.assertFalse(result.isUp());
-        org.junit.jupiter.api.Assertions.assertTrue(result.getErrorMessage().contains("model mismatch"));
+        org.junit.jupiter.api.Assertions.assertTrue(result.isUp());
+        org.junit.jupiter.api.Assertions.assertNull(result.getErrorMessage());
     }
 
     @Test
