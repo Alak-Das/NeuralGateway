@@ -68,6 +68,12 @@ docker-compose down
 - **System**: CPU usage, memory usage, disk I/O, network throughput
 - **Provider APIs**: Latency, error rates, rate limit hits
 
+#### Telemetry Metrics
+- **Trace Volume**: Number of requests traced per second
+- **Trace Success Rate**: Percentage of successful traces
+- **Average Trace Latency**: Mean latency of traced requests
+- **Requester Distribution**: Request volume by requester/client
+
 ### Health Check Endpoints
 
 ```bash
@@ -82,7 +88,22 @@ curl http://localhost:9090/api/models/status
 
 # Metrics (Prometheus format if enabled)
 curl http://localhost:9090/actuator/prometheus
+
+# Telemetry traces
+curl http://localhost:9090/api/telemetry/traces
 ```
+
+## Dashboard Features
+
+The Neural Gateway dashboard provides real-time visibility into system performance:
+
+- **Model Status Table**: View health status, latency, and usage for all models
+- **Requesters Table**: Track usage by different clients/applications
+- **Live Traces**: Real-time view of requests flowing through the system (requires LiveLogs feature)
+- **KPI Grid**: Key performance indicators at a glance
+- **Charts**: Historical trends for latency, throughput, and error rates
+
+To access the Live Traces feature, navigate to the "Live Traces" tab in the dashboard. This shows real-time telemetry data including requester, model, pipeline, latency, and success status.
 
 ### Alerting Rules
 

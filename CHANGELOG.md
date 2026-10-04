@@ -50,3 +50,12 @@ All notable changes to Neural Gateway are documented in this file.
 
 - **Docker Compose Redis env var mismatch** (`docker-compose.yml`).  
   Changed `SPRING_DATA_REDIS_HOST` to `REDIS_HOST` to match the actual property key read in `application.yml`. The old key was silently ignored, causing the app to try connecting to `localhost` instead of the `redis` container.
+
+### Added
+- **Comprehensive documentation suite** - Added six new documentation files:
+  - `CONTRIBUTING.md`: Contribution guidelines and development process
+  - `CODE_OF_CONDUCT.md`: Community standards and conduct expectations
+  - `SECURITY.md`: Security policy and vulnerability reporting procedures
+  - `TROUBLESHOOTING.md`: Diagnostic guidance for connection, routing, configuration, performance, Docker, and telemetry/tracing issues
+  - `RUNBOOK.md`: Operational procedures for deployment, monitoring, scaling, and maintenance
+  - `GLOSSARY.md`: Definitions of key terms used throughout the project

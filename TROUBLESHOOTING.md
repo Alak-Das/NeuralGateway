@@ -229,6 +229,41 @@ If you've tried the above solutions and still experience issues:
 3. To restore: Ensure `redis-data` volume is mounted and contains latest dump.rdb
 4. Restart Redis then gateway
 
+## 6. Telemetry/Tracing Issues
+
+#### Symptoms
+- Live Traces tab shows no data or "No traces available"
+- Missing trace data in `/api/telemetry/traces` endpoint
+- Dashboard fails to load trace data
+- High memory usage related to trace storage
+
+#### Solutions
+- **Check Telemetry Endpoint**
+  ```bash
+  # Verify the telemetry endpoint is accessible
+  curl http://localhost:9090/api/telemetry/traces
+  # Should return JSON array (may be empty if no traces)
+  ```
+
+- **Check Frontend Console**
+  - Open browser developer tools (F12)
+  - Check for JavaScript errors in the console
+  - Verify that the LiveLogs component is making requests to `/api/telemetry/traces`
+
+- **Verify Backend Telemetry Collection**
+  ```bash
+  # Check if telemetry collection is enabled
+  # Look for telemetry-related logs in the application
+  docker-compose logs -f neural-gateway | grep -i telemet
+  ```
+
+- **Check Memory Usage for Traces**
+  ```bash
+  # Monitor memory usage over time
+  # If memory grows unbounded, trace cleanup may not be working
+  # Check trace retention settings in application.yml
+  ```
+
 ## FAQ
 
 **Q: Why am I getting "All models in requested category are unavailable" even though models show as AVAILABLE?**
