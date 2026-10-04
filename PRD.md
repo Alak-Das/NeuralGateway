@@ -31,10 +31,11 @@ Neural Gateway solves these challenges by providing:
 ## Key Features
 
 ### 1. Intelligent Pipeline Routing
-Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
-- **Reasoning Pipeline** (`/api/reasoning/chat/completions`): Routes complex multi-step reasoning tasks across frontier reasoning models
-- **Coding Pipeline** (`/api/coding/chat/completions`): Prioritizes low-latency, code-specialized models
-- **Vision Pipeline** (`/api/vision/chat/completions`): Routes multimodal text + image queries to vision-instruct models
+Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessible through the standard `/v1/chat/completions` endpoint:
+- **Reasoning Pipeline** (`model: "reasoning"`): Routes complex multi-step reasoning tasks across frontier reasoning models
+- **Coding Pipeline** (`model: "coding"`): Prioritizes low-latency, code-specialized models
+- **Vision Pipeline** (`model: "vision"`): Routes multimodal text + image queries to vision-instruct models
+- **Auto Pipeline** (`model: "auto"`): Automatically resolves target pipeline using request structure, multimodal content, and caller headers
 
 ### 2. Low-Latency Load Balancing & Telemetry
 - **In-Memory O(1) Routing Score**: Combines an Exponential Moving Average (EMA) latency calculation with an active-connection penalty (`score = emaLatency + (activeConnections * 300ms)`)
@@ -67,13 +68,12 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
 - **Status Freshness**: Per-model `FRESH`/`STALE`/`NO PROBE` indicators (24-hour freshness window via `statusFresh`) so operators can distinguish a stale status from a live failure
 - **Swagger UI/OpenAPI Documentation**: Auto-generated API documentation at `/swagger-ui.html`
 
-### 6. API Compatibility
-Neural Gateway is a drop-in replacement for OpenAI API endpoints:
-- Coding: `POST /api/coding/chat/completions` ↔ `POST /v1/chat/completions`
-- Reasoning: `POST /api/reasoning/chat/completions` ↔ `POST /api/reasoning/v1/chat/completions`
-- Vision: `POST /api/vision/chat/completions` ↔ `POST /api/vision/v1/chat/completions`
-- Fleet Status: `GET /api/models/status` ↔ `GET /models/status`
-- Manual Operations: Ping, circuit reset, and status endpoints
+### 6. Standard API Specification
+Neural Gateway strictly implements the official OpenAI API specification for LLM consumption:
+- Universal Completions: `POST /v1/chat/completions` (supports streaming, tools, vision, and aliases)
+- Model Discovery: `GET /v1/models` and `GET /v1/models/{modelId}`
+- Fleet Telemetry: `GET /api/models/status`, `GET /api/models/status/stream`
+- Operations: `POST /api/models/ping`, `POST /api/models/circuit-reset`, `GET /api/requesters/status`
 
 ## Non-Functional Requirements
 

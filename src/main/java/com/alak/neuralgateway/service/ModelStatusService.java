@@ -33,8 +33,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
 
     private final RedisPersistenceService redisPersistence;
     private final RoutingService routingService;
-    private final CircuitBreakerService circuitBreakerService;
-    private final ModelRegistry modelRegistry;
+        private final ModelRegistry modelRegistry;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -43,14 +42,12 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
 
     public ModelStatusService(RedisPersistenceService redisPersistence,
                               @Lazy RoutingService routingService,
-                              CircuitBreakerService circuitBreakerService,
                               ModelRegistry modelRegistry,
                               ObjectMapper objectMapper,
                               ApplicationEventPublisher eventPublisher) {
         this.redisPersistence = redisPersistence;
         this.routingService = routingService;
-        this.circuitBreakerService = circuitBreakerService;
-        this.modelRegistry = modelRegistry;
+                this.modelRegistry = modelRegistry;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
     }
@@ -69,8 +66,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      * Initialize a single model's status from Redis.
      */
     public void initializeModel(String modelId) {
-        circuitBreakerService.initializeModel(modelId);
-        List<HealthCheckResult> history = redisPersistence.getHealthCheckHistory(modelId);
+                List<HealthCheckResult> history = redisPersistence.getHealthCheckHistory(modelId);
         long usage = redisPersistence.getUsage(modelId);
         boolean circuitOpen = redisPersistence.isCircuitOpen(modelId);
         double emaLatency = redisPersistence.getEmaLatency(modelId, 0.0);
@@ -156,7 +152,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                     redisPersistence.getUsage(modelId),
                     routingService.getActiveConnections(modelId),
                     routingService.getTps(modelId),
-                    circuitBreakerService.isCircuitOpen(modelId),
+                    false,
                     existing != null ? existing.provider() : "unknown",
                     existing != null ? existing.priority() : 0,
                     existing != null ? existing.enabled()
@@ -212,8 +208,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      */
     public void updateFromRemote(ModelStatus status) {
         if (status != null && status.model() != null) {
-            circuitBreakerService.initializeModel(status.model());
-            statusCache.put(status.model(), status);
+                        statusCache.put(status.model(), status);
         }
     }
 

@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 class ApplicationYamlEnabledFlagTest {
 
     @Test
-    void allThirteenModelsBindWithCorrectEnabledFlags() throws IOException {
+    void allModelsBindWithCorrectEnabledFlags() throws IOException {
         List<PropertySource<?>> sources = new YamlPropertySourceLoader()
                 .load("application", new ClassPathResource("application.yml"));
 
@@ -53,13 +53,13 @@ class ApplicationYamlEnabledFlagTest {
         long totalModels = providers.values().stream()
                 .mapToLong(p -> p.getModels() == null ? 0 : p.getModels().size())
                 .sum();
-        assertEquals(13, totalModels, "Expected 13 models total in application.yml");
+        assertEquals(10, totalModels, "Expected 10 models total in application.yml");
 
         long enabledModels = providers.values().stream()
                 .flatMap(p -> p.getModels() == null ? Stream.empty() : p.getModels().stream())
                 .filter(LlmProvidersProperties.ModelConfig::isEnabled)
                 .count();
-        assertEquals(11, enabledModels, "Expected 11 enabled models");
+        assertEquals(8, enabledModels, "Expected 8 enabled models");
         assertEquals(2, totalModels - enabledModels, "Expected 2 disabled models");
 
         Set<String> disabledIds = providers.values().stream()

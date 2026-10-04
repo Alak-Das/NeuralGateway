@@ -18,13 +18,6 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: 6379
-resilience4j.retry:
-  instances:
-    nvidiaApi:
-      maxAttempts: 3
-      waitDuration: 500ms
-      enableExponentialBackoff: true
-      exponentialBackoffMultiplier: 2
 llm:
   health-check:
     # Main sweep cadence. Each sweep probes every enabled model of every provider
@@ -66,12 +59,12 @@ llm:
         - ${NVIDIA_API_KEY_2:}
         - ${NVIDIA_API_KEY_3:}
       models:
-        - { id: "moonshotai/kimi-k3",                             enabled: true, priority: 10,  pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "z-ai/glm-5.3",                                   enabled: true, priority: 9,   pipelines: [ REASONING, CODING ] }
-        - { id: "nvidia/nemotron-3-ultra-550b-a55b",              enabled: true, priority: 9,   pipelines: [ REASONING, CODING ] }
-        - { id: "deepseek-ai/deepseek-v4.1-flash",                enabled: true, priority: 8,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "nvidia/nemotron-3-super-120b-a12b",              enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }
-        - { id: "z-ai/glm-5.3-flash",                             enabled: true, priority: 6,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "moonshotai/kimi-k3",                             enabled: true, priority: 10,  pipelines: [ REASONING, VISION ] }
+        - { id: "z-ai/glm-5.3",                                   enabled: true, priority: 9,   pipelines: [ CODING ] }
+        - { id: "nvidia/nemotron-3-ultra-550b-a55b",              enabled: true, priority: 9,   pipelines: [ REASONING ] }
+        - { id: "deepseek-ai/deepseek-v4.1-flash",                enabled: true, priority: 8,   pipelines: [ REASONING, VISION ] }
+        - { id: "nvidia/nemotron-3-super-120b-a12b",              enabled: true, priority: 10,  pipelines: [ CODING ] }
+        - { id: "z-ai/glm-5.3-flash",                             enabled: true, priority: 6,   pipelines: [ CODING, VISION ] }
     explabs:
       base-url: https://api.experientiallabs.ai/v1
       rate-limit-rpm: 300
@@ -83,8 +76,9 @@ llm:
       keys:
         - ${EXPLABS_API_KEY:}
       models:
-        - { id: "mimo-v2.6-pro",                                  enabled: false, priority: 10,   pipelines: [ REASONING, CODING, VISION ] }
-        - { id: "gpt-6-luna",                                     enabled: false, priority: 9,   pipelines: [ REASONING, CODING, VISION ] }
+        - { id: "mimo-v2.6-pro",                                  enabled: false, priority: 10,   pipelines: [ REASONING, CODING ] }
+        - { id: "gpt-6-luna",                                     enabled: false, priority: 9,    pipelines: [ REASONING, VISION ] }
+        - { id: "glm-5.3-flash-abliterated",                      enabled: true, priority: 6,     pipelines: [ REASONING, VISION ] }
     antseed:
       base-url: http://host.docker.internal:8377/v1
       rate-limit-rpm: 300
@@ -97,4 +91,5 @@ llm:
       keys:
         - ${ANTSEED_API_KEY:}
       models:
-        - { id: "antseed",                                        enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }
+        - { id: "antseed",                                        enabled: true, priority: 9,   pipelines: [ REASONING, CODING ] }
+

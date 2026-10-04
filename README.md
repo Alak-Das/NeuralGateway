@@ -7,10 +7,11 @@
 ## 🚀 Key Features
 
 ### 1. Intelligent Pipeline Routing
-Neural Gateway organizes models into dedicated, purpose-tuned pipelines:
-- **Reasoning Pipeline (`/api/reasoning/chat/completions`)**: Routes complex multi-step reasoning tasks across frontier reasoning models (e.g., Nemotron-3 Ultra 550B, Kimi K3, GLM-5.3, DeepSeek v4.1, Gemma 4).
-- **Coding Pipeline (`/api/coding/chat/completions`)**: Prioritizes low-latency, code-specialized models (e.g., GLM-5.3-Flash, Nemotron-3 Super 120B, Laguna-XS, Mistral-Nemotron).
-- **Vision Pipeline (`/api/vision/chat/completions`)**: Routes multimodal text + image queries to vision-instruct models (e.g., Llama 3.2 11B/90B Vision Instruct) with intelligent image token budgeting.
+Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessible through the standard `/v1/chat/completions` endpoint:
+- **Reasoning Pipeline (`model: "reasoning"`)**: Routes complex multi-step reasoning tasks across frontier reasoning models (e.g., Nemotron-3 Ultra 550B, Kimi K3, GLM-5.3, DeepSeek v4.1).
+- **Coding Pipeline (`model: "coding"`)**: Prioritizes low-latency, code-specialized models (e.g., Nemotron-3 Super 120B, GLM-5.3, antseed).
+- **Vision Pipeline (`model: "vision"`)**: Routes multimodal text + image queries to vision-instruct models (e.g., Kimi K3, DeepSeek v4.1 Flash, GLM-5.3 Flash) with intelligent image token budgeting.
+- **Dynamic Auto-Detection (`model: "auto"`)**: Multi-tier capability resolution inspects message structure (multimodal images, IDE tool calls, code blocks) to automatically dispatch to the optimal pipeline.
 
 ### 2. Low-Latency Load Balancing & Telemetry
 - **In-Memory O(1) Routing Score**: Combines an Exponential Moving Average (EMA) latency calculation with an active-connection penalty (`score = emaLatency + (activeConnections * 300ms)`).

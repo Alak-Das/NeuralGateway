@@ -51,7 +51,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
     private String getApiKeyForModel(Model model) {
         ApiKeyPool pool = modelRegistry.getApiKeyPool(model.getProviderId());
         if (pool == null) return "";
-        return pool.getAvailableKey();
+        return pool.getNextKey();
     }
 
     private String getBaseUrlForModel(Model model) {
@@ -67,7 +67,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
         Model model = modelRegistry.getModel(modelId).orElseThrow(() -> new IllegalArgumentException("Unknown model: " + modelId));
         String baseUrl = getBaseUrlForModel(model);
         ApiKeyPool pool = modelRegistry.getApiKeyPool(model.getProviderId());
-        int attemptsRemaining = pool == null ? 1 : Math.max(1, pool.getConfiguredKeyCount());
+        int attemptsRemaining = 1;
 
         request.put("model", modelId);
         request.put("stream", false);
@@ -76,8 +76,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
         ProviderFailureException lastAuthenticationFailure = null;
         for (int attempt = 0; attempt < attemptsRemaining; attempt++) {
             String apiKey = getApiKeyForModel(model);
-            if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyActive(apiKey);
-            try {
+                        try {
                 Map<String, Object> response = webClient.post()
                         .uri(baseUrl + "/chat/completions")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -86,8 +85,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                         .retrieve()
                         .bodyToMono(Map.class)
                         .block();
-                if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyHealthy(apiKey);
-                return response;
+                                return response;
             } catch (WebClientResponseException e) {
                 RuntimeException mapped = mapWebClientException(e, model.getProviderId(), apiKey, modelId);
                 if (mapped instanceof ProviderFailureException failure && pool != null) {
@@ -119,8 +117,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                 String msg = (e.getMessage() != null && !e.getMessage().isBlank()) ? e.getMessage() : e.getClass().getSimpleName();
                 throw new UpstreamServiceException("Upstream error for model " + modelId + ": " + msg, 500);
             } finally {
-                if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyIdle(apiKey);
-            }
+                            }
         }
         throw lastAuthenticationFailure;
     }
@@ -131,7 +128,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
 
         return Flux.defer(() -> {
             ApiKeyPool pool = modelRegistry.getApiKeyPool(model.getProviderId());
-            int attemptsRemaining = pool == null ? 1 : Math.max(1, pool.getConfiguredKeyCount());
+            int attemptsRemaining = 1;
             return callStreamWithKey(model, modelId, request, pool, getBaseUrlForModel(model), attemptsRemaining);
         });
     }
@@ -144,8 +141,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
             Map<String, Object> upstreamRequest = new java.util.HashMap<>(request);
             upstreamRequest.put("model", modelId);
             upstreamRequest.put("stream", true);
-            if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyActive(apiKey);
-
+            
             return webClient.post()
                     .uri(baseUrl + "/chat/completions")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -166,8 +162,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                     .onErrorMap(org.springframework.web.reactive.function.client.WebClientRequestException.class,
                             e -> mapWebClientRequestException(e, modelId))
                     .doOnComplete(() -> {
-                        if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyHealthy(apiKey);
-                    })
+                                            })
                     .onErrorResume(ProviderFailureException.class, failure -> {
                         boolean retryAnotherKey = failure.getFailureType() == ProviderFailureType.AUTHENTICATION
                                 || failure.getFailureType() == ProviderFailureType.RATE_LIMIT;
@@ -175,14 +170,12 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                             return Flux.error(failure);
                         }
                         if (failure.getFailureType() == ProviderFailureType.AUTHENTICATION) {
-                            pool.markKeyAuthenticationFailure(apiKey);
-                        }
+                                                    }
                         if (attemptsRemaining <= 1) return Flux.error(failure);
                         return callStreamWithKey(model, modelId, request, pool, baseUrl, attemptsRemaining - 1);
                     })
                     .doFinally(signal -> {
-                        if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyIdle(apiKey);
-                    });
+                                            });
         });
     }
 
@@ -285,8 +278,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
         if (quotaExhausted || status == 429 || providerOverloaded) {
             ApiKeyPool pool = modelRegistry.getApiKeyPool(providerId);
             if (pool != null && apiKey != null && !apiKey.isEmpty()) {
-                pool.recordRateLimit(apiKey, retryAfter != null ? retryAfter : Duration.ofSeconds(30));
-            }
+                            }
             ProviderFailureType type = quotaExhausted ? ProviderFailureType.QUOTA_EXHAUSTED
                     : providerOverloaded ? ProviderFailureType.PROVIDER_OVERLOAD : ProviderFailureType.RATE_LIMIT;
             return new ProviderFailureException(responseBody, status, providerId, type, retryAfter);
@@ -301,8 +293,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
             ProviderFailureType type = status == 404 ? ProviderFailureType.MODEL_UNAVAILABLE : ProviderFailureType.AUTHENTICATION;
             if (type == ProviderFailureType.AUTHENTICATION) {
                 ApiKeyPool pool = modelRegistry.getApiKeyPool(providerId);
-                if (pool != null && apiKey != null && !apiKey.isEmpty()) pool.markKeyAuthenticationFailure(apiKey);
-            }
+                            }
             return new ProviderFailureException("Upstream provider error (" + status + "): " + responseBody, status,
                     providerId, type, null);
         }

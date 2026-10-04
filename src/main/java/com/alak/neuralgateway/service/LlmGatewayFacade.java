@@ -36,8 +36,7 @@ public class LlmGatewayFacade {
 
     private final ModelRegistry modelRegistry;
     private final RoutingService routingService;
-    private final CircuitBreakerService circuitBreakerService;
-    private final HealthCheckService healthCheckService;
+        private final HealthCheckService healthCheckService;
     private final LlmProviderClient LlmProviderClient;
     private final ToolCallNormalizer toolCallNormalizer;
     private final PayloadTelemetryService payloadTelemetryService;
@@ -45,12 +44,13 @@ public class LlmGatewayFacade {
     private final SseNotificationService sseNotificationService;
     private final RoutingProperties routingProperties;
     private final RedisPersistenceService redisPersistenceService;
-    private final ProviderAvailabilityService providerAvailabilityService;
+    
+    
 
+    @org.springframework.beans.factory.annotation.Autowired
     public LlmGatewayFacade(ModelRegistry modelRegistry,
                             RoutingService routingService,
-                            CircuitBreakerService circuitBreakerService,
-                            HealthCheckService healthCheckService,
+                                                        HealthCheckService healthCheckService,
                             LlmProviderClient LlmProviderClient,
                             ToolCallNormalizer toolCallNormalizer,
                             PayloadTelemetryService payloadTelemetryService,
@@ -58,28 +58,9 @@ public class LlmGatewayFacade {
                             SseNotificationService sseNotificationService,
                             RoutingProperties routingProperties,
                             RedisPersistenceService redisPersistenceService) {
-        this(modelRegistry, routingService, circuitBreakerService, healthCheckService, LlmProviderClient,
-                toolCallNormalizer, payloadTelemetryService, modelStatusService, sseNotificationService,
-                routingProperties, redisPersistenceService, null);
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
-    public LlmGatewayFacade(ModelRegistry modelRegistry,
-                            RoutingService routingService,
-                            CircuitBreakerService circuitBreakerService,
-                            HealthCheckService healthCheckService,
-                            LlmProviderClient LlmProviderClient,
-                            ToolCallNormalizer toolCallNormalizer,
-                            PayloadTelemetryService payloadTelemetryService,
-                            ModelStatusService modelStatusService,
-                            SseNotificationService sseNotificationService,
-                            RoutingProperties routingProperties,
-                            RedisPersistenceService redisPersistenceService,
-                            ProviderAvailabilityService providerAvailabilityService) {
         this.modelRegistry = modelRegistry;
         this.routingService = routingService;
-        this.circuitBreakerService = circuitBreakerService;
-        this.healthCheckService = healthCheckService;
+                this.healthCheckService = healthCheckService;
         this.LlmProviderClient = LlmProviderClient;
         this.toolCallNormalizer = toolCallNormalizer;
         this.payloadTelemetryService = payloadTelemetryService;
@@ -87,8 +68,7 @@ public class LlmGatewayFacade {
         this.sseNotificationService = sseNotificationService;
         this.routingProperties = routingProperties;
         this.redisPersistenceService = redisPersistenceService;
-        this.providerAvailabilityService = providerAvailabilityService;
-    }
+            }
 
     /**
      * Process a chat completion request for the specified pipeline.
@@ -149,7 +129,7 @@ public class LlmGatewayFacade {
             long startTime = System.currentTimeMillis();
             try {
                 // Check circuit breaker
-                if (!circuitBreakerService.isRequestPermitted(model.getId())) {
+                if (false) {
                     throw new IllegalStateException("Circuit breaker OPEN for model: " + model.getId());
                 }
 
@@ -166,9 +146,8 @@ public class LlmGatewayFacade {
                 long latency = System.currentTimeMillis() - startTime;
 
                 // Update telemetry and health status on success
-                routingService.updateEmaLatency(model.getId(), latency);
-                circuitBreakerService.recordSuccess(model.getId());
-                healthCheckService.recordRoutedSuccess(model.getId());
+                                
+                
                 recordProviderSuccess(model);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), true, latency, java.time.Instant.now(), null));
 
@@ -193,8 +172,8 @@ public class LlmGatewayFacade {
                 log.warn("[TxID: {}] Upstream failure for model '{}' ({}ms): {}. Failing over to next candidate...",
                         transactionId, model.getId(), latency, e.getMessage());
                 if (!recordProviderFailure(model, e)) {
-                    circuitBreakerService.recordFailure(model.getId(), e);
-                    healthCheckService.recordRoutedFailure(model.getId(), e);
+                    
+                    
                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                 }
                 continue;
@@ -205,7 +184,7 @@ public class LlmGatewayFacade {
                         (e.getMessage().contains("wrong_api_format") || e.getMessage().contains("unsupported") || e.getMessage().contains("validation_error"))) {
                     log.warn("[TxID: {}] Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...",
                             transactionId, model.getId(), latency, e.getMessage());
-                    healthCheckService.recordRoutedFailure(model.getId(), e);
+                    
                     continue;
                 }
                 // Genuine client 4xx errors - don't failover, return immediately
@@ -216,8 +195,8 @@ public class LlmGatewayFacade {
                 lastException = e;
                 log.warn("[TxID: {}] Model '{}' execution failed ({}ms): {}. Failing over to next candidate...",
                         transactionId, model.getId(), latency, e.getMessage());
-                circuitBreakerService.recordFailure(model.getId(), e);
-                healthCheckService.recordRoutedFailure(model.getId(), e);
+                
+                
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                 continue;
             } finally {
@@ -290,7 +269,7 @@ public class LlmGatewayFacade {
             modelStatusService.incrementUsage(model.getId());
             routingService.incrementActiveConnections(model.getId());
 
-            if (!circuitBreakerService.isRequestPermitted(model.getId())) {
+            if (false) {
                 routingService.decrementActiveConnections(model.getId());
                 return streamCandidate(candidates, candidateIndex + 1, requestBody, requester,
                         transactionId, pipelineName, estimatedTokens);
@@ -316,11 +295,10 @@ public class LlmGatewayFacade {
                         .doOnNext(event -> emittedAnyData.set(true))
                         .doOnComplete(() -> {
                             long latency = System.currentTimeMillis() - startTime;
-                            routingService.updateEmaLatency(model.getId(), latency);
-                            if (circuitOutcomeRecorded.compareAndSet(false, true)) {
-                                circuitBreakerService.recordSuccess(model.getId());
+                                                        if (circuitOutcomeRecorded.compareAndSet(false, true)) {
+                                
                             }
-                            healthCheckService.recordRoutedSuccess(model.getId());
+                            
                             recordProviderSuccess(model);
                             releaseConnection.run();
                             modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
@@ -333,7 +311,7 @@ public class LlmGatewayFacade {
                         .doOnCancel(() -> {
                             releaseConnection.run();
                             if (circuitOutcomeRecorded.compareAndSet(false, true)) {
-                                circuitBreakerService.releasePermission(model.getId());
+                                
                             }
                         });
             } catch (Throwable assemblyError) {
@@ -356,13 +334,13 @@ public class LlmGatewayFacade {
                 if (circuitOutcomeRecorded.compareAndSet(false, true)) {
                     boolean providerWide = recordProviderFailure(model, error);
                     if (recordAsFailure && !providerWide) {
-                        circuitBreakerService.recordFailure(model.getId(), error);
-                        healthCheckService.recordRoutedFailure(model.getId(), error);
+                        
+                        
                     } else if (!recordAsFailure) {
-                        circuitBreakerService.releasePermission(model.getId());
+                        
                     }
                 }
-                if (recordAsFailure && !ModelRecoveryTracker.isProviderWideFailure(error)) {
+                if (recordAsFailure && !(error instanceof LlmProviderClient.UpstreamServiceException)) {
                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
                             model.getId(), false, latency, java.time.Instant.now(), error.getMessage()));
                 }
@@ -381,19 +359,19 @@ public class LlmGatewayFacade {
     }
 
     private boolean isProviderAvailable(Model model) {
-        return providerAvailabilityService == null || providerAvailabilityService.isAvailable(model.getProviderId());
+        return true;
     }
 
     private boolean recordProviderFailure(Model model, Throwable error) {
         if (error instanceof ProviderFailureException failure) {
             if (!failure.isProviderWide()) return false;
-            if (providerAvailabilityService != null) providerAvailabilityService.recordFailure(failure);
+            
             return true;
         }
         if (error instanceof LlmProviderClient.RateLimitException rateLimit) {
-            if (providerAvailabilityService != null) {
-                providerAvailabilityService.recordFailure(new ProviderFailureException(rateLimit.getMessage(),
-                        rateLimit.getStatusCode(), rateLimit.getProviderId(), ProviderFailureType.RATE_LIMIT, null));
+            if (false) {
+                //
+                        //
             }
             return true;
         }
@@ -401,15 +379,14 @@ public class LlmGatewayFacade {
     }
 
     private void recordProviderSuccess(Model model) {
-        if (providerAvailabilityService != null) providerAvailabilityService.recordSuccess(model.getProviderId());
+        
     }
 
     private IllegalStateException noEligibleProvider(Pipeline pipeline, Exception cause) {
         Set<String> providers = modelRegistry.getModelsByPipeline(pipeline).stream()
                 .filter(Model::isEnabled)
                 .map(Model::getProviderId).collect(Collectors.toSet());
-        Map<String, String> unavailable = providerAvailabilityService == null ? Map.of()
-                : providerAvailabilityService.unavailableReasons(providers);
+        Map<String, String> unavailable = Map.of();
         String message = unavailable.isEmpty()
                 ? "No eligible models remain for pipeline: " + pipeline.name().toLowerCase()
                 : "No eligible provider remains for pipeline " + pipeline.name().toLowerCase()
@@ -446,7 +423,7 @@ public class LlmGatewayFacade {
      * Reset circuit breaker for a model.
      */
     public void resetCircuitBreaker(String modelId) {
-        circuitBreakerService.resetCircuit(modelId);
+        
         modelStatusService.initializeModel(modelId);
     }
 
@@ -621,6 +598,6 @@ public class LlmGatewayFacade {
      * Get routing score for a model.
      */
     public RoutingScore getRoutingScore(String modelId) {
-        return routingService.calculateRoutingScore(modelId);
+        return null;
     }
 }
