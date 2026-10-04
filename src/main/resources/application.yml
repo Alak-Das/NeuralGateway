@@ -25,7 +25,7 @@ llm:
     # NVIDIA fleet fresh roughly every 2 min while staying well under its 40 rpm
     # limit. antseed/explabs are gated by their own per-provider
     # health-check-interval-ms (6h).
-    intervalMs: 120000
+    intervalMs: 60005
     lock-at-most-for: 5m
     # Cap on how many models of one provider a single sweep may probe, so a large
     # fleet cannot make one sweep run for minutes (blocked models always fit first).
@@ -91,5 +91,5 @@ llm:
       keys:
         - ${ANTSEED_API_KEY:}
       models:
-        - { id: "antseed",                                        enabled: true, priority: 9,   pipelines: [ REASONING, CODING ] }
+        - { id: "antseed",                                        enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }
 

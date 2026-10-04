@@ -49,7 +49,7 @@ export default function Charts({ data }: ChartsProps) {
 
   // Get semantic colors for specific metrics
   const hasLatencyMeasurement = (historyEntry: ModelStatus['history'][number]) =>
-    Number.isFinite(historyEntry.latencyMs) && historyEntry.latencyMs >= 0;
+    Number.isFinite(historyEntry.latencyMs) && historyEntry.latencyMs > 0;
 
   const getModelRequestsForRange = (d: ModelStatus, rangeMins: number) => {
     if (rangeMins === 0) {
@@ -64,19 +64,22 @@ export default function Charts({ data }: ChartsProps) {
     }).length;
   };
 
-  const { latencyData, latencyOptions, usageData, usageOptions, errorData, errorOptions, totalRequests, displayData, bgColors, activeModels } = useMemo(() => {
+  const { latencyData, latencyOptions, latencyDatasetsCount, usageData, usageOptions, errorData, errorOptions, totalRequests, displayData, bgColors, activeModels } = useMemo(() => {
     // Model Color Map - using new categorical palette
     const modelColorMap: Record<string, string> = {};
     const modelColors = getModelColors(data.length);
     data.forEach((d, i) => { modelColorMap[d.model] = modelColors[i]; });
 
-    // 1. Latency History Chart
+    // 1. Latency History Chart - Only models that are UP, in seconds
+    const isModelUp = (m: ModelStatus) => ((m as any).up !== undefined ? (m as any).up : m.isUp);
+    const upModels = data.filter(isModelUp);
+
     const latencyCutoffTime = latencyRangeMins === 0
       ? 0
       : Date.now() - (latencyRangeMins * 60 * 1000);
     const allTimestamps = new Set<number>();
     
-    data.forEach(d => {
+    upModels.forEach(d => {
       if (d.history && Array.isArray(d.history)) {
         d.history.forEach(h => {
           if (!h.timestamp || !hasLatencyMeasurement(h)) return;
@@ -95,7 +98,7 @@ export default function Charts({ data }: ChartsProps) {
       return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
     });
 
-    const latencyDatasets = data
+    const latencyDatasets = upModels
       .filter(d => d.history && Array.isArray(d.history) && d.history.some(h => {
         if (!h.timestamp || !hasLatencyMeasurement(h)) return false;
         const time = new Date(h.timestamp).getTime();
@@ -109,7 +112,7 @@ export default function Charts({ data }: ChartsProps) {
               const time = new Date(h.timestamp).getTime();
               if (!isNaN(time) && time >= latencyCutoffTime) {
                 const bucketedTime = Math.floor(time / 60000) * 60000;
-                latencyMap[bucketedTime] = h.latencyMs;
+                latencyMap[bucketedTime] = Number((h.latencyMs / 1000).toFixed(2));
               }
             }
           });
@@ -136,13 +139,28 @@ export default function Charts({ data }: ChartsProps) {
       maintainAspectRatio: false,
       interaction: { mode: 'index' as const, intersect: false },
       plugins: {
-        legend: { position: 'bottom' as const, labels: { usePointStyle: true, boxWidth: 6, color: isDark ? '#94a3b8' : '#64748b' } }
+        legend: { position: 'bottom' as const, labels: { usePointStyle: true, boxWidth: 6, color: isDark ? '#94a3b8' : '#64748b' } },
+        tooltip: {
+          callbacks: {
+            label: function(context: any) {
+              let label = context.dataset.label || '';
+              if (label) label += ': ';
+              if (context.parsed.y !== null && context.parsed.y !== undefined) {
+                label += context.parsed.y.toFixed(2) + 's';
+              }
+              return label;
+            }
+          }
+        }
       },
       scales: {
         y: { 
           grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }, 
           beginAtZero: true,
-          ticks: { color: isDark ? '#94a3b8' : '#64748b' }
+          ticks: { 
+            callback: function(value: any) { return Number(value).toFixed(1) + 's'; },
+            color: isDark ? '#94a3b8' : '#64748b' 
+          }
         },
         x: { 
           grid: { display: false },
@@ -308,6 +326,7 @@ export default function Charts({ data }: ChartsProps) {
     return {
       latencyData: { labels, datasets: latencyDatasets },
       latencyOptions: latencyOptionsObj,
+      latencyDatasetsCount: latencyDatasets.length,
       usageData: { labels: modelNames, datasets: usageDatasets },
       usageOptions: usageOptionsObj,
       errorData: { labels: successLabels, datasets: successDatasets },
@@ -326,7 +345,7 @@ export default function Charts({ data }: ChartsProps) {
         <div className="card border-0 shadow-sm rounded-4 p-4 h-100">
           <div className="d-flex justify-content-between align-items-center mb-4">
             <div className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-              <i className="bi bi-graph-up text-primary me-2"></i>Latency History (ms)
+              <i className="bi bi-graph-up text-primary me-2"></i>Latency History (s)
             </div>
             <select className="form-select form-select-sm w-auto rounded-pill" value={latencyRangeMins} onChange={e => setLatencyRangeMins(Number(e.target.value))}>
               <option value={15}>Last 15 Mins</option>
@@ -336,7 +355,14 @@ export default function Charts({ data }: ChartsProps) {
             </select>
           </div>
           <div className="chart-container" style={{ position: 'relative', height: '300px', width: '100%' }}>
-            <Line data={latencyData} options={latencyOptions} />
+            {latencyDatasetsCount === 0 ? (
+              <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted opacity-75 small">
+                <i className="bi bi-info-circle mb-2" style={{ fontSize: '1.5rem' }}></i>
+                <span>No UP models with latency data in this window</span>
+              </div>
+            ) : (
+              <Line data={latencyData} options={latencyOptions} />
+            )}
           </div>
         </div>
       </div>
