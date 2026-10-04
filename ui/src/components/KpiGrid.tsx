@@ -12,7 +12,10 @@ interface KpiGridProps {
   lastUpdated: Date | null;
 }
 
-const getIsUp = (status: ModelStatus): boolean => status.isUp ?? false;
+const getIsUp = (status: ModelStatus): boolean => {
+  const isUp = (status as any).up !== undefined ? (status as any).up : status.isUp;
+  return isUp ?? false;
+};
 
 export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const [activeRotationIndex, setActiveRotationIndex] = useState(0);
@@ -26,18 +29,19 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const latencyFillColor = isDark ? 'rgba(245, 158, 11, 0.2)' : 'rgba(217, 119, 6, 0.15)';
 
   const totalModels = data.length;
-  const uncheckedModels = data.filter(d => d.errorMessage === 'Not yet checked').length;
-  const checkedModels = totalModels - uncheckedModels;
-  const upModels = data.filter(d => getIsUp(d) && d.errorMessage !== 'Not yet checked').length;
-  const downCount = data.filter(d => !getIsUp(d) && d.errorMessage !== 'Not yet checked').length;
-  
-  const healthColor = checkedModels === 0
+  const upModels = data.filter(d => getIsUp(d)).length;
+  const downModels = totalModels - upModels;
+  const disabledModels = data.filter(d => d.enabled === false).length;
+  const enabledModels = totalModels - disabledModels;
+  const enabledUp = data.filter(d => d.enabled !== false && getIsUp(d)).length;
+
+  const healthColor = totalModels === 0
     ? 'text-muted'
-    : downCount > 0 && upModels === 0
-      ? 'text-danger'
-      : downCount > 0 || uncheckedModels > 0
-        ? 'text-warning'
-        : 'text-success';
+    : upModels === totalModels || (enabledModels > 0 && enabledUp === enabledModels)
+      ? 'text-success'
+      : upModels === 0
+        ? 'text-danger'
+        : 'text-warning';
 
   const totalConns = data.reduce((sum, d) => sum + (d.activeConnections || 0), 0);
   
@@ -76,7 +80,6 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const timeMap = new Map<number, typeof sparklineData[0]>();
   sparklineData.forEach(d => timeMap.set(d.timestamp, d));
 
-  const errorByMin: Record<number, { total: number, errors: number }> = {};
   const latencyByMin: Record<number, { totalMs: number, count: number }> = {};
   const usageByMin: Record<number, number> = {};
 
@@ -97,14 +100,8 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
           if (h.isBackgroundProbe === false) {
             usageByMin[t] = (usageByMin[t] || 0) + 1;
           }
-          
-          if (!errorByMin[t]) errorByMin[t] = { total: 0, errors: 0 };
-          errorByMin[t].total++;
-          const isUp = h.up ?? h.isUp ?? false;
-          if (!isUp) {
-            errorByMin[t].errors++;
-          }
 
+          const isUp = h.up ?? h.isUp ?? false;
           if (isUp && h.latencyMs > 0) {
             if (!latencyByMin[t]) latencyByMin[t] = { totalMs: 0, count: 0 };
             latencyByMin[t].totalMs += h.latencyMs;
@@ -117,9 +114,30 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
 
   sparklineData.forEach(d => {
     const t = d.timestamp;
-    if (errorByMin[t] && errorByMin[t].total > 0) {
-      d.health = 100 - (errorByMin[t].errors / errorByMin[t].total) * 100;
-    }
+    let readyCountAtMin = 0;
+    const bucketEnd = t + 59999;
+    data.forEach(m => {
+      let latestEvent: any = null;
+      if (m.history && Array.isArray(m.history) && m.history.length > 0) {
+        for (let i = m.history.length - 1; i >= 0; i--) {
+          const h = m.history[i];
+          const hTime = new Date(h.timestamp).getTime();
+          if (hTime <= bucketEnd) {
+            latestEvent = h;
+            break;
+          }
+        }
+      }
+      const isUp = latestEvent
+        ? ((latestEvent.up !== undefined ? latestEvent.up : latestEvent.isUp) ?? false)
+        : getIsUp(m);
+      if (isUp) {
+        readyCountAtMin++;
+      }
+    });
+
+    d.health = totalModels > 0 ? (readyCountAtMin / totalModels) * 100 : 0;
+
     if (usageByMin[t]) {
       d.rpm = usageByMin[t];
       d.usage = usageByMin[t];
@@ -200,11 +218,14 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
               <i className="bi bi-server me-2"></i>Routing Ready
             </div>
             <div className="fw-bolder d-flex align-items-baseline" style={{ fontSize: '2rem', lineHeight: '1.1' }}>
-              <span className={healthColor} title="Models with a successful probe and a closed circuit breaker">{checkedModels > 0 ? upModels : '—'}</span>
-              <span className="text-muted ms-2" style={{ fontSize: '1.1rem' }}>/ {checkedModels} checked</span>
+              <span className={healthColor} title="Models currently reporting UP in the gateway">
+                {totalModels > 0 ? upModels : '—'}
+              </span>
+              <span className="text-muted ms-2" style={{ fontSize: '1.1rem' }}>/ {totalModels} ready</span>
             </div>
             <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
-              {uncheckedModels} unchecked{downCount > 0 ? ` · ${downCount} down` : ''}
+              {downModels > 0 ? `${downModels} down` : 'All UP'}
+              {disabledModels > 0 ? ` · ${disabledModels} disabled` : ''}
               {lastUpdated ? ` · Updated ${formatTimeAgo(lastUpdated.toISOString())}` : ''}
             </div>
           </div>

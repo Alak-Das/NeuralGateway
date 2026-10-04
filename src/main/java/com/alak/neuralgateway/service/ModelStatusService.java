@@ -68,7 +68,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
     public void initializeModel(String modelId) {
                 List<HealthCheckResult> history = redisPersistence.getHealthCheckHistory(modelId);
         long usage = redisPersistence.getUsage(modelId);
-        boolean circuitOpen = redisPersistence.isCircuitOpen(modelId);
+        boolean circuitOpen = false;
         double emaLatency = redisPersistence.getEmaLatency(modelId, 0.0);
         int consecutiveErrors = redisPersistence.getConsecutiveErrors(modelId);
 
