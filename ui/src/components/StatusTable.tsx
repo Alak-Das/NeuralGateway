@@ -108,6 +108,16 @@ export default function StatusTable({ data }: StatusTableProps) {
     return Number.isFinite(checkedAt) && ageMs >= 0 && ageMs <= 24 * 60 * 60 * 1000;
   };
 
+  const getModelRpm = (model: ModelStatus): number => {
+    if (!model.history || !Array.isArray(model.history)) return Math.round((model.tps || 0) * 60);
+    const cutoff = Date.now() - 5 * 60 * 1000;
+    const recentReqs = model.history.filter(h => h.isBackgroundProbe === false && h.timestamp && new Date(h.timestamp).getTime() >= cutoff).length;
+    if (recentReqs > 0) return Number((recentReqs / 5).toFixed(1));
+    const totalReqsInHistory = model.history.filter(h => h.isBackgroundProbe === false).length;
+    if (totalReqsInHistory > 0) return Number((totalReqsInHistory / 15).toFixed(1));
+    return Math.round((model.tps || 0) * 60);
+  };
+
   const filteredData = useMemo(() => {
     return data.filter(d => {
       const catMatch = !categoryFilter || d.categories.includes(categoryFilter);
@@ -124,7 +134,7 @@ export default function StatusTable({ data }: StatusTableProps) {
           valB = getStatus(b) === 'up' ? 1 : 0;
           break;
         case 'latency': valA = a.latencyMs; valB = b.latencyMs; break;
-        case 'tps': valA = a.tps; valB = b.tps; break;
+        case 'tps': valA = getModelRpm(a); valB = getModelRpm(b); break;
         case 'uses': valA = a.totalUses; valB = b.totalUses; break;
         case 'conns': valA = a.activeConnections; valB = b.activeConnections; break;
         case 'error': valA = a.errorMessage || ''; valB = b.errorMessage || ''; break;
@@ -141,13 +151,13 @@ export default function StatusTable({ data }: StatusTableProps) {
   }, [data, categoryFilter, statusFilter, sortCol, sortDir]);
 
   const exportCSV = () => {
-    const headers = ['Model', 'Categories', 'Status', 'Latency (ms)', 'TPS', 'Total Uses', 'Active Conns', 'Last Error', 'Last Check'];
+    const headers = ['Model', 'Categories', 'Status', 'Latency (ms)', 'RPM', 'Total Uses', 'Active Conns', 'Last Error', 'Last Check'];
     const rows = filteredData.map(d => [
       d.model,
       d.categories.join('; '),
       getStatus(d) === 'up' ? 'UP' : 'DOWN',
       d.latencyMs,
-      d.tps.toFixed(2),
+      getModelRpm(d),
       d.totalUses,
       d.activeConnections,
       d.errorMessage || '',
@@ -208,7 +218,7 @@ export default function StatusTable({ data }: StatusTableProps) {
               <th className="px-4">Category</th>
               <th className="sortable px-4" onClick={() => handleSort('status')}>Status {getSortIcon('status')}</th>
               <th className="sortable px-4" onClick={() => handleSort('latency')}>Latency {getSortIcon('latency')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('tps')}>TPS {getSortIcon('tps')}</th>
+              <th className="sortable px-4" onClick={() => handleSort('tps')}>RPM {getSortIcon('tps')}</th>
               <th className="sortable px-4" onClick={() => handleSort('uses')}>Total Uses {getSortIcon('uses')}</th>
               <th className="sortable px-4" onClick={() => handleSort('conns')}>Active Conns {getSortIcon('conns')}</th>
               <th className="sortable px-4" onClick={() => handleSort('error')}>Last Error {getSortIcon('error')}</th>
@@ -270,7 +280,7 @@ export default function StatusTable({ data }: StatusTableProps) {
                       d.latencyMs > 1000 ? <span className="text-warning">{(d.latencyMs / 1000).toFixed(2)}s</span> : <span>{d.latencyMs}ms</span>
                     )}
                   </td>
-                  <td className="py-3 px-4 fw-medium">{d.tps > 0 ? d.tps.toFixed(2) : <span className="text-muted opacity-50">&mdash;</span>}</td>
+                  <td className="py-3 px-4 fw-medium">{getModelRpm(d) > 0 ? getModelRpm(d) : <span className="text-muted opacity-50">&mdash;</span>}</td>
                   <td className="py-3 px-4 fw-medium">{formatNumber(d.totalUses)}</td>
                   <td className="py-3 px-4 fw-medium">{d.activeConnections}</td>
                   <td className="py-3 px-4 error-cell">

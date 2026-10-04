@@ -39,7 +39,6 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
         ? 'text-warning'
         : 'text-success';
 
-  const totalTps = data.reduce((sum, d) => sum + (d.tps || 0), 0);
   const totalConns = data.reduce((sum, d) => sum + (d.activeConnections || 0), 0);
   
   const upLatencies = data.filter(d => getIsUp(d) && d.latencyMs > 0).map(d => d.latencyMs);
@@ -54,8 +53,12 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
     return () => clearInterval(interval);
   }, []);
 
-  // Calculate Sparkline Data
+  // Calculate Sparkline Data and Global RPM
   const now = new Date();
+  const oneMinCutoff = now.getTime() - 60 * 1000;
+  const fiveMinCutoff = now.getTime() - 5 * 60 * 1000;
+  let reqsLast1Min = 0;
+  let reqsLast5Min = 0;
 
   const sparklineData = Array.from({ length: 15 }, (_, i) => {
     const d = new Date(now.getTime() - (14 - i) * 60 * 1000);
@@ -64,7 +67,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
       time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       timestamp: d.getTime(),
       health: 100,
-      tps: 0,
+      rpm: 0,
       latency: 0,
       usage: 0
     };
@@ -81,9 +84,15 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
     if (d.history) {
       d.history.forEach(h => {
         const date = new Date(h.timestamp);
+        const tRaw = date.getTime();
         date.setSeconds(0, 0);
         const t = date.getTime();
         
+        if (h.isBackgroundProbe === false) {
+          if (tRaw >= oneMinCutoff) reqsLast1Min++;
+          if (tRaw >= fiveMinCutoff) reqsLast5Min++;
+        }
+
         if (timeMap.has(t)) {
           if (h.isBackgroundProbe === false) {
             usageByMin[t] = (usageByMin[t] || 0) + 1;
@@ -112,13 +121,17 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
       d.health = 100 - (errorByMin[t].errors / errorByMin[t].total) * 100;
     }
     if (usageByMin[t]) {
-      d.tps = usageByMin[t];
+      d.rpm = usageByMin[t];
       d.usage = usageByMin[t];
     }
     if (latencyByMin[t] && latencyByMin[t].count > 0) {
       d.latency = latencyByMin[t].totalMs / latencyByMin[t].count;
     }
   });
+
+  const total15mReqs = sparklineData.reduce((sum, d) => sum + d.rpm, 0);
+  const peakRpm = Math.max(0, ...sparklineData.map(d => d.rpm));
+  const currentRpm = reqsLast1Min > 0 ? reqsLast1Min : (reqsLast5Min > 0 ? Number((reqsLast5Min / 5).toFixed(1)) : 0);
 
   const sparklineOptions = {
     responsive: true,
@@ -208,15 +221,25 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
           </div>
         </div>
       </div>
-      {/* Global throughput */}
+      {/* Global Throughput (RPM) */}
       <div className="col-12 col-sm-6 col-lg-4 col-xl">
         <div className="card border-0 shadow-sm rounded-4 h-100 position-relative overflow-hidden d-flex flex-column p-0">
           <div className="p-3 pb-0 d-flex flex-column" style={{ zIndex: 2 }}>
-            <div className="text-secondary fw-semibold mb-1" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-              <i className="bi bi-activity text-primary me-2"></i>Global TPS
+            <div className="d-flex justify-content-between align-items-center mb-1">
+              <span className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                <i className="bi bi-activity text-primary me-2"></i>Global RPM
+              </span>
+              {peakRpm > 0 && (
+                <span className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25" style={{ fontSize: '0.68rem' }} title="Peak RPM in last 15 minutes">
+                  Peak: {peakRpm}
+                </span>
+              )}
             </div>
             <div className="fw-bolder d-flex align-items-baseline text-main" style={{ fontSize: '2.2rem', letterSpacing: '-1px', lineHeight: '1.1' }}>
-              {totalTps.toFixed(1)} <span className="text-muted ms-1 fw-medium" style={{ fontSize: '0.9rem', letterSpacing: '0' }}>req/s</span>
+              {currentRpm} <span className="text-muted ms-1 fw-medium" style={{ fontSize: '0.9rem', letterSpacing: '0' }}>req/min</span>
+            </div>
+            <div className="text-muted small mt-1" style={{ fontSize: '0.75rem' }}>
+              {total15mReqs > 0 ? `${total15mReqs} reqs in last 15m` : 'No active traffic in window'}
             </div>
           </div>
           <div className="flex-grow-1 w-100 mt-2 position-relative" style={{ minHeight: '60px' }}>
@@ -224,7 +247,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
               <Line 
                 data={{ 
                   labels: sparklineData.map(d => d.time), 
-                  datasets: [{ data: sparklineData.map(d => d.tps), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.2)', fill: true, pointRadius: 0, tension: 0.4 }] 
+                  datasets: [{ data: sparklineData.map(d => d.rpm), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.2)', fill: true, pointRadius: 0, tension: 0.4 }] 
                 }} 
                 options={{ ...sparklineOptions, maintainAspectRatio: false, layout: { padding: 0 }, scales: { x: { display: false }, y: { display: false, min: -0.5 } } }} 
               />
