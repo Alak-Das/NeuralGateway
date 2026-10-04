@@ -38,10 +38,12 @@ public class LlmController {
     
     private final LlmGatewayFacade gatewayFacade;
     private final PipelineResolverService pipelineResolver;
+    private final com.alak.neuralgateway.service.ModelRegistry modelRegistry;
 
-    public LlmController(LlmGatewayFacade gatewayFacade, PipelineResolverService pipelineResolver) {
+    public LlmController(LlmGatewayFacade gatewayFacade, PipelineResolverService pipelineResolver, com.alak.neuralgateway.service.ModelRegistry modelRegistry) {
         this.gatewayFacade = gatewayFacade;
         this.pipelineResolver = pipelineResolver;
+        this.modelRegistry = modelRegistry;
     }
 
     // ==========================================
@@ -168,6 +170,21 @@ public class LlmController {
             @Parameter(description = "Exact name of model to reset", example = "moonshotai/kimi-k3")
             @RequestParam String model) {
         gatewayFacade.resetCircuitBreaker(model);
+    }
+
+    @Operation(
+        summary = "Update model configuration",
+        description = "Dynamically updates model configuration such as enabled status, priority, and pipelines at runtime.",
+        tags = {"Fleet Health & Diagnostics"}
+    )
+    @PostMapping("/api/models/{modelId}/config")
+    public ResponseEntity<Void> updateModelConfig(
+            @Parameter(description = "ID of the model to update")
+            @PathVariable String modelId,
+            @RequestBody Map<String, Object> config) {
+        modelRegistry.updateModelConfig(modelId, config);
+        gatewayFacade.pingModel(modelId); // Force immediate UI refresh
+        return ResponseEntity.ok().build();
     }
 
     // ==========================================

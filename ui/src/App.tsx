@@ -4,6 +4,7 @@ import KpiGrid from './components/KpiGrid';
 import StatusTable from './components/StatusTable';
 import RequestersTable from './components/RequestersTable';
 import Charts from './components/Charts';
+import LiveLogs from './components/LiveLogs';
 import { ThemeContext } from './theme/ThemeContext';
 
 export default function App() {
@@ -12,7 +13,7 @@ export default function App() {
   const [data, setData] = useState<ModelStatus[]>([]);
   const [requesters, setRequesters] = useState<RequesterStatus[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [activeTab, setActiveTab] = useState<'models' | 'requesters'>('models');
+  const [activeTab, setActiveTab] = useState<'models' | 'requesters' | 'traces'>('models');
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -241,12 +242,19 @@ export default function App() {
               Requesters
             </button>
           </li>
+          <li className="nav-item">
+            <button className={`nav-link ${activeTab === 'traces' ? 'active' : ''}`} onClick={() => setActiveTab('traces')}>
+              Live Traces
+            </button>
+          </li>
         </ul>
 
         {activeTab === 'models' ? (
           <StatusTable data={data} />
-        ) : (
+        ) : activeTab === 'requesters' ? (
           <RequestersTable requesters={requesters} />
+        ) : (
+          <LiveLogs />
         )}
       </main>
     </div>

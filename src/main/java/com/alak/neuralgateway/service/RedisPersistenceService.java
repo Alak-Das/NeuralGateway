@@ -225,6 +225,23 @@ public class RedisPersistenceService {
         }
     }
 
+    // ==================== Dynamic Config ====================
+
+    private static final String MODEL_CONFIG_KEY = "llm:config:model_overrides";
+
+    public void saveModelConfig(String modelId, String configJson) {
+        redisTemplate.opsForHash().put(MODEL_CONFIG_KEY, modelId, configJson);
+    }
+
+    public Map<String, String> getAllModelConfigs() {
+        Map<Object, Object> entries = redisTemplate.opsForHash().entries(MODEL_CONFIG_KEY);
+        Map<String, String> result = new HashMap<>();
+        for (Map.Entry<Object, Object> entry : entries.entrySet()) {
+            result.put(entry.getKey().toString(), entry.getValue().toString());
+        }
+        return result;
+    }
+
     // ==================== Bulk Operations ====================
 
     public void initializeModelIfAbsent(String modelId) {

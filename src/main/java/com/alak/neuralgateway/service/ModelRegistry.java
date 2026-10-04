@@ -15,6 +15,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import org.springframework.beans.factory.annotation.Autowired;
+
 /**
  * Service responsible for managing the model catalog, pipelines, and model lookup.
  */
@@ -24,10 +28,16 @@ public class ModelRegistry {
     private final Map<String, Model> modelCatalog = new HashMap<>();
     private final Map<String, ApiKeyPool> apiKeyPools = new HashMap<>();
     private final LlmProvidersProperties properties;
+    private final RedisPersistenceService redisPersistenceService;
+    private final ObjectMapper objectMapper;
 
-    public ModelRegistry(LlmProvidersProperties properties) {
+    @Autowired
+    public ModelRegistry(LlmProvidersProperties properties, RedisPersistenceService redisPersistenceService, ObjectMapper objectMapper) {
         this.properties = properties;
+        this.redisPersistenceService = redisPersistenceService;
+        this.objectMapper = objectMapper;
         initializeRegistry();
+        loadDynamicOverrides();
     }
     
     private void initializeRegistry() {
@@ -117,5 +127,62 @@ public class ModelRegistry {
     public int getModelContextLimit(String modelId) {
         Model model = modelCatalog.get(modelId);
         return model != null ? model.getContextLimit() : 32000;
+    }
+
+    public void updateModelConfig(String modelId, Map<String, Object> config) {
+        Model existing = modelCatalog.get(modelId);
+        if (existing == null) {
+            throw new IllegalArgumentException("Model not found");
+        }
+        applyOverride(modelId, config);
+
+        try {
+            String json = objectMapper.writeValueAsString(config);
+            redisPersistenceService.saveModelConfig(modelId, json);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to save config to Redis", e);
+        }
+    }
+
+    private void loadDynamicOverrides() {
+        Map<String, String> configs = redisPersistenceService.getAllModelConfigs();
+        for (Map.Entry<String, String> entry : configs.entrySet()) {
+            String modelId = entry.getKey();
+            if (modelCatalog.containsKey(modelId)) {
+                try {
+                    Map<String, Object> config = objectMapper.readValue(entry.getValue(), new TypeReference<Map<String, Object>>(){});
+                    applyOverride(modelId, config);
+                } catch (Exception e) {
+                    // Ignore
+                }
+            }
+        }
+    }
+
+    private void applyOverride(String modelId, Map<String, Object> config) {
+        Model existing = modelCatalog.get(modelId);
+        if (existing == null) return;
+
+        boolean enabled = config.containsKey("enabled") ? (Boolean) config.get("enabled") : existing.isEnabled();
+        int priority = config.containsKey("priority") ? (Integer) config.get("priority") : existing.getPriority();
+        
+        Set<Model.Pipeline> pipelines = existing.getPipelines();
+        if (config.containsKey("pipelines")) {
+            List<String> pipelineStrs = (List<String>) config.get("pipelines");
+            pipelines = pipelineStrs.stream().map(p -> Model.Pipeline.valueOf(p.toUpperCase())).collect(Collectors.toSet());
+        }
+
+        Model updated = new Model(
+                existing.getId(),
+                existing.getName(),
+                existing.getProviderId(),
+                pipelines,
+                existing.getContextLimit(),
+                priority,
+                existing.getPipelinePriorities(),
+                existing.getCapabilities(),
+                enabled
+        );
+        modelCatalog.put(modelId, updated);
     }
 }

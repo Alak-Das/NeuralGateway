@@ -154,9 +154,8 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                     routingService.getTps(modelId),
                     false,
                     existing != null ? existing.provider() : "unknown",
-                    existing != null ? existing.priority() : 0,
-                    existing != null ? existing.enabled()
-                            : modelRegistry.getModel(modelId).map(Model::isEnabled).orElse(true)
+                    modelRegistry.getModel(modelId).map(com.alak.neuralgateway.domain.model.Model::getPriority).orElse(existing != null ? existing.priority() : 0),
+                    modelRegistry.getModel(modelId).map(com.alak.neuralgateway.domain.model.Model::isEnabled).orElse(existing != null ? existing.enabled() : true)
             );
         });
 

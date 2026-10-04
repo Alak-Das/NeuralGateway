@@ -12,6 +12,41 @@ export default function StatusTable({ data }: StatusTableProps) {
   const [sortCol, setSortCol] = useState('model');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc');
 
+  const [editingModel, setEditingModel] = useState<ModelStatus | null>(null);
+  const [editEnabled, setEditEnabled] = useState(true);
+  const [editPriority, setEditPriority] = useState(0);
+  const [editPipelines, setEditPipelines] = useState('');
+
+  const handleEdit = (model: ModelStatus) => {
+    setEditingModel(model);
+    setEditEnabled(model.enabled !== false);
+    setEditPriority(model.priority ?? 0);
+    setEditPipelines((model.categories || []).join(', '));
+  };
+
+  const handleSaveConfig = async () => {
+    if (!editingModel) return;
+    const pipelines = editPipelines.split(',').map(s => s.trim()).filter(Boolean);
+    try {
+      await fetch(`/api/models/${editingModel.model}/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: editEnabled,
+          priority: editPriority,
+          pipelines
+        })
+      });
+      setEditingModel(null);
+      setTimeout(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      }, 300);
+    } catch (e) {
+      console.error('Failed to save config', e);
+    }
+  };
+
+
   const handleSort = (col: string) => {
     if (sortCol === col) {
       setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
@@ -178,12 +213,13 @@ export default function StatusTable({ data }: StatusTableProps) {
               <th className="sortable px-4" onClick={() => handleSort('conns')}>Active Conns {getSortIcon('conns')}</th>
               <th className="sortable px-4" onClick={() => handleSort('error')}>Last Error {getSortIcon('error')}</th>
               <th className="sortable px-4" onClick={() => handleSort('updated')}>Last Check {getSortIcon('updated')}</th>
+              <th className="px-4">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filteredData.length === 0 ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <div className="text-center py-5">
                     <i className="bi bi-search text-muted opacity-50" style={{ fontSize: '4rem' }}></i>
                     <h5 className="fw-bold mt-3 text-secondary">No models match the current filters</h5>
@@ -254,12 +290,49 @@ export default function StatusTable({ data }: StatusTableProps) {
                       <span className="text-muted" style={{ fontSize: '0.75rem' }}>{formatTimeOnly(d.lastChecked)}</span>
                     </div>
                   </td>
+                  <td className="py-3 px-4">
+                    <button className="btn btn-sm btn-outline-primary" onClick={() => handleEdit(d)}>
+                      <i className="bi bi-pencil"></i> Edit
+                    </button>
+                  </td>
+
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {editingModel && (
+        <div className="modal show d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Edit Configuration for {editingModel.model}</h5>
+                <button type="button" className="btn-close" onClick={() => setEditingModel(null)}></button>
+              </div>
+              <div className="modal-body">
+                <div className="mb-3 form-check">
+                  <input type="checkbox" className="form-check-input" id="editEnabled" checked={editEnabled} onChange={e => setEditEnabled(e.target.checked)} />
+                  <label className="form-check-label" htmlFor="editEnabled">Enabled</label>
+                </div>
+                <div className="mb-3">
+                  <label htmlFor="editPriority" className="form-label">Priority</label>
+                  <input type="number" className="form-control" id="editPriority" value={editPriority} onChange={e => setEditPriority(parseInt(e.target.value) || 0)} />
+                </div>
+                <div className="mb-3">
+                  <label htmlFor="editPipelines" className="form-label">Pipelines (comma separated)</label>
+                  <input type="text" className="form-control" id="editPipelines" value={editPipelines} onChange={e => setEditPipelines(e.target.value)} placeholder="e.g. CODING, REASONING" />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setEditingModel(null)}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={handleSaveConfig}>Save changes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
