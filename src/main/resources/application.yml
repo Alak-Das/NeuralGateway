@@ -59,12 +59,12 @@ llm:
         - ${NVIDIA_API_KEY_2:}
         - ${NVIDIA_API_KEY_3:}
       models:
-        - { id: "moonshotai/kimi-k3",                             enabled: true, priority: 10,  pipelines: [ REASONING, VISION ] }
-        - { id: "z-ai/glm-5.3",                                   enabled: true, priority: 9,   pipelines: [ CODING ] }
-        - { id: "nvidia/nemotron-3-ultra-550b-a55b",              enabled: true, priority: 9,   pipelines: [ REASONING ] }
-        - { id: "deepseek-ai/deepseek-v4.1-flash",                enabled: true, priority: 8,   pipelines: [ REASONING, VISION ] }
-        - { id: "nvidia/nemotron-3-super-120b-a12b",              enabled: true, priority: 10,  pipelines: [ CODING ] }
-        - { id: "z-ai/glm-5.3-flash",                             enabled: true, priority: 6,   pipelines: [ CODING, VISION ] }
+        - { id: "moonshotai/kimi-k3",                             enabled: true, priority: 10,  pipelines: [ CODING, REASONING, VISION ] }
+        - { id: "z-ai/glm-5.3",                                   enabled: true, priority: 9,   pipelines: [ CODING, REASONING, VISION ] }
+        - { id: "nvidia/nemotron-3-ultra-550b-a55b",              enabled: true, priority: 9,   pipelines: [ CODING, REASONING, VISION ] }
+        - { id: "deepseek-ai/deepseek-v4.1-flash",                enabled: true, priority: 8,   pipelines: [ CODING, REASONING, VISION ] }
+        - { id: "nvidia/nemotron-3-super-120b-a12b",              enabled: true, priority: 7,  pipelines: [ CODING, REASONING ] }
+        - { id: "z-ai/glm-5.3-flash",                             enabled: true, priority: 6,   pipelines: [ CODING, REASONING, VISION ] }
     explabs:
       base-url: https://api.experientiallabs.ai/v1
       rate-limit-rpm: 300

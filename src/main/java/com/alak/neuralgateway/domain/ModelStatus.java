@@ -1,6 +1,7 @@
 package com.alak.neuralgateway.domain;
 
 import com.alak.neuralgateway.domain.health.HealthCheckResult;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Duration;
@@ -11,6 +12,7 @@ import java.util.List;
  * Immutable DTO representing the complete status of a model.
  * Used for API responses and SSE broadcasts.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record ModelStatus(
         String model,
         List<String> categories,

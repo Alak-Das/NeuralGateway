@@ -35,6 +35,7 @@ public class RedisPersistenceService {
     private static final String CIRCUIT_KEY_PREFIX = "gateway:model:circuit:";
     private static final String EMA_LATENCY_KEY_PREFIX = "gateway:model:ema_latency:";
     private static final String CONSECUTIVE_ERRORS_KEY_PREFIX = "gateway:model:consecutive_errors:";
+    private static final String PROVIDER_CONSECUTIVE_ERRORS_KEY_PREFIX = "gateway:provider:consecutive_errors:";
     private static final String TPS_KEY_PREFIX = "gateway:model:tps:";
     private static final String REQUESTER_USAGE_KEY_PREFIX = "gateway:requester:usage:";
     private static final String PROVIDER_UNAVAILABLE_KEY_PREFIX = "gateway:provider:unavailable:";
@@ -197,6 +198,32 @@ public class RedisPersistenceService {
         if (value == null) {
             return 0;
         }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    public int incrementProviderConsecutiveErrors(String providerId) {
+        if (providerId == null || providerId.isBlank()) return 0;
+        String key = PROVIDER_CONSECUTIVE_ERRORS_KEY_PREFIX + providerId;
+        Long count = redisTemplate.opsForValue().increment(key);
+        setTtlIfNeeded(key);
+        return count != null ? count.intValue() : 0;
+    }
+
+    public void resetProviderConsecutiveErrors(String providerId) {
+        if (providerId != null && !providerId.isBlank()) {
+            redisTemplate.delete(PROVIDER_CONSECUTIVE_ERRORS_KEY_PREFIX + providerId);
+        }
+    }
+
+    public int getProviderConsecutiveErrors(String providerId) {
+        if (providerId == null || providerId.isBlank()) return 0;
+        String key = PROVIDER_CONSECUTIVE_ERRORS_KEY_PREFIX + providerId;
+        String value = redisTemplate.opsForValue().get(key);
+        if (value == null) return 0;
         try {
             return Integer.parseInt(value);
         } catch (NumberFormatException e) {

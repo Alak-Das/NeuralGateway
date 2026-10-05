@@ -18,14 +18,14 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 - **Zero-Latency Request Path**: Health ping results update EMA in-memory, avoiding synchronous database queries during request routing.
 - **Context-Aware Window Validation**: Automatically filters out models whose context windows cannot accommodate the estimated payload tokens (preventing truncation and 400 Bad Request errors).
 
-### 3. High Availability & Circuit Breaking
-- **Resilience4j Circuit Breaker**: Models returning consecutive server errors (5xx, timeouts, or premature close exceptions) automatically trip an isolated sliding-window circuit breaker. Circuit state transitions are intercepted and synced globally to Redis.
-- **Dynamic API Key Cooldown**: When an upstream provider responds with HTTP 429 Too Many Requests, the offending API key is immediately isolated with a 30-second cooldown, rotating traffic instantly to healthy keys.
-- **Emergency Degraded Mode**: If all model circuits in a pipeline trip during upstream provider incidents, the gateway automatically falls back to highest-priority models ordered by lowest latency, eliminating 100% gateway blackouts and enabling traffic-driven self-healing.
-- **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trip model circuit breakers.
+### 3. High Availability & Resilience
+- **Redis-Based Provider Cooldown & Error Tracking**: Models returning consecutive server errors (5xx, timeouts) or rate-limit responses (429) trigger provider-specific cooldowns tracked in Redis, preventing traffic to failing providers while allowing recovery. Circuit breaker functionality has been replaced with this lighter-weight, Redis-driven approach.
+- **Dynamic API Key Cooldown**: When an upstream provider responds with HTTP 429 Too Many Requests, the offending API key is immediately isolated with a configurable cooldown (default 30 seconds), rotating traffic instantly to healthy keys.
+- **Emergency Degraded Mode**: If all models in a pipeline are unavailable due to cooldowns or errors, the gateway automatically falls back to highest-priority models ordered by lowest latency, eliminating 100% gateway blackouts and enabling traffic-driven self-healing.
+- **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trigger provider cooldowns.
 - **Multi-Provider Failover**: Requests are routed across **all configured providers** (NVIDIA NIM, Experiential Labs, Antseed, etc.) as a single logical fleet. Provider-specific failures — including upstream `401`/`403`/`404` responses and quota errors such as `token_quota_exceeded` — trigger transparent failover to the next candidate model, which may live on a different provider entirely.
 - **Request Sanitization for Cross-Provider Compatibility**: Non-standard client fields are normalised before dispatch — `thinking_effort` and Anthropic-style `thinking` blocks are translated to `reasoning_effort`, and `reasoning_effort` is coerced to the OpenAI-standard set (`none`, `low`, `medium`, `high`). This prevents `400 wrong_api_format` rejections from stricter providers and lets the gateway fail over instead of surfacing a spurious client error.
-- **Auto-Recovery**: Tripped circuit breakers automatically reset to closed as soon as background health checks succeed. A successful probe is treated as authoritative: `HealthCheckService` calls `CircuitBreakerService.markHealthy()` to force-close any stale OPEN/HALF_OPEN circuit (including one restored from Redis) and syncs the CLOSED state back to Redis, so a recovered model becomes routable immediately instead of waiting out the passive half-open timeout.
+- **Auto-Recovery**: Provider cooldowns automatically expire after their configured duration, restoring the provider to active rotation without manual intervention.
 - **Smart Model Recovery Backoff**: Models marked unhealthy by a transient routed failure are re-probed by a dedicated recovery sweep with exponential backoff (30s → 120s cap, ±20% jitter) that is shared across gateway replicas via Redis. A single successful probe clears the backoff and restores the model immediately — no need to wait for the full health-check cycle. Provider-wide outages (upstream `401`/`403`/`404`, quota errors, rate limits) never falsely flag an individual model as DOWN, so failover and the dashboard stay accurate.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
 - **Resilient Fallback Routing**: During cold-starts or temporary upstream outages, candidate models are sorted by lowest historical EMA score and tried with up to 3 fallback attempts.
@@ -90,10 +90,10 @@ Used by the React monitoring dashboard and operations tooling:
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/models/status` | Current operational status, EMA latency, active connections, and circuit breaker states across all models. |
+| `GET` | `/api/models/status` | Current operational status, EMA latency, active connections, and provider cooldown states across all models. |
 | `GET` | `/api/models/status/stream` | Real-time Server-Sent Events (SSE) feed emitting status updates as health check sweeps complete. |
 | `POST` | `/api/models/ping?model={name}` | On-demand synchronous health ping to verify a specific model's latency and availability. |
-| `POST` | `/api/models/circuit-reset?model={name}` | Manually reset a tripped circuit breaker to immediately restore model traffic. |
+| `POST` | `/api/models/circuit-reset?model={name}` | Manually reset provider cooldown, recorded errors, and latency for a model to immediately restore model traffic. |
 | `GET` | `/api/requesters/status` | Request volume and token usage metrics grouped by calling client (`X-Requester`). |
 | `GET` | `/swagger-ui.html` | Interactive Swagger/OpenAPI documentation and API explorer. |
 
@@ -116,16 +116,48 @@ Used by the React monitoring dashboard and operations tooling:
    ```
 
 2. **Configure your API keys:**
-   Create a `.env` file with your provider keys:
-   ```env
-   NVIDIA_API_KEY=nvapi-your-key-here
-   EXPLABS_API_KEY=xpl-your-key-here
-   ANTSEED_API_KEY=ant-your-key-here
+   Create a `.env` file with your provider keys (copy from `.env.example`):
+   ```bash
+   # NeuralGateway Environment Configuration Template
+   # Copy this file to .env and supply your API keys.
+   # NEVER commit the actual .env file to version control.
+
+   # Redis Configuration
+   REDIS_HOST=localhost
+
+   # Health Check & Diagnostics
+   LLM_HEALTH_CHECK_ENABLED=true
+
+   # Telemetry & Logging
+   LLM_LOGGING_PAYLOAD_MODE=NONE
+   LLM_LOGGING_PREVIEW_MAX_CHARS=120
+   LLM_DATA_RETENTION_TTL_HOURS=24
+   LLM_DATA_RETENTION_CLEANUP_INTERVAL_MINUTES=60
+
+   # Provider API Keys
+   NVIDIA_API_KEY_1=nvapi-your-key-1
+   NVIDIA_API_KEY_2=nvapi-your-key-2
+   NVIDIA_API_KEY_3=nvapi-your-key-3
+
+   EXPLABS_API_KEY=your-explabs-api-key
+   ANTSEED_API_KEY=your-antseed-api-key
+
+   # Optional: CORS allowed origins (default: * for local development)
+   NEURALGATEWAY_CORS_ALLOWED_ORIGINS=*
    ```
    You can also configure multiple keys for automatic rotation and rate-limit distribution:
    - `NVIDIA_API_KEY_1`, `NVIDIA_API_KEY_2`, `NVIDIA_API_KEY_3`
    - `EXPLABS_API_KEY` (single key supported)
    - `ANTSEED_API_KEY` (single key supported, optional — enables the Antseed fleet)
+   
+   # Advanced Routing Configuration (optional - defaults shown)
+   NEURALGATEWAY_CHARS_PER_TOKEN=3.5
+   NEURALGATEWAY_TOKENS_PER_IMAGE=2048
+   NEURALGATEWAY_DEFAULT_OUTPUT_TOKENS=4096
+   NEURALGATEWAY_CONNECTION_PENALTY_MS=300
+   NEURALGATEWAY_RATE_LIMIT_COOLDOWN_SECONDS=30
+   NEURALGATEWAY_PROVIDER_ERROR_COOLDOWN_SECONDS=60
+   NEURALGATEWAY_CONSECUTIVE_ERROR_THRESHOLD=3
 
 3. **Launch the Gateway:**
    ```bash

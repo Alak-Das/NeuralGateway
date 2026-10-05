@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @RestController
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "${neuralgateway.cors.allowed-origins:*}")
 public class LlmController {
 
     private static final ObjectMapper STREAM_MAPPER = new ObjectMapper();
@@ -161,8 +161,8 @@ public class LlmController {
     }
 
     @Operation(
-        summary = "Reset circuit breaker",
-        description = "Manually closes a tripped circuit breaker for the specified model, restoring it to active routing.",
+        summary = "Reset model error status",
+        description = "Manually resets recorded errors, latency, and provider cooldown for the specified model, restoring it to active routing.",
         tags = {"Fleet Health & Diagnostics"}
     )
     @PostMapping("/api/models/circuit-reset")

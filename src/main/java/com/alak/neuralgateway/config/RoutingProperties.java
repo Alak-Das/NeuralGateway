@@ -41,6 +41,42 @@ public class RoutingProperties {
     @Positive
     private int defaultContextLimit = 32000;
 
+    /**
+     * Cooldown in seconds applied to a provider when a rate-limit (429) occurs.
+     */
+    @Positive
+    private int rateLimitCooldownSeconds = 30;
+
+    /**
+     * Cooldown in seconds applied to a provider when consecutive 5xx errors occur.
+     */
+    @Positive
+    private int providerErrorCooldownSeconds = 60;
+
+    /**
+     * Number of consecutive upstream errors before putting provider in cooldown.
+     */
+    @Positive
+    private int consecutiveErrorThreshold = 3;
+
+    /**
+     * Approximate characters per token for heuristic token estimation.
+     */
+    @Positive
+    private double charsPerToken = 3.5;
+
+    /**
+     * Fixed token budget assigned per multimodal image payload.
+     */
+    @Positive
+    private int tokensPerImage = 2048;
+
+    /**
+     * Default output tokens assumed when client does not supply max_tokens.
+     */
+    @Positive
+    private int defaultOutputTokens = 4096;
+
     public int getConnectionPenaltyMs() {
         return connectionPenaltyMs;
     }
@@ -71,5 +107,53 @@ public class RoutingProperties {
 
     public void setDefaultContextLimit(int defaultContextLimit) {
         this.defaultContextLimit = defaultContextLimit;
+    }
+
+    public int getRateLimitCooldownSeconds() {
+        return rateLimitCooldownSeconds;
+    }
+
+    public void setRateLimitCooldownSeconds(int rateLimitCooldownSeconds) {
+        this.rateLimitCooldownSeconds = rateLimitCooldownSeconds;
+    }
+
+    public int getProviderErrorCooldownSeconds() {
+        return providerErrorCooldownSeconds;
+    }
+
+    public void setProviderErrorCooldownSeconds(int providerErrorCooldownSeconds) {
+        this.providerErrorCooldownSeconds = providerErrorCooldownSeconds;
+    }
+
+    public int getConsecutiveErrorThreshold() {
+        return consecutiveErrorThreshold;
+    }
+
+    public void setConsecutiveErrorThreshold(int consecutiveErrorThreshold) {
+        this.consecutiveErrorThreshold = consecutiveErrorThreshold;
+    }
+
+    public double getCharsPerToken() {
+        return charsPerToken;
+    }
+
+    public void setCharsPerToken(double charsPerToken) {
+        this.charsPerToken = charsPerToken;
+    }
+
+    public int getTokensPerImage() {
+        return tokensPerImage;
+    }
+
+    public void setTokensPerImage(int tokensPerImage) {
+        this.tokensPerImage = tokensPerImage;
+    }
+
+    public int getDefaultOutputTokens() {
+        return defaultOutputTokens;
+    }
+
+    public void setDefaultOutputTokens(int defaultOutputTokens) {
+        this.defaultOutputTokens = defaultOutputTokens;
     }
 }
