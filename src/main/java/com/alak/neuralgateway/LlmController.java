@@ -245,8 +245,8 @@ public class LlmController {
                 httpResponse.setStatus(e instanceof IllegalArgumentException ? 400 : 503);
                 Map<String, Object> error = Map.of(
                         "message", e.getMessage() != null ? e.getMessage() : "Gateway error",
-                        "type", e instanceof IllegalArgumentException ? "invalid_request_error" : "gateway_error",
-                        "code", e instanceof IllegalArgumentException ? "invalid_request" : "model_unavailable");
+                        "type", e instanceof IllegalArgumentException ? "invalid_request_error" : "server_error",
+                        "code", e instanceof IllegalArgumentException ? "invalid_request" : "pipeline_exhausted");
                 if (streaming) {
                     writeSseData(outputStream, STREAM_MAPPER.writeValueAsString(Map.of("error", error)));
                     writeSseData(outputStream, "[DONE]");
@@ -286,8 +286,8 @@ public class LlmController {
                 try {
                     Map<String, Object> error = Map.of("error", Map.of(
                             "message", e.getMessage() != null ? e.getMessage() : "Streaming upstream error",
-                            "type", "upstream_error",
-                            "code", "model_unavailable"));
+                            "type", "server_error",
+                            "code", "pipeline_exhausted"));
                     writeSseData(outputStream, STREAM_MAPPER.writeValueAsString(error));
                     writeSseData(outputStream, "[DONE]");
                 } catch (Exception writeError) {
@@ -352,8 +352,8 @@ public class LlmController {
         }
         Map<String, Object> error = Map.of(
             "message", e.getMessage() != null ? e.getMessage() : "Internal Gateway Error",
-            "type", "gateway_error",
-            "code", "model_unavailable"
+            "type", "server_error",
+            "code", "pipeline_exhausted"
         );
         return ResponseEntity.status(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE)
                 .contentType(MediaType.APPLICATION_JSON)

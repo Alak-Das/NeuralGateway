@@ -163,6 +163,9 @@ public class LlmGatewayFacade {
                     redisPersistenceService.incrementRequesterUsage(requester, tokensUsed);
                 }
 
+                if (requestedModelObj instanceof String requestedModelAlias) {
+                    response.put("model", requestedModelAlias);
+                }
                 return response;
 
             } catch (LlmProviderClient.UpstreamServiceException e) {
@@ -292,6 +295,13 @@ public class LlmGatewayFacade {
             Flux<String> upstream;
             try {
                 upstream = LlmProviderClient.callStream(model.getId(), upstreamRequest)
+                        .map(chunk -> {
+                            Object requestedModelObj = requestBody.get("model");
+                            if (requestedModelObj instanceof String requestedModelAlias && chunk.startsWith("{")) {
+                                return chunk.replaceAll("\"model\"\\s*:\\s*\"[^\"]+\"", "\"model\":\"" + requestedModelAlias + "\"");
+                            }
+                            return chunk;
+                        })
                         .doOnNext(event -> emittedAnyData.set(true))
                         .doOnComplete(() -> {
                             long latency = System.currentTimeMillis() - startTime;
@@ -387,10 +397,7 @@ public class LlmGatewayFacade {
                 .filter(Model::isEnabled)
                 .map(Model::getProviderId).collect(Collectors.toSet());
         Map<String, String> unavailable = Map.of();
-        String message = unavailable.isEmpty()
-                ? "No eligible models remain for pipeline: " + pipeline.name().toLowerCase()
-                : "No eligible provider remains for pipeline " + pipeline.name().toLowerCase()
-                + ". Provider state: " + unavailable;
+        String message = String.format("All available models for the '%s' pipeline are currently exhausted or rate-limited.", pipeline.name().toLowerCase());
         return cause == null ? new IllegalStateException(message) : new IllegalStateException(message, cause);
     }
 
