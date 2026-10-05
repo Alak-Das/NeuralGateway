@@ -278,7 +278,7 @@ export default function Charts({ data }: ChartsProps) {
       uses: getModelRequestsForRange(d, usageRangeMins)
     }));
 
-    const activeModelsList = modelsWithUsage.filter(d => d.uses > 0);
+    const activeModelsList = modelsWithUsage.filter(d => d.uses > 0).sort((a, b) => b.uses - a.uses);
     const fallbackData = [{ model: 'No Traffic in Period', uses: 1 }];
     const displayDataList = activeModelsList.length > 0 ? activeModelsList : (data.length > 0 ? fallbackData : []);
     
@@ -440,9 +440,14 @@ export default function Charts({ data }: ChartsProps) {
                         <span className="rounded-circle me-2 flex-shrink-0 shadow-sm" style={{ width: '10px', height: '10px', backgroundColor: bgColors[i] }}></span>
                         <span className="text-main text-truncate fw-medium" title={d.model}>{name}</span>
                       </div>
-                      <span className="badge bg-secondary bg-opacity-25 text-main font-monospace px-2 py-1 flex-shrink-0" style={{ fontSize: '0.75rem' }}>
-                        {formatNumber(d.uses)}
-                      </span>
+                      <div className="d-flex align-items-center gap-2">
+                        <span className="text-muted" style={{ fontSize: '0.75rem' }}>
+                          {totalRequests > 0 ? ((d.uses / totalRequests) * 100).toFixed(1) : 0}%
+                        </span>
+                        <span className="badge bg-secondary bg-opacity-25 text-main font-monospace px-2 py-1 flex-shrink-0" style={{ fontSize: '0.75rem' }}>
+                          {formatNumber(d.uses)}
+                        </span>
+                      </div>
                     </div>
                   );
                 })
