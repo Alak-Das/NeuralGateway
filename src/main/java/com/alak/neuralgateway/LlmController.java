@@ -39,11 +39,16 @@ public class LlmController {
     private final LlmGatewayFacade gatewayFacade;
     private final PipelineResolverService pipelineResolver;
     private final com.alak.neuralgateway.service.ModelRegistry modelRegistry;
+    private final com.alak.neuralgateway.service.TelemetryTraceService telemetryTraceService;
 
-    public LlmController(LlmGatewayFacade gatewayFacade, PipelineResolverService pipelineResolver, com.alak.neuralgateway.service.ModelRegistry modelRegistry) {
+    public LlmController(LlmGatewayFacade gatewayFacade, 
+                         PipelineResolverService pipelineResolver, 
+                         com.alak.neuralgateway.service.ModelRegistry modelRegistry,
+                         com.alak.neuralgateway.service.TelemetryTraceService telemetryTraceService) {
         this.gatewayFacade = gatewayFacade;
         this.pipelineResolver = pipelineResolver;
         this.modelRegistry = modelRegistry;
+        this.telemetryTraceService = telemetryTraceService;
     }
 
     // ==========================================
@@ -199,6 +204,16 @@ public class LlmController {
     @GetMapping("/api/requesters/status")
     public List<Map<String, Object>> getRequesterStatus() {
         return gatewayFacade.getRequesterTelemetry();
+    }
+
+    @Operation(
+        summary = "Get live traces",
+        description = "Returns the latest live request traces for the dashboard.",
+        tags = {"Telemetry"}
+    )
+    @GetMapping("/api/telemetry/traces")
+    public List<com.alak.neuralgateway.service.TelemetryTraceService.TraceLog> getLiveTraces() {
+        return telemetryTraceService.getLatestTraces();
     }
 
     // ==========================================

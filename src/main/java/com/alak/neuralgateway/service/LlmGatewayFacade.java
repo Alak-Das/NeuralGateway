@@ -46,6 +46,7 @@ public class LlmGatewayFacade {
     private final RoutingProperties routingProperties;
     private final RedisPersistenceService redisPersistenceService;
     private final ObjectMapper objectMapper;
+    private final TelemetryTraceService telemetryTraceService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public LlmGatewayFacade(ModelRegistry modelRegistry,
@@ -58,7 +59,8 @@ public class LlmGatewayFacade {
                             SseNotificationService sseNotificationService,
                             RoutingProperties routingProperties,
                             RedisPersistenceService redisPersistenceService,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper,
+                            TelemetryTraceService telemetryTraceService) {
         this.modelRegistry = modelRegistry;
         this.routingService = routingService;
         this.healthCheckService = healthCheckService;
@@ -70,6 +72,7 @@ public class LlmGatewayFacade {
         this.routingProperties = routingProperties;
         this.redisPersistenceService = redisPersistenceService;
         this.objectMapper = objectMapper;
+        this.telemetryTraceService = telemetryTraceService;
     }
 
     /**
@@ -152,6 +155,7 @@ public class LlmGatewayFacade {
                 // Update telemetry and health status on success
                 recordProviderSuccess(model);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), true, latency, java.time.Instant.now(), null));
+                telemetryTraceService.recordTrace(requester, model.getId(), latency, true, pipelineName);
 
                 // Normalize tool calls
                 toolCallNormalizer.normalizeToolCalls(response, requestBody, transactionId);
@@ -178,6 +182,7 @@ public class LlmGatewayFacade {
                         transactionId, model.getId(), latency, e.getMessage());
                 recordProviderFailure(model, e);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
+                telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName);
                 continue;
             } catch (IllegalArgumentException e) {
                 long latency = System.currentTimeMillis() - startTime;
@@ -198,6 +203,7 @@ public class LlmGatewayFacade {
                         transactionId, model.getId(), latency, e.getMessage());
                 recordProviderFailure(model, e);
                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
+                telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName);
                 continue;
             } finally {
                 // Release exactly once for success, failover, and exceptions thrown
@@ -309,6 +315,7 @@ public class LlmGatewayFacade {
                                 recordProviderSuccess(model);
                                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
                                         model.getId(), true, latency, java.time.Instant.now(), null));
+                                telemetryTraceService.recordTrace(requester, model.getId(), latency, true, pipelineName);
                             }
                             if (estimatedTokens > 0 && requester != null && !requester.isEmpty()) {
                                 redisPersistenceService.incrementRequesterUsage(requester, estimatedTokens);
@@ -334,6 +341,7 @@ public class LlmGatewayFacade {
                     recordProviderFailure(model, error);
                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
                             model.getId(), false, latency, java.time.Instant.now(), error.getMessage()));
+                    telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName);
                 }
 
                 boolean canFailOver = !emittedAnyData.get() && recordAsFailure;
