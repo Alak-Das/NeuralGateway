@@ -23,7 +23,7 @@ import jakarta.annotation.PreDestroy;
 public class HealthCheckService {
 
     private static final Logger log = LoggerFactory.getLogger(HealthCheckService.class);
-    private static final long HEALTH_CHECK_INTERVAL_MS = 120_000;
+    private static final long HEALTH_CHECK_INTERVAL_MS = 60_000;
     private static final long STAGGER_DELAY_MS = 15_000;
 
     private final HealthCheckProperties properties;

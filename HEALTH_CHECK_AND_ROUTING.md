@@ -8,7 +8,7 @@ This process runs independently of incoming requests to maintain an up-to-date s
 
 * **Staggered Startup:** Iterate through the sorted list and spawn a new dedicated thread for each model. Wait **15 seconds** before starting the thread for the next model.
 
-* **Thread Execution Loop (Repeats every 120 seconds):**
+* **Thread Execution Loop (Repeats every 60 seconds):**
 
   1. Send a health check request for the model. Fetch the required API key for this model using the Round Robin logic.
 
@@ -18,7 +18,7 @@ This process runs independently of incoming requests to maintain an up-to-date s
 
   4. If the request fails or times out: Update the model's status to **UNAVAILABLE**.
 
-  5. Sleep for **120 seconds** before triggering the next check.
+  5. Sleep for **60 seconds** before triggering the next check.
 
 ## 2. API Key Management (Round Robin)
 
