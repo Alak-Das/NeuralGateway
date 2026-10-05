@@ -156,26 +156,11 @@ public class HealthCheckService {
         if (actual == null) {
             return false;
         }
-        if (requested.equals(actual)) {
+        if (allowQualified) {
+            // For providers that allow qualified model IDs (like AntSeed), accept any returned model name.
             return true;
         }
-        if (!allowQualified) {
-            return false;
-        }
-        String requestedLower = requested.toLowerCase(Locale.ROOT);
-        String actualLower = actual.toLowerCase(Locale.ROOT);
-        if (requestedLower.equals(actualLower)) {
-            return true;
-        }
-        if (actualLower.endsWith("/" + requestedLower)) {
-            return true;
-        }
-        for (String token : requestedLower.split("[-/._]")) {
-            if (!token.isEmpty() && !actualLower.contains(token)) {
-                return false;
-            }
-        }
-        return true;
+        return requested.equals(actual);
     }
 
     @PreDestroy
