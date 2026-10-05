@@ -70,7 +70,8 @@ class LlmGatewayFacadeTest {
                 sseNotificationService,
                 routingProperties,
                 redisPersistenceService,
-                objectMapper
+                objectMapper,
+                mock(TelemetryTraceService.class)
         );
 
         modelA = new Model("model-a", "Model A", "provider-alpha", Set.of(Pipeline.CODING), 32000, 10, ModelCapabilities.NONE);

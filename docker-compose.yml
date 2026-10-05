@@ -12,15 +12,24 @@ services:
     - ANTSEED_API_KEY=${ANTSEED_API_KEY}
     - REDIS_HOST=redis
     - LLM_HEALTH_CHECK_ENABLED=${LLM_HEALTH_CHECK_ENABLED:-true}
+    - LOG_PATH=/var/log/neural-gateway
     depends_on:
       redis:
         condition: service_healthy
     networks:
     - gateway
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    volumes:
+      - neural-gateway-logs:/var/log/neural-gateway
   redis:
     image: redis:7-alpine
     container_name: NeuralGateway-Redis
-    command: redis-server --stop-writes-on-bgsave-error no --save 60 1
+    command: redis-server --stop-writes-on-bgsave-error no --save 60 1 --loglevel notice
     volumes:
     - ./redis-data:/data
     healthcheck:
@@ -31,6 +40,12 @@ services:
       start_period: 5s
     networks:
     - gateway
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: NeuralGateway-WebUI
@@ -46,7 +61,16 @@ services:
     - gateway
     volumes:
     - ./open-webui-data:/app/backend/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+        compress: "true"
 
 networks:
   gateway:
     driver: bridge
+
+volumes:
+  neural-gateway-logs:

@@ -12,6 +12,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
@@ -59,6 +60,10 @@ public class HealthCheckService {
             final long initialDelay = (long) i * STAGGER_DELAY_MS;
 
             healthCheckExecutor.submit(() -> {
+                // Set MDC context for this health check thread
+                String healthCheckTxId = "health-" + model.getId().replace("/", "-").replace(".", "-");
+                MDC.put("txId", healthCheckTxId);
+                MDC.put("requester", "HealthCheckService");
                 Thread.currentThread().setName("health-check-" + model.getId());
                 try { 
                     Thread.sleep(initialDelay); 
@@ -67,22 +72,26 @@ public class HealthCheckService {
                     return; 
                 }
                 
-                log.info("Background health check loop started for model: {}", model.getId());
+                 log.info("Background health check loop started for model: {}", model.getId());
 
-                while (running && !Thread.currentThread().isInterrupted()) {
-                    try {
-                        HealthCheckResult result = performActualPing(model.getId());
-                        modelStatusUpdater.updateStatus(model.getId(), result);
-                        log.debug("Health check for '{}': {} ({}ms)", model.getId(), result.isUp() ? "UP" : "DOWN", result.getLatencyMs());
-                    } catch (Exception e) {
-                        log.error("Unexpected error in health check thread for '{}'", model.getId(), e);
+                try {
+                    while (running && !Thread.currentThread().isInterrupted()) {
+                        try {
+                            HealthCheckResult result = performActualPing(model.getId());
+                            modelStatusUpdater.updateStatus(model.getId(), result);
+                            log.debug("Health check for '{}': {} ({}ms)", model.getId(), result.isUp() ? "UP" : "DOWN", result.getLatencyMs());
+                        } catch (Exception e) {
+                            log.error("Unexpected error in health check thread for '{}'", model.getId(), e);
+                        }
+                        try {
+                            Thread.sleep(HEALTH_CHECK_INTERVAL_MS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
                     }
-                    try { 
-                        Thread.sleep(HEALTH_CHECK_INTERVAL_MS); 
-                    } catch (InterruptedException e) { 
-                        Thread.currentThread().interrupt(); 
-                        break; 
-                    }
+                } finally {
+                    MDC.clear();
                 }
             });
         }
