@@ -246,6 +246,48 @@ This standard OpenAI interface works seamlessly with Open WebUI, Cline, Cursor, 
 
 ---
 
+## 📝 Logging & Observability
+
+Neural Gateway implements structured JSON logging for production-grade observability:
+
+### Structured JSON Logs
+- **Format**: All logs output as JSON using Logstash Logback Encoder
+- **Fields**: timestamp (UTC), level, logger, thread, mdc (txId, requester), message, stackTrace
+- **Correlation**: Every request gets a unique `txId` (X-Transaction-Id header or auto-generated) and `requester` (X-Requester header)
+- **Virtual Thread Support**: MDC context properly propagated to Java 21 virtual threads in health checks
+
+### Log Rotation & Retention
+- **Application Logs**: Rolling files with 100MB max size, 14-day history, 2GB total cap
+- **Error Logs**: Separate error-only files with 50MB max size, 30-day history, 1GB total cap
+- **Docker Logging**: JSON-file driver with 50MB max size, 5 files, compression enabled
+- **Redis Logs**: Limited to notice level with 10MB max size, 3 files
+
+### Audit Logging
+Structured audit events for critical operations:
+- **ROUTING_DECISION** - Model selection with reasoning and candidate count
+- **FAILOVER** - Automatic failover events with from/to model and error
+- **CIRCUIT_BREAKER** - Circuit breaker state changes
+- **MODEL_STATUS_CHANGE** - Model UP/DOWN transitions with latency
+- **RATE_LIMIT** - Rate limiting events with remaining requests
+- **AUTH_FAILURE** - Authentication/authorization failures
+
+### HTTP Request Tracing
+- **RequestResponseLoggingFilter** captures full request/response lifecycle
+- **Headers**: X-Transaction-Id (correlation), X-Requester (identity)
+- **Metrics**: Method, URI, status code, duration in milliseconds
+
+### Configuration
+```yaml
+logging:
+  level:
+    com.alak.neuralgateway: DEBUG
+    com.alak.neuralgateway.service.HealthCheckService: INFO
+    com.alak.neuralgateway.service.ModelStatusService: INFO
+    com.alak.neuralgateway.service.RedisPersistenceService: INFO
+```
+
+---
+
 ## 📚 Documentation
 - **[Product Requirements Document (PRD)](PRD.md)** — Product vision, problem statement, and requirements.
 - **[Design Document](DESIGN.md)** — Architecture overview, system layers, and technical design.
