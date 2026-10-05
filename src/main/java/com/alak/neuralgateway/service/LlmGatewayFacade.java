@@ -382,7 +382,13 @@ public class LlmGatewayFacade {
             return true;
         }
 
-        if (error instanceof LlmProviderClient.UpstreamServiceException) {
+        if (error instanceof LlmProviderClient.UpstreamServiceException e) {
+            // Isolate model-level overloads/timeouts from provider-level cooldowns.
+            // A 503 (Overload) or 504 (Timeout) on one model should NOT bring down the entire provider.
+            if (e.getStatusCode() == 503 || e.getStatusCode() == 504) {
+                return false; // The model itself is marked DOWN, but the provider is spared.
+            }
+
             int consecutive = redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
             if (consecutive >= routingProperties.getConsecutiveErrorThreshold()) {
                 Duration cooldown = Duration.ofSeconds(routingProperties.getProviderErrorCooldownSeconds());
