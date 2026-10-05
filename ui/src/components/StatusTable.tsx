@@ -9,8 +9,6 @@ interface StatusTableProps {
 export default function StatusTable({ data }: StatusTableProps) {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [sortCol, setSortCol] = useState('model');
-  const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc');
 
   const [editingModel, setEditingModel] = useState<ModelStatus | null>(null);
   const [editEnabled, setEditEnabled] = useState(true);
@@ -46,15 +44,6 @@ export default function StatusTable({ data }: StatusTableProps) {
     }
   };
 
-
-  const handleSort = (col: string) => {
-    if (sortCol === col) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortCol(col);
-      setSortDir('asc');
-    }
-  };
 
 
 
@@ -126,29 +115,27 @@ export default function StatusTable({ data }: StatusTableProps) {
       else if (statusFilter === 'down') statusMatch = getStatus(d) === 'down';
       return catMatch && statusMatch;
     }).sort((a, b) => {
-      let valA: any = 0; let valB: any = 0;
-      switch (sortCol) {
-        case 'model': valA = a.model; valB = b.model; break;
-        case 'status':
-          valA = getStatus(a) === 'up' ? 1 : 0;
-          valB = getStatus(b) === 'up' ? 1 : 0;
-          break;
-        case 'latency': valA = a.latencyMs; valB = b.latencyMs; break;
-        case 'tps': valA = getModelRpm(a); valB = getModelRpm(b); break;
-        case 'uses': valA = a.totalUses; valB = b.totalUses; break;
-        case 'conns': valA = a.activeConnections; valB = b.activeConnections; break;
-        case 'error': valA = a.errorMessage || ''; valB = b.errorMessage || ''; break;
-        case 'updated': valA = a.lastChecked ? new Date(a.lastChecked).getTime() : 0; valB = b.lastChecked ? new Date(b.lastChecked).getTime() : 0; break;
-        default: valA = a.model; valB = b.model;
+      const getScore = (m: ModelStatus) => {
+        if (isDisabled(m)) return 0;
+        return getStatus(m) === 'up' ? 2 : 1;
+      };
+      
+      const scoreA = getScore(a);
+      const scoreB = getScore(b);
+      
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA;
       }
-      if (valA < valB) return sortDir === 'asc' ? -1 : 1;
-      if (valA > valB) return sortDir === 'asc' ? 1 : -1;
-      if (sortCol === 'status') {
-        return (b.priority ?? 0) - (a.priority ?? 0);
+      
+      const prioA = a.priority ?? 0;
+      const prioB = b.priority ?? 0;
+      if (prioA !== prioB) {
+        return prioB - prioA;
       }
-      return 0;
+      
+      return a.model.localeCompare(b.model);
     });
-  }, [data, categoryFilter, statusFilter, sortCol, sortDir]);
+  }, [data, categoryFilter, statusFilter]);
 
   const exportCSV = () => {
     const headers = ['Model', 'Categories', 'Status', 'Latency (ms)', 'RPM', 'Total Uses', 'Active Conns', 'Last Error', 'Last Check'];
@@ -170,11 +157,6 @@ export default function StatusTable({ data }: StatusTableProps) {
     link.href = URL.createObjectURL(blob);
     link.download = `neural-gateway-status-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
     link.click();
-  };
-
-  const getSortIcon = (col: string) => {
-    if (sortCol !== col) return <i className="bi bi-arrow-down-up sort-icon"></i>;
-    return <i className={`bi bi-arrow-${sortDir === 'asc' ? 'up' : 'down'} sort-icon`}></i>;
   };
 
   return (
@@ -214,15 +196,15 @@ export default function StatusTable({ data }: StatusTableProps) {
         <table className="table table-hover align-middle">
           <thead>
             <tr>
-              <th className="sortable px-4" onClick={() => handleSort('model')}>Model {getSortIcon('model')}</th>
+              <th className="px-4">Model</th>
               <th className="px-4">Category</th>
-              <th className="sortable px-4" onClick={() => handleSort('status')}>Status {getSortIcon('status')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('latency')}>Latency {getSortIcon('latency')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('tps')}>RPM {getSortIcon('tps')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('uses')}>Total Uses {getSortIcon('uses')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('conns')}>Active Conns {getSortIcon('conns')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('error')}>Last Error {getSortIcon('error')}</th>
-              <th className="sortable px-4" onClick={() => handleSort('updated')}>Last Check {getSortIcon('updated')}</th>
+              <th className="px-4">Status</th>
+              <th className="px-4">Latency</th>
+              <th className="px-4">RPM</th>
+              <th className="px-4">Total Uses</th>
+              <th className="px-4">Active Conns</th>
+              <th className="px-4">Last Error</th>
+              <th className="px-4">Last Check</th>
               <th className="px-4">Actions</th>
             </tr>
           </thead>
