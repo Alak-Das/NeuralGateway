@@ -157,6 +157,7 @@ public class LlmProvidersProperties {
          */
         private boolean enabled = true;
         private Map<Model.Pipeline, Integer> pipelinePriorities;
+        private Integer timeoutMs;
 
         public String getId() {
             return id;
@@ -204,6 +205,14 @@ public class LlmProvidersProperties {
 
         public void setPipelinePriorities(Map<Model.Pipeline, Integer> pipelinePriorities) {
             this.pipelinePriorities = pipelinePriorities;
+        }
+
+        public Integer getTimeoutMs() {
+            return timeoutMs;
+        }
+
+        public void setTimeoutMs(Integer timeoutMs) {
+            this.timeoutMs = timeoutMs;
         }
     }
 }

@@ -41,7 +41,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                 .build();
 
         HttpClient httpClient = HttpClient.create(connectionProvider)
-                .responseTimeout(Duration.ofSeconds(120));
+                .responseTimeout(Duration.ofSeconds(300));
 
         this.webClient = webClientBuilder
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
@@ -77,15 +77,22 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
         for (int attempt = 0; attempt < attemptsRemaining; attempt++) {
             String apiKey = getApiKeyForModel(model);
                         try {
-                Map<String, Object> response = webClient.post()
+                reactor.core.publisher.Mono<Map> mono = webClient.post()
                         .uri(baseUrl + "/chat/completions")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(request)
                         .retrieve()
-                        .bodyToMono(Map.class)
-                        .block();
-                                return response;
+                        .bodyToMono(Map.class);
+                        
+                if (model.getTimeoutMs() != null) {
+                    mono = mono.timeout(Duration.ofMillis(model.getTimeoutMs()));
+                } else {
+                    mono = mono.timeout(Duration.ofSeconds(120)); // default
+                }
+                
+                Map<String, Object> response = mono.block();
+                return response;
             } catch (WebClientResponseException e) {
                 RuntimeException mapped = mapWebClientException(e, model.getProviderId(), apiKey, modelId);
                 if (mapped instanceof ProviderFailureException failure && pool != null) {
@@ -142,15 +149,23 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
             upstreamRequest.put("model", modelId);
             upstreamRequest.put("stream", true);
             
-            return webClient.post()
+            reactor.core.publisher.Flux<String> flux = webClient.post()
                     .uri(baseUrl + "/chat/completions")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.TEXT_EVENT_STREAM)
                     .bodyValue(upstreamRequest)
                     .retrieve()
-                    .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
-                    .mapNotNull(ServerSentEvent::data)
+                    .bodyToFlux(new org.springframework.core.ParameterizedTypeReference<org.springframework.http.codec.ServerSentEvent<String>>() {})
+                    .mapNotNull(org.springframework.http.codec.ServerSentEvent::data);
+
+            if (model.getTimeoutMs() != null) {
+                flux = flux.timeout(Duration.ofMillis(model.getTimeoutMs()));
+            } else {
+                flux = flux.timeout(Duration.ofSeconds(120)); // default
+            }
+
+            return flux
                     .doOnNext(data -> {
                         RuntimeException embeddedFailure = mapEmbeddedStreamError(
                                 data, model.getProviderId(), apiKey, modelId);

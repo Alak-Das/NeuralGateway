@@ -18,19 +18,26 @@ public class Model {
     private final Map<Pipeline, Integer> pipelinePriorities;
     private final ModelCapabilities capabilities;
     private final boolean enabled;
+    private final Integer timeoutMs;
 
     public Model(String id, String name, String providerId, Set<Pipeline> pipelines, int contextLimit, int priority, ModelCapabilities capabilities) {
-        this(id, name, providerId, pipelines, contextLimit, priority, Map.of(), capabilities, true);
+        this(id, name, providerId, pipelines, contextLimit, priority, Map.of(), capabilities, true, null);
     }
 
     public Model(String id, String name, String providerId, Set<Pipeline> pipelines, int contextLimit,
                  int priority, Map<Pipeline, Integer> pipelinePriorities, ModelCapabilities capabilities) {
-        this(id, name, providerId, pipelines, contextLimit, priority, pipelinePriorities, capabilities, true);
+        this(id, name, providerId, pipelines, contextLimit, priority, pipelinePriorities, capabilities, true, null);
     }
 
     public Model(String id, String name, String providerId, Set<Pipeline> pipelines, int contextLimit,
                  int priority, Map<Pipeline, Integer> pipelinePriorities, ModelCapabilities capabilities,
                  boolean enabled) {
+        this(id, name, providerId, pipelines, contextLimit, priority, pipelinePriorities, capabilities, enabled, null);
+    }
+
+    public Model(String id, String name, String providerId, Set<Pipeline> pipelines, int contextLimit,
+                 int priority, Map<Pipeline, Integer> pipelinePriorities, ModelCapabilities capabilities,
+                 boolean enabled, Integer timeoutMs) {
         this.id = id;
         this.name = name;
         this.providerId = providerId;
@@ -42,10 +49,15 @@ public class Model {
         this.pipelinePriorities = Collections.unmodifiableMap(priorities);
         this.capabilities = capabilities != null ? capabilities : ModelCapabilities.NONE;
         this.enabled = enabled;
+        this.timeoutMs = timeoutMs;
     }
 
     public String getId() {
         return id;
+    }
+
+    public Integer getTimeoutMs() {
+        return timeoutMs;
     }
 
     public String getName() {

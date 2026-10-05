@@ -70,7 +70,8 @@ public class ModelRegistry {
                             modelConfig.getPriority(),
                             modelConfig.getPipelinePriorities(),
                             determineCapabilities(modelId.trim(), modelConfig.getPipelines()),
-                            modelConfig.isEnabled()
+                            modelConfig.isEnabled(),
+                            modelConfig.getTimeoutMs()
                     );
                     
                     // If a model is defined multiple times (shouldn't happen in proper YAML), overwrite
@@ -181,7 +182,8 @@ public class ModelRegistry {
                 priority,
                 existing.getPipelinePriorities(),
                 existing.getCapabilities(),
-                enabled
+                enabled,
+                existing.getTimeoutMs()
         );
         modelCatalog.put(modelId, updated);
     }
