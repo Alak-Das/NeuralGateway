@@ -64,7 +64,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 
 - **Framework**: Spring Boot 3.3.4 (Java 21 with Virtual Threads)
 - **Reactive Engine**: Spring WebFlux (`WebClient`) with Connection Pooling & Keep-Alive
-- **Resilience & Fault Tolerance**: Resilience4j CircuitBreaker, ShedLock Distributed Locking
+- **Resilience & Fault Tolerance**: Redis-Based Provider Cooldowns & Error Tracking, ShedLock Distributed Locking
 - **Data & Telemetry**: Redis 7 Alpine (persistent volume, Pub/Sub SSE)
 - **Frontend**: React 19, TypeScript, Vite, Chart.js, Bootstrap Icons
 - **UI Integration**: Open WebUI (ghcr.io/open-webui/open-webui:main)

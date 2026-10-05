@@ -39,8 +39,8 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
       +-----------------+------------------+                           |
                         |                                            |
       +-----------------v------------------+       +------------------v------------------+
-      |    CircuitBreakerService           |       |   HealthCheckService               |
-      |   (Fault tolerance via Resilience4j)|       | (Periodic + recovery sweeps, ShedLock)|
+      |    ProviderCooldownManager           |       |   HealthCheckService               |
+      |   (Redis-based cooldowns & tracking)|       | (Periodic + recovery sweeps, ShedLock)|
       +-----------------+------------------+       +------------------+------------------+
                         |                                |
       +-----------------v------------------+       +------v--------+     +--------------v-----------+
@@ -79,7 +79,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - `GET /api/models/status/stream` - SSE stream of model status updates
 - `GET /api/requesters/status` - Requester telemetry/usage statistics
 - `POST /api/models/ping?model={name}` - Manual health check trigger
-- `POST /api/models/circuit-reset?model={name}` - Manual circuit breaker reset
+- `POST /api/models/cooldown-reset?model={name}` - Manual provider cooldown reset
 
 ### 2. Service Layer
 
@@ -116,46 +116,44 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - **Routing Score Calculation**: `score = emaLatency + (activeConnections * connectionPenaltyMs)`
 - **EMA (Exponential Moving Average)**: `newEma = α * latency + (1-α) * currentEma` where α = 0.1
 - **Model Selection**: Sort by routing score (ascending), filter by health and context window
-- **Fallback Selection**: Healthy models first, then models with non-OPEN circuit breakers
+- **Fallback Selection**: Healthy models first, then models not in provider cooldown
 - **Emergency Mode**: If no candidates available, return top models by score as canary probes
 
 **Telemetry Structures:**
 - `Map<String, AtomicInteger> activeConnectionsMap` - Thread-safe connection counting
 - `Map<String, Double> emaLatencyMap` - EMA latency storage per model
 
-#### CircuitBreakerService
+#### ProviderCooldownManager
 **Responsibilities:**
-- Implement circuit breaker pattern using Resilience4j for fault tolerance
-- Isolate failing models to prevent cascading failures
-- Manage circuit breaker state transitions (CLOSED → OPEN → HALF_OPEN → CLOSED)
-- Persist circuit state to Redis for consistency across instances
-- Provide manual reset and force-open capabilities for operations
-- Force-close OPEN/HALF_OPEN/FORCED_OPEN breakers via markHealthy() after a verified healthy probe, syncing the CLOSED state to Redis so a recovered model unblocks immediately
-- Execute protected calls with automatic success/failure recording
+- Track provider health and errors using Redis-based cooldowns (no Resilience4j circuit breaker)
+- Isolate failing providers to prevent cascading failures by recording consecutive errors in Redis
+- Manage provider cooldown state: active (healthy) or cooling down (after consecutive 5xx/429 errors)
+- Persist cooldown state to Redis for consistency across gateway instances
+- Provide automatic recovery: cooldowns expire after configured timeout, restoring traffic to healthy providers
+- Execute protected calls with automatic success/failure recording and cooldown management
 
-**Configuration (from CircuitBreakerProperties):**
-- `failureThreshold`: 3 consecutive failures to trip breaker
-- `successThreshold`: 2 successful calls to close from HALF_OPEN
-- `resetTimeoutMs`: 30000ms (30 seconds) wait in OPEN state
-- `autoRecoveryEnabled`: true (automatic transition from OPEN to HALF_OPEN)
+**Configuration (from ProviderCooldownProperties):**
+- `maxConsecutiveErrors`: 3 consecutive server errors (5xx) or rate limits (429) to trigger cooldown
+- `cooldownDurationMs`: 30000ms (30 seconds) default cooldown period
+- `enabled`: true (provider cooldown tracking enabled by default)
 
 **State Persistence:**
-- Circuit OPEN/CLOSED state stored in Redis
-- Consecutive error counts persisted for recovery
-- State transition listeners update Redis on changes
+- Provider cooldown state stored in Redis with TTL
+- Consecutive error counts persisted for recovery tracking
+- State automatically expires based on cooldown duration
 
 #### HealthCheckService
 **Responsibilities:**
-- Perform periodic asynchronous health checks on all registered models
+- Perform periodic asynchronous health checks on all registered models using Java 21 Virtual Threads
 - Utilize ShedLock for distributed locking to prevent duplicate sweeps
-- Execute health checks in parallel using a thread pool
+- Execute health checks in parallel using virtual thread executor
 - Stagger individual pings to avoid thundering herd problems
 - Update model status and telemetry based on check results
-- Trigger circuit breaker updates based on health outcomes
+- Update provider cooldown state based on health outcomes (clear cooldown on success)
 - Run an independent recovery sweep that re-probes only models flagged unhealthy by routed failures, honouring per-model exponential backoff via `ModelRecoveryTracker`
 - Accept routed-failure/success notifications from the gateway facade so recovery probes are scheduled/cleared without waiting for the full sweep (`recordRoutedFailure` / `recordRoutedSuccess`)
 - Verify the upstream-reported `model` ID against the requested model on every ping; by default this is an exact match, and a missing/mismatched ID fails the probe. Providers that opt in via `allowQualifiedModelIds` (e.g. Antseed, an aggregator that echoes provider-qualified canonical IDs) additionally accept tolerant matches (see `modelIdMatches` below)
-- On a successful probe, close any stale OPEN circuit (`CircuitBreakerService.markHealthy`) — e.g. one restored from Redis — and sync the CLOSED state to Redis, so routing and the dashboard unblock immediately instead of waiting for the passive half-open timeout
+- On a successful probe, clear any active provider cooldown via `ProviderCooldownManager.markHealthy()` — e.g. one restored from Redis — and sync the healthy state to Redis, so routing and the dashboard unblock immediately
 
 **Scheduling Configuration:**
 - `initialDelayMs`: 5000ms (5 seconds) initial delay
@@ -175,7 +173,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 3. Execute actual ping call to LLM API with minimal request (max_tokens=pingMaxTokens, default 16)
 4. Measure latency and determine success/failure
 5. Update routing service EMA latency on success
-6. Record success/failure in circuit breaker service
+6. Record success/failure in provider cooldown manager
 7. Persist result to Redis via RedisPersistenceService
 8. Update in-memory model status via ModelStatusUpdater (triggers SSE broadcast)
 
@@ -244,15 +242,15 @@ Each provider defines:
 **Responsibilities:**
 - Persist gateway state to Redis for sharing across instances
 - Store health check results for historical analysis
-- Maintain circuit breaker state consistency
+- Maintain provider cooldown state consistency
 - Store requester telemetry/usage statistics
 - Enable zero cold-start lag through state restoration
 - Provide Pub/Sub mechanism for real-time status broadcasting
 
 **Stored Data Types:**
 - Health check results: `health:{modelId}` → serialized HealthCheckResult
-- Circuit breaker state: `circuit:open:{modelId}` → boolean
-- Consecutive error counts: `circuit:errors:{modelId}` → integer
+- Provider cooldown state: `cooldown:{providerId}` → boolean with TTL
+- Consecutive error counts: `cooldown:errors:{providerId}` → integer
 - Requester usage: `usage:{requester}` → incrementing counter
 - Model status: `status:{modelId}` → serialized ModelStatus
 - Health check history: `health:history:{modelId}` → list of recent results
@@ -260,7 +258,7 @@ Each provider defines:
 
 **Pub/Sub Channels:**
 - `model:status:updates` - Broadcast ModelStatus changes for SSE consumers
-- `gateway:events` - System-wide events (circuit trips, recoveries, etc.)
+- `gateway:events` - System-wide events (cooldown activations, recoveries, etc.)
 
 #### LlmProviderClient
 **Responsibilities:**
@@ -396,14 +394,14 @@ data: {"timestamp":"2026-09-27T10:30:05Z","instanceId":"neural-gateway-1"}
 - `errorMessage`: Error description if model is down
 - `consecutiveFailures`: Count of consecutive failed health checks
 - `tps`: Transactions per second (real-time metric)
-- `circuitState`: Current circuit breaker state (CLOSED/OPEN/HALF_OPEN)
+- `cooldownState`: Current provider cooldown state (ACTIVE/COOLING_DOWN)
 
 #### HealthCheckResult
 **Responsibilities:**
 - Value object representing the outcome of a single health check
 - Used internally during health check processing
 - Contains detailed information about check execution
-- Basis for updating model status and circuit breakers
+- Basis for updating model status and provider cooldowns
 
 **Attributes:**
 - `modelId`: Identifier of the model checked
@@ -433,7 +431,7 @@ data: {"timestamp":"2026-09-27T10:30:05Z","instanceId":"neural-gateway-1"}
 - **Server**: Port settings, logging levels
 - **SpringDoc**: Swagger UI configuration
 - **Spring**: Thread configuration, Redis connection
-- **Resilience4j**: Retry configuration for NVIDIA API calls
+- **Provider Cooldown**: Retry and cooldown configuration for provider calls
 - **LLM**: Provider configuration, logging, health check settings
 - **Routing**: Connection penalty, context validation, fallback attempts
 - **Health Check**: Enabled status, interval, thread pool, timeouts, recovery sweep
@@ -482,17 +480,16 @@ health-check:
   ping-max-tokens: 16
   prioritize-by-ema: true
 
-circuit-breaker:
-  failure-threshold: 3
-  success-threshold: 2
-  reset-timeout-ms: 30000
-  auto-recovery-enabled: true
+provider-cooldown:
+  max-consecutive-errors: 3
+  cooldown-duration-ms: 30000
+  enabled: true
 ```
 
 #### Configuration Properties Classes
 - `RoutingProperties` - Maps routing.* configuration
 - `HealthCheckProperties` - Maps health-check.* configuration
-- `CircuitBreakerProperties` - Maps circuit-breaker.* configuration
+- `ProviderCooldownProperties` - Maps provider-cooldown.* configuration
 - `LlmProvidersProperties` - Maps llm.providers.* configuration
 - Each uses `@ConfigurationProperties` and `@Validated` for type safety
 
@@ -551,7 +548,7 @@ circuit-breaker:
    e. Retrieve candidate models via RoutingService.selectModels()
       ↓
    f. For each candidate model:
-      i. Check circuit breaker permission
+      i. Check provider cooldown status
       ii. Acquire API key from provider's pool
       iii. Increment active connections counter
       iv. Execute LLM provider call with timing
@@ -583,8 +580,8 @@ circuit-breaker:
       iii. Measure latency and capture result/exception
       ↓
    e. UpdateModelStatusFromResult():
-      i. If success: update EMA latency in RoutingService, record success in CircuitBreakerService, then call markHealthy() to force-close any stale OPEN/HALF_OPEN circuit and sync CLOSED state to Redis
-      ii. If failure: record failure in CircuitBreakerService
+      i. If success: update EMA latency in RoutingService, record success in ProviderCooldownManager, then call markHealthy() to clear any active provider cooldown and sync healthy state to Redis
+      ii. If failure: record failure in ProviderCooldownManager
       iii. Persist result to Redis via RedisPersistenceService
       iv. Update in-memory status via ModelStatusUpdater (triggers SSE broadcast)
       ↓
@@ -597,26 +594,23 @@ circuit-breaker:
    b. Format: event: model-status-update + data: JSON model status
 ```
 
-### Circuit Breaker Flow
+### Provider Cooldown Flow
 ```
-1. Request Attempt → CircuitBreakerService.isRequestPermitted()
+1. Request Attempt → ProviderCooldownManager.isProviderAvailable()
    ↓
-2. If permitted:
+2. If provider is not in cooldown:
    a. Execute request via LlmProviderClient
-   b. On success: CircuitBreakerService.recordSuccess()
-      i. Update Resilience4j circuit state
-      ii. Persist CLOSED state to Redis
-      iii. Reset consecutive error count
-   c. On failure: CircuitBreakerService.recordFailure()
-      i. Update Resilience4j circuit state
-      ii. Persist OPEN state to Redis (if threshold reached)
-      iii. Increment consecutive error count
+   b. On success: ProviderCooldownManager.recordSuccess()
+      i. Reset consecutive error count in Redis
+      ii. Clear any active cooldown for the provider
+   c. On failure (5xx, timeout, 429): ProviderCooldownManager.recordFailure()
+      i. Increment consecutive error count in Redis
+      ii. If threshold reached: activate cooldown with TTL in Redis
    ↓
-3. State Transition Handling:
-   a. OPEN → HALF_OPEN: After reset timeout expires
-   b. HALF_OPEN → CLOSED: After success threshold met
-   c. HALF_OPEN → OPEN: On failure during half-open
-   d. Any state change: Persist to Redis via RedisPersistenceService
+3. Cooldown State Handling:
+   a. Active → Cooling Down: After maxConsecutiveErrors threshold reached
+   b. Cooling Down → Active: After cooldownDurationMs expires (TTL)
+   c. Any state change: Persisted to Redis with automatic TTL expiration
 ```
 
 ### Recovery Sweep Flow
@@ -722,7 +716,7 @@ circuit-breaker:
 ### Data Consistency
 - **Redis as Source of Truth**: All persistent state stored in Redis
 - **Eventual Consistency**: Acceptable for telemetry and non-critical metrics
-- **Strong Consistency**: Used for circuit breaker state and model availability
+- **Strong Consistency**: Used for provider cooldown state and model availability
 - **Atomic Operations**: Redis INCR/HINCRBY for telemetry counters
 - **Distributed Locking**: ShedLock prevents duplicate health check sweeps
 
@@ -732,7 +726,7 @@ circuit-breaker:
 - **Provider-Wide Failure Isolation**: Upstream auth (`401`/`403`/`404`), quota, and rate-limit failures trigger cross-provider failover and never mark individual models DOWN or schedule recovery probes for them
 - **State Restoration**: Full state recovery from Redis on startup
 - **Health-Based Healing**: Failed models automatically retested
-- **Manual Override**: Admin endpoints for forced circuit resets
+- **Manual Override**: Admin endpoints for forced cooldown resets
 - **Last Known Good**: Fallback to historically healthy models
 
 ## Scalability Considerations
@@ -998,7 +992,7 @@ data: [DONE]
       "errorMessage": null,
       "consecutiveFailures": 0,
       "tps": 2.5,
-      "circuitState": "CLOSED"
+      "cooldownState": "ACTIVE"
     }
   ],
   "timestamp": "2026-09-27T10:30:05Z",
@@ -1271,11 +1265,10 @@ data: [DONE]
 - `health-check.recovery-interval-ms`: Delay between independent recovery sweeps (default: 5000)
 - `health-check.recovery-max-models-per-sweep`: Max due unhealthy models probed per recovery sweep (default: 2)
 
-**Circuit Breaker Settings**
-- `circuit-breaker.failure-threshold`: Consecutive failures to trip (default: 3)
-- `circuit-breaker.success-threshold`: Successes to close from half-open (default: 2)
-- `circuit-breaker.reset-timeout-ms`: Wait time in open state (default: 30000)
-- `circuit-breaker.auto-recovery-enabled`: Auto transition from open to half-open (default: true)
+**Provider Cooldown Settings**
+- `provider-cooldown.max-consecutive-errors`: Consecutive errors to trigger cooldown (default: 3)
+- `provider-cooldown.cooldown-duration-ms`: Cooldown period in milliseconds (default: 30000)
+- `provider-cooldown.enabled`: Enable provider cooldown tracking (default: true)
 
 ### Appendix C: Performance Benchmarks
 *(Baseline measurements from testing environment)*
@@ -1332,8 +1325,8 @@ data: [DONE]
 **Symptom: Models not showing as available / stuck `Routing blocked`**
 - Check: Health checks are enabled (`llm.health-check.enabled`, default `true`; `LLM_HEALTH_CHECK_ENABLED`)
 - Verify: The 4-minute sweep / NVIDIA 2-minute re-probe is running (watch `HealthCheckService` logs)
-- Confirm: A stale OPEN circuit isn't blocking routing — a successful probe calls `CircuitBreakerService.markHealthy()` to force-close it
-- Action: The dashboard shows an amber `UP · BLOCKED` badge when the probe succeeds but the circuit is still OPEN; wait for the next probe or call `POST /api/models/circuit-reset?model={name}` to unblock manually
+- Confirm: An active provider cooldown isn't blocking routing — a successful probe calls `ProviderCooldownManager.markHealthy()` to clear the cooldown
+- Action: The dashboard shows an amber `UP · COOLDOWN` badge when the probe succeeds but the cooldown is still active; wait for the cooldown TTL to expire or call `POST /api/models/cooldown-reset?model={name}` to clear manually
 
 **Symptom: Missing models in status endpoint**
 - Check: Model configuration in application.yml
