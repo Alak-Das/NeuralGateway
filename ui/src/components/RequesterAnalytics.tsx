@@ -85,16 +85,16 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'top' as const, labels: { color: 'var(--text-primary)' } }
+      legend: { position: 'top' as const, labels: { color: '#e5e7eb' } } // Light gray for legend
     },
     scales: {
       x: {
-        grid: { color: 'var(--border-color)', drawBorder: false as const },
-        ticks: { color: 'var(--text-secondary)' }
+        grid: { color: '#334155', drawBorder: false as const }, // Slate-700 for grid
+        ticks: { color: '#9ca3af' } // Gray-400 for ticks
       },
       y: {
-        grid: { color: 'var(--border-color)', drawBorder: false as const },
-        ticks: { color: 'var(--text-secondary)' }
+        grid: { color: '#334155', drawBorder: false as const },
+        ticks: { color: '#9ca3af' }
       }
     }
   };
@@ -142,7 +142,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
                 {Object.keys(reqData?.pipelines || {}).length > 0 ? (
                   <Doughnut 
                     data={pipelineData} 
-                    options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: 'var(--text-primary)' } } } }} 
+                    options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#e5e7eb' } } } }} 
                   />
                 ) : (
                   <div className="d-flex align-items-center text-muted">No pipeline data</div>
@@ -154,7 +154,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
                 <h6 className="fw-bold mb-2 text-secondary text-uppercase" style={{fontSize: '0.75rem', letterSpacing: '1px'}}>Models Used</h6>
                 <div className="d-flex flex-wrap gap-2">
                   {Object.entries(reqData?.models || {}).sort((a,b) => (b[1] as number) - (a[1] as number)).map(([m, c]) => (
-                    <span key={m} className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">
+                    <span key={m} className="badge bg-secondary bg-opacity-10 text-light border border-secondary border-opacity-25">
                       {m} <span className="opacity-75 ms-1">({c as number})</span>
                     </span>
                   ))}
