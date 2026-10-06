@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+﻿import { useEffect, useState, useRef } from 'react';
 import { ModelStatus, RequesterStatus } from './types';
 import KpiGrid from './components/KpiGrid';
 import StatusTable from './components/StatusTable';
@@ -14,6 +14,7 @@ export default function App() {
   const [requesters, setRequesters] = useState<RequesterStatus[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<'models' | 'requesters' | 'traces'>('models');
+  const [isAutoRefreshPaused, setIsAutoRefreshPaused] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -37,57 +38,85 @@ export default function App() {
     setTheme(newTheme);
   };
 
-  useEffect(() => {
-    let disposed = false;
-    let refreshTimeout: number | undefined;
-    let reconnectTimeout: number | undefined;
-    let requestTimeout: number | undefined;
-    let refreshInProgress = false;
-    let statusRevision = 0;
-    let activeRequest: AbortController | null = null;
-
-    const refreshDashboard = async () => {
-      if (disposed || refreshInProgress) return;
-
-      refreshInProgress = true;
-      const controller = new AbortController();
-      activeRequest = controller;
-      const revisionAtStart = statusRevision;
-      requestTimeout = window.setTimeout(() => controller.abort(), 10000);
-
-      const refreshModels = async () => {
-        try {
-          const response = await fetch('/api/models/status', {
-            cache: 'no-store',
-            signal: controller.signal
+  const manualRefresh = async () => {
+    try {
+      const [modelsRes, reqsRes] = await Promise.all([
+        fetch('/api/models/status', { cache: 'no-store' }),
+        fetch('/api/requesters/status', { cache: 'no-store' })
+      ]);
+      if (modelsRes.ok) {
+        const statuses = await modelsRes.json();
+        if (Array.isArray(statuses)) setData(statuses);
+      }
+      if (reqsRes.ok) {
+        const reqData = await reqsRes.json();
+        let entries: RequesterStatus[] = [];
+        if (Array.isArray(reqData)) {
+          entries = reqData.map((item: any) => ({
+            requester: item.requester || item.identity || item.name || 'unknown',
+            count: Number(item.count ?? item.tokens ?? item.total ?? 0),
+            tokenCount: Number(item.tokenCount ?? item.count ?? item.tokens ?? 0),
+            requestCount: Number(item.requestCount ?? 0),
+            errorCount: Number(item.errorCount ?? 0),
+            avgLatencyMs: Number(item.avgLatencyMs ?? 0),
+            models: item.models,
+            pipelines: item.pipelines
+          }));
+        } else if (typeof reqData === 'object' && reqData !== null) {
+          entries = Object.entries(reqData).map(([requester, itemData]: [string, any]) => {
+            if (typeof itemData === 'object' && itemData !== null) {
+              return {
+                requester,
+                count: Number(itemData.tokenCount ?? itemData.count ?? 0),
+                tokenCount: Number(itemData.tokenCount ?? itemData.count ?? 0),
+                requestCount: Number(itemData.requestCount ?? 0),
+                errorCount: Number(itemData.errorCount ?? 0),
+                avgLatencyMs: Number(itemData.avgLatencyMs ?? 0),
+                models: itemData.models,
+                pipelines: itemData.pipelines
+              };
+            }
+            return {
+              requester,
+              count: Number(itemData),
+              tokenCount: Number(itemData),
+              requestCount: 0,
+              errorCount: 0,
+              avgLatencyMs: 0
+            };
           });
-          if (!response.ok) return false;
-
-          const statuses: ModelStatus[] = await response.json();
-          if (!Array.isArray(statuses)) {
-            console.error('Failed to refresh model statuses: response was not an array');
-            return false;
-          }
-          if (!disposed && revisionAtStart === statusRevision) setData(statuses);
-          return true;
-        } catch (err) {
-          if (!controller.signal.aborted) console.error('Failed to refresh model statuses', err);
-          return false;
         }
-      };
+        entries.sort((a, b) => (b.tokenCount || b.count) - (a.tokenCount || a.count));
+        setRequesters(entries);
+      }
+      setLastUpdated(new Date());
+    } catch (e) {
+      console.error('Manual refresh failed', e);
+    }
+  };
 
-      const refreshRequesters = async () => {
-        try {
-          const response = await fetch('/api/requesters/status', {
-            cache: 'no-store',
-            signal: controller.signal
-          });
-          if (!response.ok) return false;
+  useEffect(() => {
+    if (isAutoRefreshPaused) {
+      setConnectionStatus('DISCONNECTED');
+      eventSourceRef.current?.close();
+      return;
+    }
 
-          const reqData = await response.json();
+    let disposed = false;
+    let reconnectTimeout: number | undefined;
+
+    const applyStreamUpdate = (event: Event) => {
+      try {
+        const parsed = JSON.parse((event as MessageEvent<string>).data);
+        if (Array.isArray(parsed)) {
+          setData(parsed);
+          setLastUpdated(new Date());
+        } else if (parsed && typeof parsed === 'object' && parsed.models && parsed.requesters) {
+          setData(parsed.models);
+          
           let entries: RequesterStatus[] = [];
-          if (Array.isArray(reqData)) {
-            entries = reqData.map((item: any) => ({
+          if (Array.isArray(parsed.requesters)) {
+            entries = parsed.requesters.map((item: any) => ({
               requester: item.requester || item.identity || item.name || 'unknown',
               count: Number(item.count ?? item.tokens ?? item.total ?? 0),
               tokenCount: Number(item.tokenCount ?? item.count ?? item.tokens ?? 0),
@@ -97,60 +126,13 @@ export default function App() {
               models: item.models,
               pipelines: item.pipelines
             }));
-          } else if (typeof reqData === 'object' && reqData !== null) {
-            entries = Object.entries(reqData).map(([requester, data]: [string, any]) => {
-              if (typeof data === 'object' && data !== null) {
-                return {
-                  requester,
-                  count: Number(data.tokenCount ?? data.count ?? 0),
-                  tokenCount: Number(data.tokenCount ?? data.count ?? 0),
-                  requestCount: Number(data.requestCount ?? 0),
-                  errorCount: Number(data.errorCount ?? 0),
-                  avgLatencyMs: Number(data.avgLatencyMs ?? 0),
-                  models: data.models,
-                  pipelines: data.pipelines
-                };
-              }
-              return {
-                requester,
-                count: Number(data),
-                tokenCount: Number(data),
-                requestCount: 0,
-                errorCount: 0,
-                avgLatencyMs: 0
-              };
-            });
           }
           entries.sort((a, b) => (b.tokenCount || b.count) - (a.tokenCount || a.count));
-          if (!disposed) setRequesters(entries);
-          return true;
-        } catch (err) {
-          if (!controller.signal.aborted) console.error('Failed to refresh requesters', err);
-          return false;
-        }
-      };
-
-      try {
-        const results = await Promise.all([refreshModels(), refreshRequesters()]);
-        if (!disposed && results.some(Boolean)) setLastUpdated(new Date());
-      } finally {
-        window.clearTimeout(requestTimeout);
-        refreshInProgress = false;
-        if (activeRequest === controller) activeRequest = null;
-        if (!disposed) refreshTimeout = window.setTimeout(refreshDashboard, 5000);
-      }
-    };
-
-    const applyStreamUpdate = (event: Event) => {
-      try {
-        const parsed = JSON.parse((event as MessageEvent<string>).data);
-        if (Array.isArray(parsed)) {
-          statusRevision += 1;
-          setData(parsed);
+          setRequesters(entries);
           setLastUpdated(new Date());
         }
       } catch (err) {
-        console.error('Error parsing model status stream data:', err);
+        console.error('Error parsing stream data:', err);
       }
     };
 
@@ -190,32 +172,28 @@ export default function App() {
     };
 
     const refreshWhenVisible = () => {
-      if (document.visibilityState !== 'visible' || disposed) return;
-      window.clearTimeout(refreshTimeout);
-      if (!refreshInProgress) void refreshDashboard();
+      if (document.visibilityState === 'visible' && !disposed && eventSourceRef.current?.readyState === EventSource.CLOSED) {
+         connectSSE();
+      }
     };
 
     connectSSE();
-    void refreshDashboard();
     document.addEventListener('visibilitychange', refreshWhenVisible);
 
     return () => {
       disposed = true;
-      window.clearTimeout(refreshTimeout);
       window.clearTimeout(reconnectTimeout);
-      window.clearTimeout(requestTimeout);
-      activeRequest?.abort();
       eventSourceRef.current?.close();
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
-  }, []);
+  }, [isAutoRefreshPaused]);
 
   const getConnectionBadge = () => {
     switch (connectionStatus) {
       case 'LIVE': return <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1"><i className="bi bi-circle-fill me-1" style={{fontSize:'0.5rem', verticalAlign:'middle'}}></i>CONNECTED (LIVE)</span>;
       case 'CONNECTING': return <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 px-2 py-1"><i className="bi bi-arrow-repeat spinner-pulse me-1"></i>CONNECTING...</span>;
       case 'RECONNECTING': return <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 px-2 py-1"><i className="bi bi-arrow-repeat spinner-pulse me-1"></i>RECONNECTING...</span>;
-      case 'DISCONNECTED': return <span className="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1"><i className="bi bi-x-circle me-1"></i>DISCONNECTED</span>;
+      case 'DISCONNECTED': return <span className="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1"><i className="bi bi-pause-circle me-1"></i>PAUSED</span>;
     }
   };
 
@@ -238,8 +216,34 @@ export default function App() {
               <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1">
                 <i className="bi bi-shield-check me-1"></i>Scheduled health checks
               </span>
+              
               {getConnectionBadge()}
-              <span>Last updated: <span className="fw-medium text-main">{lastUpdated ? lastUpdated.toLocaleTimeString() : '---'}</span></span>
+              
+              <div className="form-check form-switch m-0 d-flex align-items-center gap-2 border-start ps-3 ms-1">
+                <input 
+                  className="form-check-input mt-0" 
+                  type="checkbox" 
+                  role="switch" 
+                  id="autoRefreshToggle" 
+                  checked={!isAutoRefreshPaused}
+                  onChange={() => setIsAutoRefreshPaused(!isAutoRefreshPaused)}
+                  style={{ cursor: 'pointer' }}
+                />
+                <label className="form-check-label user-select-none" htmlFor="autoRefreshToggle" style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  Live Updates
+                </label>
+              </div>
+
+              <button 
+                className="btn btn-sm btn-outline-primary py-0 px-2 d-flex align-items-center gap-1 ms-2"
+                onClick={manualRefresh}
+                title="Refresh Now"
+                style={{ height: '26px' }}
+              >
+                <i className="bi bi-arrow-clockwise"></i>
+              </button>
+
+              <span className="ms-2">Last updated: <span className="fw-medium text-main">{lastUpdated ? lastUpdated.toLocaleTimeString() : '---'}</span></span>
             </div>
             <button className="btn btn-sm btn-outline-secondary rounded-circle" onClick={toggleTheme} style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {theme === 'dark' ? <i className="bi bi-moon-fill"></i> : <i className="bi bi-sun-fill"></i>}
@@ -257,17 +261,20 @@ export default function App() {
         
         <ul className="nav nav-tabs mb-4 border-bottom">
           <li className="nav-item">
-            <button className={`nav-link ${activeTab === 'models' ? 'active' : ''}`} onClick={() => setActiveTab('models')}>
+            <button className={
+av-link } onClick={() => setActiveTab('models')}>
               Model Status
             </button>
           </li>
           <li className="nav-item">
-            <button className={`nav-link ${activeTab === 'requesters' ? 'active' : ''}`} onClick={() => setActiveTab('requesters')}>
+            <button className={
+av-link } onClick={() => setActiveTab('requesters')}>
               Requesters
             </button>
           </li>
           <li className="nav-item">
-            <button className={`nav-link ${activeTab === 'traces' ? 'active' : ''}`} onClick={() => setActiveTab('traces')}>
+            <button className={
+av-link } onClick={() => setActiveTab('traces')}>
               Live Traces
             </button>
           </li>

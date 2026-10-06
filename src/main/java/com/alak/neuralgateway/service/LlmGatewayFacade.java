@@ -605,7 +605,13 @@ public class LlmGatewayFacade {
      * @return SseEmitter for streaming model status updates
      */
     public SseEmitter subscribeToStatusUpdates() {
-        return sseNotificationService.subscribe();
+        SseEmitter emitter = sseNotificationService.subscribe();
+        // Send initial state immediately so client doesn't have to wait for the next broadcast
+        sseNotificationService.sendInitialState(emitter, java.util.Map.of(
+                "models", modelStatusService.getAllStatuses(),
+                "requesters", getRequesterTelemetry()
+        ));
+        return emitter;
     }
 
     /**

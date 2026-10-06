@@ -27,21 +27,25 @@ public class RedisPubSubConfig {
     @Bean
     public MessageListenerAdapter listenerAdapter(SseNotificationService sseNotificationService,
                                                   ModelStatusService modelStatusService,
+                                                  com.alak.neuralgateway.service.RedisPersistenceService redisPersistenceService,
                                                   ObjectMapper objectMapper) {
         return new MessageListenerAdapter(
-                new SseMessageSubscriber(sseNotificationService, modelStatusService, objectMapper), "onMessage");
+                new SseMessageSubscriber(sseNotificationService, modelStatusService, redisPersistenceService, objectMapper), "onMessage");
     }
 
     public static class SseMessageSubscriber {
         private final SseNotificationService sseNotificationService;
         private final ModelStatusService modelStatusService;
+        private final com.alak.neuralgateway.service.RedisPersistenceService redisPersistenceService;
         private final ObjectMapper objectMapper;
 
         public SseMessageSubscriber(SseNotificationService sseNotificationService,
                                     ModelStatusService modelStatusService,
+                                    com.alak.neuralgateway.service.RedisPersistenceService redisPersistenceService,
                                     ObjectMapper objectMapper) {
             this.sseNotificationService = sseNotificationService;
             this.modelStatusService = modelStatusService;
+            this.redisPersistenceService = redisPersistenceService;
             this.objectMapper = objectMapper;
         }
 
@@ -50,7 +54,10 @@ public class RedisPubSubConfig {
                 com.alak.neuralgateway.domain.ModelStatus status =
                         objectMapper.readValue(message, com.alak.neuralgateway.domain.ModelStatus.class);
                 modelStatusService.updateFromRemote(status);
-                sseNotificationService.broadcast(modelStatusService.getAllStatuses());
+                sseNotificationService.broadcast(java.util.Map.of(
+                        "models", modelStatusService.getAllStatuses(),
+                        "requesters", redisPersistenceService.getRequesterTelemetryDetailed()
+                ));
             } catch (Exception e) {
                 // Ignore malformed or legacy notification payloads rather than disrupting the listener.
             }
