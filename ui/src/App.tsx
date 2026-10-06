@@ -89,15 +89,39 @@ export default function App() {
           if (Array.isArray(reqData)) {
             entries = reqData.map((item: any) => ({
               requester: item.requester || item.identity || item.name || 'unknown',
-              count: Number(item.count ?? item.tokens ?? item.total ?? 0)
+              count: Number(item.count ?? item.tokens ?? item.total ?? 0),
+              tokenCount: Number(item.tokenCount ?? item.count ?? item.tokens ?? 0),
+              requestCount: Number(item.requestCount ?? 0),
+              errorCount: Number(item.errorCount ?? 0),
+              avgLatencyMs: Number(item.avgLatencyMs ?? 0),
+              models: item.models,
+              pipelines: item.pipelines
             }));
           } else if (typeof reqData === 'object' && reqData !== null) {
-            entries = Object.entries(reqData).map(([requester, count]) => ({
-              requester,
-              count: Number(count)
-            }));
+            entries = Object.entries(reqData).map(([requester, data]: [string, any]) => {
+              if (typeof data === 'object' && data !== null) {
+                return {
+                  requester,
+                  count: Number(data.tokenCount ?? data.count ?? 0),
+                  tokenCount: Number(data.tokenCount ?? data.count ?? 0),
+                  requestCount: Number(data.requestCount ?? 0),
+                  errorCount: Number(data.errorCount ?? 0),
+                  avgLatencyMs: Number(data.avgLatencyMs ?? 0),
+                  models: data.models,
+                  pipelines: data.pipelines
+                };
+              }
+              return {
+                requester,
+                count: Number(data),
+                tokenCount: Number(data),
+                requestCount: 0,
+                errorCount: 0,
+                avgLatencyMs: 0
+              };
+            });
           }
-          entries.sort((a, b) => b.count - a.count);
+          entries.sort((a, b) => (b.tokenCount || b.count) - (a.tokenCount || a.count));
           if (!disposed) setRequesters(entries);
           return true;
         } catch (err) {
