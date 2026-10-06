@@ -212,15 +212,15 @@ export default function App() {
             </div>
           </div>
           
-          <div className="d-flex align-items-center gap-3">
-            <div className="d-flex align-items-center gap-3 text-muted me-2 d-none d-sm-flex" style={{ fontSize: '0.8rem' }}>
-              <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1">
+          <div className="d-flex flex-wrap align-items-center justify-content-end gap-2 gap-md-3">
+            <div className="d-flex align-items-center gap-2 text-muted" style={{ fontSize: '0.8rem' }}>
+              <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1 d-none d-md-inline-block">
                 <i className="bi bi-shield-check me-1"></i>Scheduled health checks
               </span>
               
               {getConnectionBadge()}
               
-              <div className="form-check form-switch m-0 d-flex align-items-center gap-2 border-start ps-3 ms-1">
+              <div className="form-check form-switch m-0 d-flex align-items-center gap-2 border-start ps-2 ms-1">
                 <input 
                   className="form-check-input mt-0" 
                   type="checkbox" 
@@ -230,13 +230,13 @@ export default function App() {
                   onChange={() => setIsAutoRefreshPaused(!isAutoRefreshPaused)}
                   style={{ cursor: 'pointer' }}
                 />
-                <label className="form-check-label user-select-none" htmlFor="autoRefreshToggle" style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <label className="form-check-label user-select-none d-none d-sm-inline-block" htmlFor="autoRefreshToggle" style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   Live Updates
                 </label>
               </div>
 
               <button 
-                className="btn btn-sm btn-outline-primary py-0 px-2 d-flex align-items-center gap-1 ms-2"
+                className="btn btn-sm btn-outline-primary py-0 px-2 d-flex align-items-center justify-content-center"
                 onClick={manualRefresh}
                 title="Refresh Now"
                 style={{ height: '26px' }}
@@ -244,9 +244,9 @@ export default function App() {
                 <i className="bi bi-arrow-clockwise"></i>
               </button>
 
-              <span className="ms-2">Last updated: <span className="fw-medium text-main">{lastUpdated ? lastUpdated.toLocaleTimeString() : '---'}</span></span>
+              <span className="ms-1 d-none d-lg-inline-block">Last updated: <span className="fw-medium text-main">{lastUpdated ? lastUpdated.toLocaleTimeString() : '---'}</span></span>
             </div>
-            <button className="btn btn-sm btn-outline-secondary rounded-circle" onClick={toggleTheme} style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <button className="btn btn-sm btn-outline-secondary rounded-circle ms-2" onClick={toggleTheme} style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {theme === 'dark' ? <i className="bi bi-moon-fill"></i> : <i className="bi bi-sun-fill"></i>}
             </button>
           </div>
