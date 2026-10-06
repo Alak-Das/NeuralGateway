@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -161,29 +162,33 @@ public class LlmGatewayFacade {
                 Map<String, Object> response = llmProviderClient.call(model.getId(), upstreamRequest);
 
                 long latency = System.currentTimeMillis() - startTime;
-
-                // Update telemetry and health status on success
-                                recordProviderSuccess(model);
-                modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), true, latency, java.time.Instant.now(), null));
+                
                 long tokensUsed = extractTotalTokens(response);
                 if (tokensUsed <= 0) {
                     tokensUsed = estimatedTokens;
                 }
-                telemetryTraceService.recordTrace(requester, model.getId(), latency, true, pipelineName, tokensUsed, 200, "/v1/chat/completions");
+
+                // Update telemetry and health status on success asynchronously to reduce response latency
+                final long finalTokensUsed = tokensUsed;
+                CompletableFuture.runAsync(() -> {
+                    recordProviderSuccess(model);
+                    modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), true, latency, java.time.Instant.now(), null));
+                    telemetryTraceService.recordTrace(requester, model.getId(), latency, true, pipelineName, finalTokensUsed, 200, "/v1/chat/completions");
+
+                    // Track token usage for requester
+                    if (requester != null && !requester.isEmpty()) {
+                        redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, finalTokensUsed, true, latency);
+                    }
+                     // Update EMA latency for successful calls
+                     redisPersistenceService.saveEmaLatency(model.getId(), latency);
+                });
 
                 // Normalize tool calls
                 toolCallNormalizer.normalizeToolCalls(response, requestBody, transactionId);
 
-                // Track token usage for requester
-                if (requester != null && !requester.isEmpty()) {
-                    redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, tokensUsed, true, latency);
-                }
-
                 if (requestedModelObj instanceof String requestedModelAlias) {
                     response.put("model", requestedModelAlias);
                 }
-                 // Update EMA latency for successful calls
-                 redisPersistenceService.saveEmaLatency(model.getId(), latency);
                 return response;
 
             } catch (LlmProviderClient.UpstreamServiceException e) {
@@ -192,18 +197,21 @@ public class LlmGatewayFacade {
                 lastException = e;
                 log.warn("[TxID: {}] Upstream failure for model '{}' ({}ms): {}. Failing over to next candidate...",
                         transactionId, model.getId(), latency, e.getMessage());
-                recordProviderFailure(model);
-                modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
-                telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, e.getStatusCode(), "/v1/chat/completions");
-                if (requester != null && !requester.isEmpty()) {
-                    redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
-                }
-                 // Increment consecutive errors and check if provider should be marked as unavailable
-                 redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
-                 // If error threshold exceeded, mark provider as unavailable for 60 seconds
-                 if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
-                     redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                 }
+                
+                CompletableFuture.runAsync(() -> {
+                    recordProviderFailure(model);
+                    modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
+                    telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, e.getStatusCode(), "/v1/chat/completions");
+                    if (requester != null && !requester.isEmpty()) {
+                        redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
+                    }
+                    // Increment consecutive errors and check if provider should be marked as unavailable
+                    redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
+                    // If error threshold exceeded, mark provider as unavailable for 60 seconds
+                    if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
+                        redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
+                    }
+                });
                 continue;
             } catch (IllegalArgumentException e) {
                 long latency = System.currentTimeMillis() - startTime;
@@ -212,7 +220,7 @@ public class LlmGatewayFacade {
                         (e.getMessage().contains("wrong_api_format") || e.getMessage().contains("unsupported") || e.getMessage().contains("validation_error") || e.getMessage().contains("multimodal"))) {
                     log.warn("[TxID: {}] Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...",
                             transactionId, model.getId(), latency, e.getMessage());
-                    recordProviderFailure(model);
+                    CompletableFuture.runAsync(() -> recordProviderFailure(model));
                     continue;
                 }
                 // Genuine client 4xx errors - don't failover, return immediately
@@ -223,16 +231,18 @@ public class LlmGatewayFacade {
                 lastException = e;
                 log.warn("[TxID: {}] Unexpected error for model '{}' ({}ms): {}. Failing over to next candidate...",
                         transactionId, model.getId(), latency, e.getMessage());
-                recordProviderFailure(model);
-                modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
-                telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, 500, "/v1/chat/completions");
-                if (requester != null && !requester.isEmpty()) {
-                    redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
-                }
-                redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
-                if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
-                    redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                }
+                CompletableFuture.runAsync(() -> {
+                    recordProviderFailure(model);
+                    modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
+                    telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, 500, "/v1/chat/completions");
+                    if (requester != null && !requester.isEmpty()) {
+                        redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
+                    }
+                    redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
+                    if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
+                        redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
+                    }
+                });
                 continue;
             } finally {
                 // Decrement active connections
@@ -340,14 +350,16 @@ public class LlmGatewayFacade {
                         .doOnComplete(() -> {
                             long latency = System.currentTimeMillis() - startTime;
                             if (outcomeRecorded.compareAndSet(false, true)) {
-                               recordProviderSuccess(model);
-                                modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
-                                        model.getId(), true, latency, java.time.Instant.now(), null));
-                                // For streaming, we don't have exact token count until the end, so we'll use estimated
-                                telemetryTraceService.recordTrace(requester, model.getId(), latency, true, pipelineName, estimatedTokens, 200, "/v1/chat/completions");
-                            }
-                            if (requester != null && !requester.isEmpty()) {
-                                redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, estimatedTokens, true, latency);
+                                CompletableFuture.runAsync(() -> {
+                                    recordProviderSuccess(model);
+                                    modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
+                                            model.getId(), true, latency, java.time.Instant.now(), null));
+                                    // For streaming, we don't have exact token count until the end, so we'll use estimated
+                                    telemetryTraceService.recordTrace(requester, model.getId(), latency, true, pipelineName, estimatedTokens, 200, "/v1/chat/completions");
+                                    if (requester != null && !requester.isEmpty()) {
+                                        redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, estimatedTokens, true, latency);
+                                    }
+                                });
                             }
                         })
                         .doFinally(signalType -> releaseConnection.run());
@@ -361,19 +373,21 @@ public class LlmGatewayFacade {
                     .doOnError(error -> {
                         long latency = System.currentTimeMillis() - startTime;
                         if (outcomeRecorded.compareAndSet(false, true)) {
-                            recordProviderFailure(model);
-                            modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
-                                    model.getId(), false, latency, java.time.Instant.now(), 
-                                    error instanceof LlmProviderClient.UpstreamServiceException ? 
-                                            ((LlmProviderClient.UpstreamServiceException) error).getStatusCode() + " error" : 
-                                            error.getMessage()));
-                            telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, 
-                                    error instanceof LlmProviderClient.UpstreamServiceException ? 
-                                            ((LlmProviderClient.UpstreamServiceException) error).getStatusCode() : 500, 
-                                    "/v1/chat/completions");
-                            if (requester != null && !requester.isEmpty()) {
-                                redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
-                            }
+                            CompletableFuture.runAsync(() -> {
+                                recordProviderFailure(model);
+                                modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
+                                        model.getId(), false, latency, java.time.Instant.now(), 
+                                        error instanceof LlmProviderClient.UpstreamServiceException ? 
+                                                ((LlmProviderClient.UpstreamServiceException) error).getStatusCode() + " error" : 
+                                                error.getMessage()));
+                                telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, 
+                                        error instanceof LlmProviderClient.UpstreamServiceException ? 
+                                                ((LlmProviderClient.UpstreamServiceException) error).getStatusCode() : 500, 
+                                        "/v1/chat/completions");
+                                if (requester != null && !requester.isEmpty()) {
+                                    redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
+                                }
+                            });
                         }
                         releaseConnection.run();
                     })
