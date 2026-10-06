@@ -68,8 +68,8 @@ llm:
         - { id: "deepseek-ai/deepseek-v4.1-flash",                enabled: true, priority: 8,   pipelines: [ CODING, REASONING ], timeoutMs: 150000 }
         - { id: "nvidia/nemotron-3-super-120b-a12b",              enabled: true, priority: 7,  pipelines: [ CODING, REASONING ] }
         - { id: "z-ai/glm-5.3-flash",                             enabled: true, priority: 6,   pipelines: [ CODING, REASONING ] }
-        - { id: "meta/llama-3.2-90b-vision-instruct",             enabled: true, priority: 10,  pipelines: [ VISION ] }
-        - { id: "meta/llama-3.2-11b-vision-instruct",             enabled: true, priority: 9,   pipelines: [ VISION ] }
+        - { id: "meta/llama-3.2-90b-vision-instruct",             enabled: true, priority: 7,  pipelines: [ VISION ] }
+        - { id: "meta/llama-3.2-11b-vision-instruct",             enabled: true, priority: 6,   pipelines: [ VISION ] }
         - { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  enabled: true, priority: 6,   pipelines: [ VISION ] }
     explabs:
       base-url: https://api.experientiallabs.ai/v1
