@@ -52,15 +52,19 @@ export default function Charts({ data }: ChartsProps) {
     Number.isFinite(historyEntry.latencyMs) && historyEntry.latencyMs > 0;
 
   const getModelRequestsForRange = (d: ModelStatus, rangeMins: number) => {
+    const isSuccessful = (h: ModelStatus['history'][number]) => {
+      const isUp = (h as any).up !== undefined ? (h as any).up : h.isUp;
+      return Boolean(isUp) && !h.isBackgroundProbe;
+    };
     if (rangeMins === 0) {
-      return d.history ? d.history.filter(h => !h.isBackgroundProbe).length : 0;
+      return d.history ? d.history.filter(isSuccessful).length : 0;
     }
     if (!d.history || d.history.length === 0) return 0;
     const cutoff = Date.now() - (rangeMins * 60 * 1000);
     return d.history.filter(h => {
       if (!h.timestamp) return false;
       const t = new Date(h.timestamp).getTime();
-      return !isNaN(t) && t >= cutoff && !h.isBackgroundProbe;
+      return !isNaN(t) && t >= cutoff && isSuccessful(h);
     }).length;
   };
 
@@ -303,13 +307,13 @@ export default function Charts({ data }: ChartsProps) {
         tooltip: {
           callbacks: {
             label: function(context: any) {
-              if (activeModelsList.length === 0) return ' No traffic yet in selected period';
+              if (activeModelsList.length === 0) return ' No successful requests in selected period';
               let label = context.label || '';
               if (label) {
                 label += ': ';
               }
               if (context.parsed !== null) {
-                label += new Intl.NumberFormat().format(context.parsed) + ' reqs';
+                label += new Intl.NumberFormat().format(context.parsed) + ' success reqs';
                 // Calculate percentage
                 const total = context.dataset.data.reduce((sum: number, val: number) => sum + val, 0);
                 const percentage = ((context.parsed / total) * 100).toFixed(1);
@@ -413,7 +417,7 @@ export default function Charts({ data }: ChartsProps) {
                   {formatNumber(totalRequests)}
                 </span>
                 <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '2px', letterSpacing: '0.3px' }}>
-                  Total Requests
+                  Successful Requests
                 </span>
               </div>
             </div>
@@ -424,7 +428,7 @@ export default function Charts({ data }: ChartsProps) {
               {activeModels.length === 0 ? (
                 <div className="text-muted text-center py-4 small my-auto">
                   <i className="bi bi-clock-history d-block mb-1 fs-5 opacity-50"></i>
-                  No requests in this time window
+                  No successful requests in this time window
                 </div>
               ) : (
                 displayData.map((d: any, i: number) => {
