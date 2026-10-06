@@ -107,7 +107,7 @@ public class LlmGatewayFacade {
         List<Model> candidates = routingService.selectModels(pipeline, estimatedTokens);
 
         if (candidates.isEmpty()) {
-            throw noEligibleProvider(pipeline);
+            throw noEligibleProvider(pipeline, null);
         }
 
         // If client targeted a specific physical model, prioritize it as the primary candidate if available
@@ -184,8 +184,6 @@ public class LlmGatewayFacade {
                 }
                  // Update EMA latency for successful calls
                  redisPersistenceService.saveEmaLatency(model.getId(), latency);
-                 // Reset consecutive errors and clear unavailability
-                                  recordProviderSuccess(model);
                 return response;
 
             } catch (LlmProviderClient.UpstreamServiceException e) {
@@ -204,38 +202,20 @@ public class LlmGatewayFacade {
                  redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
                  // If error threshold exceeded, mark provider as unavailable for 60 seconds
                  if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
-                      redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-
-                      redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                      redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
                      redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                      redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                      redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
                  }
                 continue;
             } catch (IllegalArgumentException e) {
                 long latency = System.currentTimeMillis() - startTime;
                 lastException = e;
                 if (i < candidates.size() - 1 && e.getMessage() != null && 
-                        (e.getMessage().contains("wrong_api_format") || e.getMessage().contains("unsupported") || e.getMessage().contains("validation_error"))) {
+                        (e.getMessage().contains("wrong_api_format") || e.getMessage().contains("unsupported") || e.getMessage().contains("validation_error") || e.getMessage().contains("multimodal"))) {
                     log.warn("[TxID: {}] Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...",
                             transactionId, model.getId(), latency, e.getMessage());
-                     // Increment consecutive errors and check if provider should be marked as unavailable (FIXED)
-                     redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
-                     // If error threshold exceeded, mark provider as unavailable for 60 seconds (updated)
-                     if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
-                         redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                     }
+                    recordProviderFailure(model);
                     continue;
                 }
                 // Genuine client 4xx errors - don't failover, return immediately
-                 // Increment consecutive errors and check if provider should be marked as unavailable
-                        redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
-                        // If error threshold exceeded, mark provider as unavailable for 60 seconds
-                        if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
-                            redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                            redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                        }
                 throw e;
             } catch (Exception e) {
                 // Other errors - failover
@@ -249,13 +229,10 @@ public class LlmGatewayFacade {
                 if (requester != null && !requester.isEmpty()) {
                     redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
                 }
-                 // Increment consecutive errors and check if provider should be marked as unavailable
-                        redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
-                        // If error threshold exceeded, mark provider as unavailable for 60 seconds
-                        if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
-                            redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                            redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                        }
+                redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
+                if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
+                    redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
+                }
                 continue;
             } finally {
                 // Decrement active connections
@@ -263,8 +240,8 @@ public class LlmGatewayFacade {
             }
         }
 
-        // If we got here, all candidates failed
-        throw new IllegalStateException("All upstream providers failed", lastException);
+        // All candidates exhausted
+        throw noEligibleProvider(pipeline, lastException);
     }
 
     /**
@@ -295,7 +272,7 @@ public class LlmGatewayFacade {
         List<Model> candidates = routingService.selectModels(pipeline, estimatedTokens);
 
         if (candidates.isEmpty()) {
-            return Flux.error(noEligibleProvider(Pipeline.valueOf(pipelineName.toUpperCase())));
+            return Flux.error(noEligibleProvider(pipeline, null));
         }
 
         Object requestedModelObj = requestBody.get("model");
@@ -320,7 +297,7 @@ public class LlmGatewayFacade {
                                          String pipelineName,
                                          int estimatedTokens) {
         if (candidateIndex >= candidates.size()) {
-            return Flux.error(noEligibleProvider(Pipeline.valueOf(pipelineName.toUpperCase())));
+            return Flux.error(noEligibleProvider(Pipeline.valueOf(pipelineName.toUpperCase()), null));
         }
 
         Model model = candidates.get(candidateIndex);
@@ -400,14 +377,34 @@ public class LlmGatewayFacade {
                         }
                         releaseConnection.run();
                     })
-                    .onErrorResume(error -> Flux.error(new IllegalStateException("All upstream providers failed", error)));
+                    .onErrorResume(error -> {
+                        boolean canFailOver = !emittedAnyData.get();
+                        if (canFailOver && candidateIndex + 1 < candidates.size()) {
+                            log.warn("[TxID: {}] Streaming error for model '{}' ({}ms): {}. Failing over to next candidate...",
+                                    transactionId, model.getId(), (System.currentTimeMillis() - startTime), error.getMessage());
+                            return streamCandidate(candidates, candidateIndex + 1, requestBody, requester,
+                                    transactionId, pipelineName, estimatedTokens);
+                        }
+                        return Flux.error(error);
+                    });
         });
     }
 
-    private LlmProviderClient.UpstreamServiceException noEligibleProvider(Pipeline pipeline) {
-        return new LlmProviderClient.UpstreamServiceException(
-                "No eligible provider available for pipeline: " + pipeline,
-                503);
+    private IllegalStateException noEligibleProvider(Pipeline pipeline, Exception cause) {
+        Set<String> providers = modelRegistry.getModelsByPipeline(pipeline).stream()
+                .filter(Model::isEnabled)
+                .map(Model::getProviderId).collect(Collectors.toSet());
+        Map<String, String> unavailableReasons = new HashMap<>();
+        for (String pId : providers) {
+            String reason = redisPersistenceService.getProviderUnavailableReason(pId);
+            if (reason != null) {
+                unavailableReasons.put(pId, reason);
+            }
+        }
+        String details = unavailableReasons.isEmpty() ? "" : " Provider cooldowns: " + unavailableReasons;
+        String message = String.format("All available models for the '%s' pipeline are currently exhausted or unavailable.%s",
+                pipeline.name().toLowerCase(), details);
+        return cause == null ? new IllegalStateException(message) : new IllegalStateException(message, cause);
     }
 
     private boolean isProviderAvailable(Model model) {
@@ -422,8 +419,7 @@ public class LlmGatewayFacade {
         // Reset consecutive errors and clear unavailability for this provider on success
         String providerId = model.getProviderId();
         if (providerId != null && !providerId.isBlank()) {
-            // Reset consecutive errors and clear unavailability
-                                  recordProviderSuccess(model);
+            redisPersistenceService.resetProviderConsecutiveErrors(providerId);
             redisPersistenceService.clearProviderUnavailable(providerId);
         }
     }
