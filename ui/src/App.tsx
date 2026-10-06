@@ -220,9 +220,9 @@ export default function App() {
               
               {getConnectionBadge()}
               
-              <div className="form-check form-switch m-0 d-flex align-items-center gap-2 border-start ps-2 ms-1">
+              <div className="form-check form-switch m-0 d-flex align-items-center gap-2 border-start ps-3 ms-2">
                 <input 
-                  className="form-check-input mt-0" 
+                  className="form-check-input m-0" 
                   type="checkbox" 
                   role="switch" 
                   id="autoRefreshToggle" 
@@ -230,7 +230,7 @@ export default function App() {
                   onChange={() => setIsAutoRefreshPaused(!isAutoRefreshPaused)}
                   style={{ cursor: 'pointer' }}
                 />
-                <label className="form-check-label user-select-none d-none d-sm-inline-block" htmlFor="autoRefreshToggle" style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <label className="form-check-label m-0 user-select-none d-none d-sm-inline-block" htmlFor="autoRefreshToggle" style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   Live Updates
                 </label>
               </div>
