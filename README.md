@@ -95,6 +95,7 @@ Used by the React monitoring dashboard and operations tooling:
 | `POST` | `/api/models/ping?model={name}` | On-demand synchronous health ping to verify a specific model's latency and availability. |
 | `POST` | `/api/models/circuit-reset?model={name}` | Manually reset provider cooldown, recorded errors, and latency for a model to immediately restore model traffic. |
 | `GET` | `/api/requesters/status` | Request volume and token usage metrics grouped by calling client (`X-Requester`). |
+| `GET` | `/api/telemetry/traces` | Live request traces for monitoring and debugging. |
 | `GET` | `/swagger-ui.html` | Interactive Swagger/OpenAPI documentation and API explorer. |
 
 ---
