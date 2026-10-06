@@ -281,16 +281,15 @@ export default function Charts({ data }: ChartsProps) {
     const activeModelsList = modelsWithUsage.filter(d => d.uses > 0).sort((a, b) => b.uses - a.uses);
     const fallbackData = [{ model: 'No Traffic in Period', uses: 1 }];
     const displayDataList = activeModelsList.length > 0 ? activeModelsList : (data.length > 0 ? fallbackData : []);
-    
+    // Get colors for usage distribution legend (synced with chart colors)
+    const bgColors = displayDataList.map(d => modelColorMap[d.model]);
     const modelNames = displayDataList.map(d => d.model.split('/').pop() || d.model);
     const usageValues = displayDataList.map(d => d.uses);
-    const bgColorsList = displayDataList.map((d, i) => activeModelsList.length > 0 ? (modelColorMap[d.model] || getModelColors(data.length)[i]) : '#64748b40');
-    
     const totalRequestsVal = activeModelsList.length > 0 ? activeModelsList.reduce((sum, d) => sum + d.uses, 0) : 0;
 
     const usageDatasets = [{
       data: usageValues,
-      backgroundColor: bgColorsList,
+      backgroundColor: bgColors,
       borderWidth: 0,
       hoverOffset: 4
     }];
@@ -333,7 +332,7 @@ export default function Charts({ data }: ChartsProps) {
       errorOptions: successOptionsObj,
       totalRequests: totalRequestsVal,
       displayData: displayDataList,
-      bgColors: bgColorsList,
+      bgColors: bgColors,
       activeModels: activeModelsList
     };
   }, [data, latencyRangeMins, usageRangeMins, successRangeMins]);
@@ -449,8 +448,7 @@ export default function Charts({ data }: ChartsProps) {
                         </span>
                       </div>
                     </div>
-                  );
-                })
+                  )})
               )}
             </div>
           </div>
@@ -459,3 +457,4 @@ export default function Charts({ data }: ChartsProps) {
     </div>
   );
 }
+
