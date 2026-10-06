@@ -346,7 +346,7 @@ export default function Charts({ data }: ChartsProps) {
             <div className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
               <i className="bi bi-graph-up text-primary me-2"></i>Latency History (s)
             </div>
-            <select className="form-select form-select-sm w-auto rounded-pill" value={latencyRangeMins} onChange={e => setLatencyRangeMins(Number(e.target.value))}>
+             <select className={`${isDark ? 'bg-dark text-light border-secondary' : 'bg-light text-dark border-secondary'} form-select form-select-sm w-auto rounded-pill`} value={latencyRangeMins} onChange={e => setLatencyRangeMins(Number(e.target.value))}>
               <option value={15}>Last 15 Mins</option>
               <option value={60}>Last 1 Hour</option>
               <option value={360}>Last 6 Hours</option>
@@ -374,7 +374,7 @@ export default function Charts({ data }: ChartsProps) {
             <div className="text-secondary fw-semibold" style={{ fontSize: "0.85rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>
               <i className="bi bi-check-circle-fill text-success me-2"></i>Success Rate
             </div>
-            <select className="form-select form-select-sm w-auto rounded-pill" value={successRangeMins} onChange={e => setSuccessRangeMins(Number(e.target.value))}>
+             <select className={`${isDark ? 'bg-dark text-light border-secondary' : 'bg-light text-dark border-secondary'} form-select form-select-sm w-auto rounded-pill`} value={successRangeMins} onChange={e => setSuccessRangeMins(Number(e.target.value))}>
               <option value={15}>Last 15 Mins</option>
               <option value={60}>Last 1 Hour</option>
               <option value={360}>Last 6 Hours</option>
@@ -394,7 +394,7 @@ export default function Charts({ data }: ChartsProps) {
             <div className="text-secondary fw-semibold" style={{ fontSize: '0.85rem', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
               <i className="bi bi-pie-chart-fill text-primary me-2"></i>Usage Distribution
             </div>
-            <select className="form-select form-select-sm w-auto rounded-pill" value={usageRangeMins} onChange={e => setUsageRangeMins(Number(e.target.value))}>
+             <select className={`${isDark ? 'bg-dark text-light border-secondary' : 'bg-light text-dark border-secondary'} form-select form-select-sm w-auto rounded-pill`} value={usageRangeMins} onChange={e => setUsageRangeMins(Number(e.target.value))}>
               <option value={15}>Last 15 Mins</option>
               <option value={60}>Last 1 Hour</option>
               <option value={360}>Last 6 Hours</option>
@@ -457,4 +457,5 @@ export default function Charts({ data }: ChartsProps) {
     </div>
   );
 }
+
 

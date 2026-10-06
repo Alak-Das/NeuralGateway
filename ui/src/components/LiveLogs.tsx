@@ -75,7 +75,7 @@ export default function LiveLogs() {
                     <td className="text-muted" style={{ fontSize: '0.875rem' }}>
                       {new Date(log.timestamp).toLocaleString()}
                     </td>
-                    <td><span className="badge bg-secondary bg-opacity-10 text-secondary">{log.requester}</span></td>
+                    <td><span className="badge bg-secondary text-white">{log.requester}</span></td>
                     <td>{log.pipeline}</td>
                     <td>{log.model}</td>
                     <td>{log.latencyMs}</td>

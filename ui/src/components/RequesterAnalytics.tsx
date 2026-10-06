@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { RequesterStatus } from '../types';
 import {
   Chart as ChartJS,
@@ -11,6 +11,8 @@ import {
   Legend
 } from 'chart.js';
 import { Line, Doughnut } from 'react-chartjs-2';
+import { ThemeContext } from '../theme/ThemeContext';
+import { themeColors } from '../theme/colors';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -22,6 +24,8 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
   const [selectedRequester, setSelectedRequester] = useState<string>('');
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+const theme = useContext(ThemeContext);
+  const isDark = theme === 'dark';
 
   useEffect(() => {
     if (requesters.length > 0 && !selectedRequester) {
@@ -55,6 +59,13 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
   const reqData = requesters.find(r => r.requester === selectedRequester);
 
   // History Chart
+  const primaryLine = isDark ? themeColors.semantic.primary.dark : themeColors.semantic.primary.light;
+  const primaryFill = isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(37, 99, 235, 0.125)';
+  const tokensLine = themeColors.neutral.muted;
+  const gridColor = isDark ? themeColors.neutral.border : themeColors.neutral.light;
+  const tickColor = isDark ? themeColors.neutral.muted : themeColors.neutral.border;
+  const legendColor = isDark ? themeColors.neutral.light : themeColors.neutral.border;
+
   const historyData = {
     labels: history.map(h => {
       const d = new Date(h.date);
@@ -64,8 +75,8 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
       {
         label: 'Requests',
         data: history.map(h => h.requests),
-        borderColor: '#2563eb',
-        backgroundColor: '#2563eb20',
+        borderColor: primaryLine,
+        backgroundColor: primaryFill,
         borderWidth: 2,
         fill: true,
         tension: 0.3
@@ -73,7 +84,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
       {
         label: 'Tokens',
         data: history.map(h => h.tokens),
-        borderColor: '#64748b',
+        borderColor: tokensLine,
         borderWidth: 2,
         tension: 0.3,
         hidden: true // hidden by default to keep scales clean
@@ -85,26 +96,30 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'top' as const, labels: { color: '#e5e7eb' } } // Light gray for legend
+      legend: { position: 'top' as const, labels: { color: legendColor } }
     },
     scales: {
       x: {
-        grid: { color: '#334155', drawBorder: false as const }, // Slate-700 for grid
-        ticks: { color: '#9ca3af' } // Gray-400 for ticks
+        grid: { color: gridColor, drawBorder: false as const },
+        ticks: { color: tickColor }
       },
       y: {
-        grid: { color: '#334155', drawBorder: false as const },
-        ticks: { color: '#9ca3af' }
+        grid: { color: gridColor, drawBorder: false as const },
+        ticks: { color: tickColor }
       }
     }
   };
 
   // Pipeline distribution
+  const pipelineCount = reqData?.pipelines ? Object.keys(reqData.pipelines).length : 0;
+  const pipelineColors = pipelineCount > 0 
+    ? themeColors.chartHelpers.getCategoricalColors(pipelineCount, isDark)
+    : [];
   const pipelineData = {
     labels: reqData?.pipelines ? Object.keys(reqData.pipelines) : [],
     datasets: [{
       data: reqData?.pipelines ? Object.values(reqData.pipelines) : [],
-      backgroundColor: ['#2563eb', '#64748b', '#f59e0b', '#ef4444', '#10b981'],
+      backgroundColor: pipelineColors,
       borderWidth: 0
     }]
   };
@@ -115,7 +130,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
         <h5 className="mb-0 fw-bold"><i className="bi bi-graph-up text-primary me-2"></i>Requester Analytics</h5>
         
         <select 
-          className="form-select form-select-sm w-auto bg-surface text-main border-secondary"
+          className="${isDark ? 'bg-dark text-light border-secondary' : 'bg-light text-dark border-secondary'} form-select form-select-sm w-auto"
           value={selectedRequester} 
           onChange={e => setSelectedRequester(e.target.value)}
         >
@@ -142,7 +157,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
                 {Object.keys(reqData?.pipelines || {}).length > 0 ? (
                   <Doughnut 
                     data={pipelineData} 
-                    options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#e5e7eb' } } } }} 
+                    options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: legendColor } } } }} 
                   />
                 ) : (
                   <div className="d-flex align-items-center text-muted">No pipeline data</div>
@@ -154,7 +169,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
                 <h6 className="fw-bold mb-2 text-secondary text-uppercase" style={{fontSize: '0.75rem', letterSpacing: '1px'}}>Models Used</h6>
                 <div className="d-flex flex-wrap gap-2">
                   {Object.entries(reqData?.models || {}).sort((a,b) => (b[1] as number) - (a[1] as number)).map(([m, c]) => (
-                    <span key={m} className="badge bg-secondary bg-opacity-10 text-light border border-secondary border-opacity-25">
+                    <span key={m} className="badge bg-secondary text-white">
                       {m} <span className="opacity-75 ms-1">({c as number})</span>
                     </span>
                   ))}

@@ -3,6 +3,7 @@ import { ModelStatus } from '../types';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend } from 'chart.js';
 import { ThemeContext } from '../theme/ThemeContext';
+import { themeColors } from '../theme/colors';
 import { formatNumber, formatTimeAgo } from '../utils/formatters';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
@@ -22,11 +23,11 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   const theme = useContext(ThemeContext);
   const isDark = theme === 'dark';
 
-  // Theme-aware sparkline colors
-  const usageLineColor = isDark ? '#06b6d4' : '#0891b2';
-  const usageFillColor = isDark ? 'rgba(6, 182, 212, 0.2)' : 'rgba(8, 145, 178, 0.15)';
-  const latencyLineColor = isDark ? '#f59e0b' : '#d97706';
-  const latencyFillColor = isDark ? 'rgba(245, 158, 11, 0.2)' : 'rgba(217, 119, 6, 0.15)';
+  // Theme-aware sparkline colors using semantic tokens
+  const usageLineColor = isDark ? themeColors.semantic.info.dark : themeColors.semantic.info.light;
+  const usageFillColor = isDark ? 'rgba(6, 182, 212, 0.15)' : 'rgba(8, 145, 178, 0.10)';
+  const latencyLineColor = isDark ? themeColors.semantic.warning.dark : themeColors.semantic.warning.light;
+  const latencyFillColor = isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(217, 119, 6, 0.10)';
 
   const totalModels = data.length;
   const upModels = data.filter(d => getIsUp(d)).length;
@@ -188,7 +189,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
                   <i className="bi bi-cloud me-1"></i>{activeModel.provider}
                 </span>
               )}
-              <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }}>
+              <span className="badge bg-secondary text-white fw-medium" style={{ fontSize: '0.65rem' }}>
                 <i className="bi bi-sort-numeric-up me-1"></i>Priority: {activeModel.priority}
               </span>
             </div>

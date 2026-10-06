@@ -12,7 +12,7 @@ export default function RequestersTable({ requesters }: RequestersTableProps) {
         <h5 className="mb-0 fw-bold d-flex align-items-center">
           <i className="bi bi-people text-info me-2"></i>Requester Telemetry
         </h5>
-        <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1">
+        <span className="badge bg-secondary text-white px-2 py-1">
           {requesters.length} {requesters.length === 1 ? 'Requester' : 'Requesters'}
         </span>
       </div>
@@ -43,7 +43,7 @@ export default function RequestersTable({ requesters }: RequestersTableProps) {
                 <tr key={i}>
                   <td className="py-3 px-4">
                     <div className="d-flex align-items-center">
-                      <span className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3 py-2 font-monospace" style={{ fontSize: '0.9rem' }}>
+                      <span className="badge bg-primary text-white px-3 py-2 font-monospace" style={{ fontSize: '0.9rem' }}>
                         <i className="bi bi-person-badge me-2"></i>{r.requester}
                       </span>
                     </div>

@@ -20,8 +20,8 @@ const graphElements = {
   errorFill: { light: 'rgba(255, 59, 48, 0.10)', dark: 'rgba(255, 69, 58, 0.15)' },
   throughputLine: { light: '#34C759', dark: '#30D158' },
   throughputFill: { light: 'rgba(52, 199, 89, 0.10)', dark: 'rgba(48, 209, 88, 0.15)' },
-  saturationLine: { light: '#FF9F0A', dark: '#FF9F0A' },
-  saturationFill: { light: 'rgba(255, 159, 10, 0.10)', dark: 'rgba(255, 159, 10, 0.15)' },
+  saturationLine: { light: '#FF9F0A', dark: '#FFB84D' },
+  saturationFill: { light: 'rgba(255, 159, 10, 0.10)', dark: 'rgba(255, 184, 77, 0.15)' },
   availabilityLine: { light: '#5856D6', dark: '#5E5CE6' },
   availabilityFill: { light: 'rgba(88, 86, 214, 0.10)', dark: 'rgba(94, 92, 230, 0.15)' },
   backgroundProbe: { light: '#8E8E93', dark: '#98989D' },
@@ -107,19 +107,38 @@ export const themeColors = {
       return isDark ? element.dark : element.light;
     },
   },
+  // Neutral tones for UI elements like borders, text, surfaces
+  neutral: {
+    border: '#334155',   // slate-700
+    muted:   '#9ca3af',  // slate-400
+    light:   '#e5e7eb',  // slate-100
+    surfaceLight: '#ffffff',
+    surfaceDark:  '#1e1e1e'
+  }
 } as const;
 
 // Type exports for TypeScript support
 export type SemanticColorKey = keyof typeof themeColors.semantic;
 export type GraphElementKey = keyof typeof themeColors.graphs.elements;
 export type CategoryKey = keyof typeof themeColors.categories;
+export type NeutralKey = keyof typeof themeColors.neutral;
 
 // Theme-aware color getter
 export const getColor = (
-  category: 'semantic' | 'graphs' | 'categories',
+  category: 'semantic' | 'graphs' | 'categories' | 'neutral',
   key: string,
   variant: 'light' | 'dark' | 'bgLight' | 'bgDark' = 'dark'
 ): string => {
+  // Handle neutral category separately as it doesn't have light/dark variants in the same way
+  if (category === 'neutral') {
+    const neutral = themeColors.neutral;
+    // For neutral, we return the key directly if it's surfaceLight/surfaceDark, otherwise we pick based on theme
+    if (key === 'surfaceLight') return neutral.surfaceLight;
+    if (key === 'surfaceDark') return neutral.surfaceDark;
+    // For border, muted, light, we return the same value regardless of theme (they are neutral)
+    return neutral[key as keyof typeof neutral];
+  }
+
   const colors = themeColors[category] as Record<string, Record<string, string>>;
   if (colors[key] && colors[key][variant]) {
     return colors[key][variant];

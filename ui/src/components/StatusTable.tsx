@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useContext } from 'react';
 import { ModelStatus } from '../types';
 import { formatNumber, formatTimeAgo, formatTimeOnly, formatShort } from '../utils/formatters';
+import { ThemeContext } from '../theme/ThemeContext';
 
 interface StatusTableProps {
   data: ModelStatus[];
@@ -14,6 +15,8 @@ export default function StatusTable({ data }: StatusTableProps) {
   const [editEnabled, setEditEnabled] = useState(true);
   const [editPriority, setEditPriority] = useState(0);
   const [editPipelines, setEditPipelines] = useState('');
+  const theme = useContext(ThemeContext);
+  const isDark = theme === 'dark';
 
   const handleEdit = (model: ModelStatus) => {
     setEditingModel(model);
@@ -170,7 +173,7 @@ export default function StatusTable({ data }: StatusTableProps) {
           <div className="d-flex gap-2">
             <div className="input-group input-group-sm">
               <span className="input-group-text bg-transparent border-end-0"><i className="bi bi-filter"></i></span>
-              <select className="form-select border-start-0 ps-0" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+               <select className={`${isDark ? 'bg-dark text-light border-secondary' : 'bg-light text-dark border-secondary'} form-select border-start-0 ps-0`} value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
                 <option value="">All Categories</option>
                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -178,7 +181,7 @@ export default function StatusTable({ data }: StatusTableProps) {
             
             <div className="input-group input-group-sm">
               <span className="input-group-text bg-transparent border-end-0"><i className="bi bi-activity"></i></span>
-              <select className="form-select border-start-0 ps-0" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+               <select className={`${isDark ? 'bg-dark text-light border-secondary' : 'bg-light text-dark border-secondary'} form-select border-start-0 ps-0`} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
                 <option value="">All Statuses</option>
                 <option value="up">UP</option>
                 <option value="down">DOWN</option>
@@ -232,11 +235,11 @@ export default function StatusTable({ data }: StatusTableProps) {
                         </span>
                       )}
                       {isDisabled(d) && (
-                        <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }} title="Disabled in config — excluded from routing and health checks">
+                        <span className="badge bg-secondary text-white fw-medium" style={{ fontSize: '0.65rem' }} title="Disabled in config — excluded from routing and health checks">
                           <i className="bi bi-pause-circle me-1"></i>DISABLED
                         </span>
                       )}
-                      <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }}>
+                      <span className="badge bg-secondary text-white fw-medium" style={{ fontSize: '0.65rem' }}>
                         <i className="bi bi-sort-numeric-up me-1"></i>Priority: {d.priority}
                       </span>
                     </div>
@@ -276,7 +279,7 @@ export default function StatusTable({ data }: StatusTableProps) {
                   <td className="py-3 px-4 text-nowrap">
                     <div className="fw-medium" style={{ fontSize: '0.85rem' }} title={d.lastChecked ? `Last check: ${new Date(d.lastChecked).toLocaleString()}` : 'No check recorded'}>{formatTimeAgo(d.lastChecked)}</div>
                     <div className="d-flex align-items-center gap-2 mt-1">
-                      <span className={`badge ${isStatusFresh(d) ? 'bg-success bg-opacity-10 text-success border border-success border-opacity-25' : 'bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25'}`} style={{ fontSize: '0.65rem' }}>
+                      <span className={`badge ${isStatusFresh(d) ? 'bg-success text-white' : 'bg-secondary text-white'}`} style={{ fontSize: '0.65rem' }}>
                         {isStatusFresh(d) ? 'FRESH' : d.lastChecked ? 'STALE' : 'NO CHECK'}
                       </span>
                       <span className="text-muted" style={{ fontSize: '0.75rem' }}>{formatTimeOnly(d.lastChecked)}</span>
@@ -328,3 +331,4 @@ export default function StatusTable({ data }: StatusTableProps) {
     </div>
   );
 }
+

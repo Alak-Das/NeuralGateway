@@ -214,7 +214,7 @@ export default function App() {
           
           <div className="d-flex flex-wrap align-items-center justify-content-end gap-2 gap-md-3">
             <div className="d-flex align-items-center gap-2 text-muted" style={{ fontSize: '0.8rem' }}>
-              <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1 d-none d-md-inline-block">
+              <span className="badge bg-secondary text-white px-2 py-1 d-none d-md-inline-block">
                 <i className="bi bi-shield-check me-1"></i>Scheduled health checks
               </span>
               
