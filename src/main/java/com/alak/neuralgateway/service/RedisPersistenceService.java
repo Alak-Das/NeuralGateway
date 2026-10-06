@@ -333,6 +333,18 @@ public class RedisPersistenceService {
             redisTemplate.opsForHash().increment(REQUESTER_PIPELINES_KEY_PREFIX + requester, pipeline, 1);
         }
 
+        // Daily history for time-series analytics (Phase 2.2)
+        String today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ISO_DATE);
+        String historyKey = "gateway:requester:history:" + requester + ":daily:" + today;
+        if (tokens > 0) redisTemplate.opsForHash().increment(historyKey, "tokens", tokens);
+        redisTemplate.opsForHash().increment(historyKey, "requests", 1);
+        redisTemplate.opsForHash().increment(historyKey, "latency_sum", latencyMs);
+        if (!success) {
+            redisTemplate.opsForHash().increment(historyKey, "errors", 1);
+        }
+        // Set TTL to 30 days for daily history
+        redisTemplate.expire(historyKey, java.time.Duration.ofDays(30));
+
         // Backward compatibility
         if (tokens > 0) {
             incrementRequesterUsage(requester, tokens);
@@ -381,6 +393,32 @@ public class RedisPersistenceService {
 
         result.sort((a, b) -> ((Long) b.get("count")).compareTo((Long) a.get("count")));
         return result;
+    }
+
+    public List<Map<String, Object>> getRequesterHistory(String requester, int days) {
+        List<Map<String, Object>> history = new ArrayList<>();
+        java.time.LocalDate today = java.time.LocalDate.now();
+        
+        for (int i = days - 1; i >= 0; i--) {
+            String dateStr = today.minusDays(i).format(java.time.format.DateTimeFormatter.ISO_DATE);
+            String historyKey = "gateway:requester:history:" + requester + ":daily:" + dateStr;
+            
+            Map<Object, Object> metrics = redisTemplate.opsForHash().entries(historyKey);
+            long tokens = parseLongSafe(metrics.get("tokens"));
+            long requests = parseLongSafe(metrics.get("requests"));
+            long errors = parseLongSafe(metrics.get("errors"));
+            long latencySum = parseLongSafe(metrics.get("latency_sum"));
+            
+            Map<String, Object> dayData = new HashMap<>();
+            dayData.put("date", dateStr);
+            dayData.put("tokens", tokens);
+            dayData.put("requests", requests);
+            dayData.put("errors", errors);
+            dayData.put("avgLatencyMs", requests > 0 ? latencySum / requests : 0);
+            
+            history.add(dayData);
+        }
+        return history;
     }
 
     private long parseLongSafe(Object obj) {

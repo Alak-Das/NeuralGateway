@@ -1,8 +1,9 @@
-﻿import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { ModelStatus, RequesterStatus } from './types';
 import KpiGrid from './components/KpiGrid';
 import StatusTable from './components/StatusTable';
 import RequestersTable from './components/RequestersTable';
+import RequesterAnalytics from './components/RequesterAnalytics';
 import Charts from './components/Charts';
 import LiveLogs from './components/LiveLogs';
 import { ThemeContext } from './theme/ThemeContext';
@@ -283,7 +284,10 @@ av-link } onClick={() => setActiveTab('traces')}>
         {activeTab === 'models' ? (
           <StatusTable data={data} />
         ) : activeTab === 'requesters' ? (
-          <RequestersTable requesters={requesters} />
+          <>
+            <RequestersTable requesters={requesters} />
+            {requesters.length > 0 && <RequesterAnalytics requesters={requesters} />}
+          </>
         ) : (
           <LiveLogs />
         )}

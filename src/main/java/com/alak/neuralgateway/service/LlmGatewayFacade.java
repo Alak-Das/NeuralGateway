@@ -471,6 +471,10 @@ public class LlmGatewayFacade {
         return redisPersistenceService.getRequesterTelemetryDetailed();
     }
 
+    public List<Map<String, Object>> getRequesterHistory(String requester, int days) {
+        return redisPersistenceService.getRequesterHistory(requester, days);
+    }
+
     // ==================== Internal Helper Methods ====================
 
     private void sanitizeRequest(Map<String, Object> requestBody) {

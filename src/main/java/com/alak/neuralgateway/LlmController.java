@@ -207,6 +207,18 @@ public class LlmController {
     }
 
     @Operation(
+        summary = "Get requester historical telemetry",
+        description = "Returns daily request count statistics for a specific requester.",
+        tags = {"Telemetry"}
+    )
+    @GetMapping("/api/requesters/{requester}/history")
+    public List<Map<String, Object>> getRequesterHistory(
+            @PathVariable String requester,
+            @RequestParam(defaultValue = "14") int days) {
+        return gatewayFacade.getRequesterHistory(requester, days);
+    }
+
+    @Operation(
         summary = "Get live traces",
         description = "Returns the latest live request traces for the dashboard.",
         tags = {"Telemetry"}
