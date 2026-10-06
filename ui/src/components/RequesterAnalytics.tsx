@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { RequesterStatus } from '../types';
 import {
   Chart as ChartJS,
@@ -6,15 +6,13 @@ import {
   LinearScale,
   PointElement,
   LineElement,
-  BarElement,
   Title,
   Tooltip,
   Legend
 } from 'chart.js';
-import { Line, Bar, Doughnut } from 'react-chartjs-2';
-import { themeColors } from '../theme/colors';
+import { Line, Doughnut } from 'react-chartjs-2';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 interface RequesterAnalyticsProps {
   requesters: RequesterStatus[];
@@ -29,7 +27,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
     if (requesters.length > 0 && !selectedRequester) {
       setSelectedRequester(requesters[0].requester);
     }
-  }, [requesters]);
+  }, [requesters, selectedRequester]);
 
   useEffect(() => {
     if (!selectedRequester) return;
@@ -38,7 +36,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
     const fetchHistory = async () => {
       setLoading(true);
       try {
-        const res = await fetch(/api/requesters/\/history?days=14);
+        const res = await fetch(`/api/requesters/${selectedRequester}/history?days=14`);
         if (res.ok) {
           const data = await res.json();
           if (!disposed) setHistory(data.reverse()); // reverse so chronological order
@@ -66,8 +64,8 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
       {
         label: 'Requests',
         data: history.map(h => h.requests),
-        borderColor: themeColors.primary,
-        backgroundColor: themeColors.primary + '20',
+        borderColor: '#2563eb',
+        backgroundColor: '#2563eb20',
         borderWidth: 2,
         fill: true,
         tension: 0.3
@@ -75,7 +73,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
       {
         label: 'Tokens',
         data: history.map(h => h.tokens),
-        borderColor: themeColors.secondary,
+        borderColor: '#64748b',
         borderWidth: 2,
         tension: 0.3,
         hidden: true // hidden by default to keep scales clean
@@ -91,11 +89,11 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
     },
     scales: {
       x: {
-        grid: { color: 'var(--border-color)', drawBorder: false },
+        grid: { color: 'var(--border-color)', drawBorder: false as const },
         ticks: { color: 'var(--text-secondary)' }
       },
       y: {
-        grid: { color: 'var(--border-color)', drawBorder: false },
+        grid: { color: 'var(--border-color)', drawBorder: false as const },
         ticks: { color: 'var(--text-secondary)' }
       }
     }
@@ -106,7 +104,7 @@ export default function RequesterAnalytics({ requesters }: RequesterAnalyticsPro
     labels: reqData?.pipelines ? Object.keys(reqData.pipelines) : [],
     datasets: [{
       data: reqData?.pipelines ? Object.values(reqData.pipelines) : [],
-      backgroundColor: [themeColors.primary, themeColors.secondary, themeColors.warning, themeColors.danger, themeColors.success],
+      backgroundColor: ['#2563eb', '#64748b', '#f59e0b', '#ef4444', '#10b981'],
       borderWidth: 0
     }]
   };

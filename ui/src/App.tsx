@@ -262,20 +262,17 @@ export default function App() {
         
         <ul className="nav nav-tabs mb-4 border-bottom">
           <li className="nav-item">
-            <button className={
-av-link } onClick={() => setActiveTab('models')}>
+            <button className={`nav-link ${activeTab === 'models' ? 'active' : ''}`} onClick={() => setActiveTab('models')}>
               Model Status
             </button>
           </li>
           <li className="nav-item">
-            <button className={
-av-link } onClick={() => setActiveTab('requesters')}>
+            <button className={`nav-link ${activeTab === 'requesters' ? 'active' : ''}`} onClick={() => setActiveTab('requesters')}>
               Requesters
             </button>
           </li>
           <li className="nav-item">
-            <button className={
-av-link } onClick={() => setActiveTab('traces')}>
+            <button className={`nav-link ${activeTab === 'traces' ? 'active' : ''}`} onClick={() => setActiveTab('traces')}>
               Live Traces
             </button>
           </li>
