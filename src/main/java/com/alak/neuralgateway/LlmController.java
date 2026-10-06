@@ -82,7 +82,7 @@ public class LlmController {
     )
     @GetMapping("/v1/models")
     public ResponseEntity<Map<String, Object>> listModels() {
-        List<ModelStatus> statuses = gatewayFacade.getModelStatuses();
+        List<ModelStatus> statuses = gatewayFacade.getAllModelStatuses();
         List<Map<String, Object>> modelsData = new ArrayList<>();
         long createdTimestamp = System.currentTimeMillis() / 1000;
 
@@ -140,7 +140,7 @@ public class LlmController {
     )
     @GetMapping("/api/models/status")
     public List<ModelStatus> getStatus() {
-        return gatewayFacade.getModelStatuses();
+        return gatewayFacade.getAllModelStatuses();
     }
 
     @Operation(

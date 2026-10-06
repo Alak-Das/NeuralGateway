@@ -30,4 +30,10 @@ export interface ModelStatus {
 export interface RequesterStatus {
   requester: string;
   count: number;
+  tokenCount?: number;
+  requestCount?: number;
+  errorCount?: number;
+  avgLatencyMs?: number;
+  models?: Record<string, number>;
+  pipelines?: Record<string, number>;
 }

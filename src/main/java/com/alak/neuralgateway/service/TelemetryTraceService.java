@@ -14,18 +14,26 @@ public class TelemetryTraceService {
             String model,
             long latencyMs,
             boolean success,
-            String pipeline
+            String pipeline,
+            long tokenCount,
+            int httpStatus,
+            String endpoint
     ) {}
 
     private final ConcurrentLinkedDeque<TraceLog> traces = new ConcurrentLinkedDeque<>();
     private static final int MAX_TRACES = 100;
 
-    public void recordTrace(String requester, String model, long latencyMs, boolean success, String pipeline) {
+    public void recordTrace(String requester, String model, long latencyMs, boolean success, String pipeline, long tokenCount, int httpStatus, String endpoint) {
         if (requester == null) requester = "System";
-        traces.addFirst(new TraceLog(System.currentTimeMillis(), requester, model, latencyMs, success, pipeline));
+        traces.addFirst(new TraceLog(System.currentTimeMillis(), requester, model, latencyMs, success, pipeline, tokenCount, httpStatus, endpoint));
         while (traces.size() > MAX_TRACES) {
             traces.pollLast();
         }
+    }
+
+    // Overloaded method for backward compatibility
+    public void recordTrace(String requester, String model, long latencyMs, boolean success, String pipeline) {
+        recordTrace(requester, model, latencyMs, success, pipeline, 0, 0, "");
     }
 
     public List<TraceLog> getLatestTraces() {

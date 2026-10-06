@@ -118,7 +118,7 @@ Used by the React monitoring dashboard and operations tooling:
 2. **Configure your API keys:**
    Create a `.env` file with your provider keys (copy from `.env.example`):
    ```bash
-   # NeuralGateway Environment Configuration Template
+   # NeuralGateway (Updated) Environment Configuration Template
    # Copy this file to .env and supply your API keys.
    # NEVER commit the actual .env file to version control.
 

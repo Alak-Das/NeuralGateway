@@ -15,6 +15,7 @@ public class DataRetentionProperties {
 
     private int ttlHours = 24;
     private int cleanupIntervalMinutes = 60;
+    private int maxHistorySize = 100;
 
     public int getTtlHours() {
         return ttlHours;
@@ -30,6 +31,14 @@ public class DataRetentionProperties {
 
     public void setCleanupIntervalMinutes(int cleanupIntervalMinutes) {
         this.cleanupIntervalMinutes = cleanupIntervalMinutes;
+    }
+
+    public int getMaxHistorySize() {
+        return maxHistorySize;
+    }
+
+    public void setMaxHistorySize(int maxHistorySize) {
+        this.maxHistorySize = maxHistorySize;
     }
 
     public Duration getTtlDuration() {

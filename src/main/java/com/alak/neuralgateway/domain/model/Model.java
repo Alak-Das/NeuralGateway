@@ -86,6 +86,24 @@ public class Model {
 
     public Map<Pipeline, Integer> getPipelinePriorities() { return pipelinePriorities; }
 
+    /**
+     * Get the maximum tokens this model can handle in a single request.
+     * 
+     * @return maximum tokens, or null if not specified
+     */
+    public Integer getMaxTokens() {
+        return null; // To be configured via model configuration
+    }
+
+    /**
+     * Get the minimum tokens this model should be allocated.
+     * 
+     * @return minimum tokens, or null if not specified
+     */
+    public Integer getMinTokens() {
+        return null; // To be configured via model configuration
+    }
+
     public ModelCapabilities getCapabilities() {
         return capabilities;
     }

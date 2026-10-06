@@ -115,6 +115,15 @@ public class ModelRegistry {
         return Collections.unmodifiableSet(modelCatalog.keySet());
     }
 
+    /**
+     * Get the model catalog map.
+     * 
+     * @return unmodifiable map of model ID -> model
+     */
+    public Map<String, Model> getModelCatalog() {
+        return Collections.unmodifiableMap(modelCatalog);
+    }
+
     public List<Model> getModelsByPipeline(Pipeline pipeline) {
         return modelCatalog.values().stream()
                 .filter(model -> model.isAvailableForPipeline(pipeline))
