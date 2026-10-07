@@ -88,7 +88,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                 if (model.getTimeoutMs() != null) {
                     mono = mono.timeout(Duration.ofMillis(model.getTimeoutMs()));
                 } else {
-                    mono = mono.timeout(Duration.ofSeconds(120)); // default
+                    mono = mono.timeout(Duration.ofSeconds(180)); // default 180s
                 }
                 
                 Map<String, Object> response = mono.block();
@@ -121,10 +121,13 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
             } catch (UpstreamServiceException | IllegalArgumentException e) {
                 throw e;
             } catch (Exception e) {
+                if (e instanceof java.util.concurrent.TimeoutException || e.getCause() instanceof java.util.concurrent.TimeoutException) {
+                    throw new UpstreamServiceException("Upstream read timed out for model: " + modelId, 504);
+                }
                 String msg = (e.getMessage() != null && !e.getMessage().isBlank()) ? e.getMessage() : e.getClass().getSimpleName();
                 throw new UpstreamServiceException("Upstream error for model " + modelId + ": " + msg, 500);
             } finally {
-                            }
+            }
         }
         throw lastAuthenticationFailure;
     }
@@ -162,7 +165,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
             if (model.getTimeoutMs() != null) {
                 flux = flux.timeout(Duration.ofMillis(model.getTimeoutMs()));
             } else {
-                flux = flux.timeout(Duration.ofSeconds(120)); // default
+                flux = flux.timeout(Duration.ofSeconds(180)); // default 180s
             }
 
             return flux
@@ -176,6 +179,8 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                             e -> mapWebClientException(e, model.getProviderId(), apiKey, modelId))
                     .onErrorMap(org.springframework.web.reactive.function.client.WebClientRequestException.class,
                             e -> mapWebClientRequestException(e, modelId))
+                    .onErrorMap(java.util.concurrent.TimeoutException.class,
+                            e -> new UpstreamServiceException("Upstream read timed out for model: " + modelId, 504))
                     .doOnComplete(() -> {
                                             })
                     .onErrorResume(ProviderFailureException.class, failure -> {

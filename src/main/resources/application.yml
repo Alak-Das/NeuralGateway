@@ -64,13 +64,13 @@ llm:
       models:
         - { id: "moonshotai/kimi-k3",                             enabled: true, priority: 10,  pipelines: [ CODING, REASONING ], timeoutMs: 180000 }
         - { id: "z-ai/glm-5.3",                                   enabled: true, priority: 9,   pipelines: [ CODING, REASONING ], timeoutMs: 150000 }
-        - { id: "nvidia/nemotron-3-ultra-550b-a55b",              enabled: true, priority: 9,   pipelines: [ CODING, REASONING ] }
+        - { id: "nvidia/nemotron-3-ultra-550b-a55b",              enabled: true, priority: 9,   pipelines: [ CODING, REASONING ], timeoutMs: 180000 }
         - { id: "deepseek-ai/deepseek-v4.1-flash",                enabled: true, priority: 8,   pipelines: [ CODING, REASONING ], timeoutMs: 150000 }
-        - { id: "nvidia/nemotron-3-super-120b-a12b",              enabled: true, priority: 7,  pipelines: [ CODING, REASONING ] }
-        - { id: "z-ai/glm-5.3-flash",                             enabled: true, priority: 6,   pipelines: [ CODING, REASONING ] }
-        - { id: "meta/llama-3.2-90b-vision-instruct",             enabled: true, priority: 7,  pipelines: [ VISION ] }
-        - { id: "meta/llama-3.2-11b-vision-instruct",             enabled: true, priority: 6,   pipelines: [ VISION ] }
-        - { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  enabled: true, priority: 6,   pipelines: [ VISION ] }
+        - { id: "nvidia/nemotron-3-super-120b-a12b",              enabled: true, priority: 7,   pipelines: [ CODING, REASONING ], timeoutMs: 180000 }
+        - { id: "z-ai/glm-5.3-flash",                             enabled: true, priority: 6,   pipelines: [ CODING, REASONING ], timeoutMs: 150000 }
+        - { id: "meta/llama-3.2-90b-vision-instruct",             enabled: true, priority: 7,   pipelines: [ VISION ], timeoutMs: 150000 }
+        - { id: "meta/llama-3.2-11b-vision-instruct",             enabled: true, priority: 6,   pipelines: [ VISION ], timeoutMs: 120000 }
+        - { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",  enabled: true, priority: 6,   pipelines: [ VISION ], timeoutMs: 120000 }
     explabs:
       base-url: https://api.experientiallabs.ai/v1
       rate-limit-rpm: 300

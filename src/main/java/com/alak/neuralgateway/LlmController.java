@@ -268,21 +268,21 @@ public class LlmController {
                     log.debug("Client connection disconnected prematurely: {}", e.getMessage());
                     return;
                 }
-                boolean interrupted = isInterrupted(e);
-                if (interrupted) {
-                    log.warn("Gateway request interrupted or timed out: {}", e.getMessage());
+                boolean timeoutOrInterrupted = isInterrupted(e) || isTimeout(e);
+                if (timeoutOrInterrupted) {
+                    log.warn("Gateway request timed out or interrupted: {}", e.getMessage());
                 } else {
                     log.error("Gateway error: {}", e.getMessage(), e);
                 }
-                int status = interrupted ? 504 : (e instanceof IllegalArgumentException ? 400 : 503);
+                int status = timeoutOrInterrupted ? 504 : (e instanceof IllegalArgumentException ? 400 : 503);
                 httpResponse.setStatus(status);
-                String errorMsg = interrupted
+                String errorMsg = timeoutOrInterrupted
                         ? "Gateway timeout: Upstream LLM provider did not respond in time. Please retry."
                         : (e.getMessage() != null ? e.getMessage() : "Gateway error");
-                String errorCode = interrupted
+                String errorCode = timeoutOrInterrupted
                         ? "gateway_timeout"
                         : (e instanceof IllegalArgumentException ? "invalid_request" : "pipeline_exhausted");
-                String errorType = interrupted
+                String errorType = timeoutOrInterrupted
                         ? "upstream_error"
                         : (e instanceof IllegalArgumentException ? "invalid_request_error" : "server_error");
                 Map<String, Object> error = Map.of(
@@ -327,19 +327,19 @@ public class LlmController {
                 log.debug("Client connection disconnected prematurely: {}", e.getMessage());
                 return;
             }
-            boolean interrupted = isInterrupted(e);
-            if (interrupted) {
-                log.warn("Streaming response interrupted or timed out for requester '{}': {}", requester, e.getMessage());
+            boolean timeoutOrInterrupted = isInterrupted(e) || isTimeout(e);
+            if (timeoutOrInterrupted) {
+                log.warn("Streaming response timed out or interrupted for requester '{}': {}", requester, e.getMessage());
             } else {
                 log.error("Streaming response failed: {}", e.getMessage(), e);
             }
             if (!doneSent.get()) {
                 try {
-                    String errorMsg = interrupted
+                    String errorMsg = timeoutOrInterrupted
                             ? "Gateway timeout: Upstream LLM provider did not respond in time. Please retry."
                             : (e.getMessage() != null ? e.getMessage() : "Streaming upstream error");
-                    String errorCode = interrupted ? "gateway_timeout" : "pipeline_exhausted";
-                    String errorType = interrupted ? "upstream_error" : "server_error";
+                    String errorCode = timeoutOrInterrupted ? "gateway_timeout" : "pipeline_exhausted";
+                    String errorType = timeoutOrInterrupted ? "upstream_error" : "server_error";
                     Map<String, Object> error = Map.of("error", Map.of(
                             "message", errorMsg,
                             "type", errorType,
@@ -436,5 +436,18 @@ public class LlmController {
         String msg = t.getMessage();
         if (msg != null && msg.contains("InterruptedException")) return true;
         return isInterrupted(t.getCause());
+    }
+
+    private boolean isTimeout(Throwable t) {
+        if (t == null) return false;
+        if (t instanceof java.util.concurrent.TimeoutException) return true;
+        if (t instanceof io.netty.handler.timeout.ReadTimeoutException) return true;
+        if (t instanceof io.netty.handler.timeout.TimeoutException) return true;
+        String msg = t.getMessage();
+        if (msg != null && (msg.contains("TimeoutException") || msg.contains("timed out")
+                || msg.contains("timeout") || msg.contains("within "))) {
+            return true;
+        }
+        return isTimeout(t.getCause());
     }
 }

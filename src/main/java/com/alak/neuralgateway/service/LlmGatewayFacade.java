@@ -399,6 +399,10 @@ public class LlmGatewayFacade {
                             return streamCandidate(candidates, candidateIndex + 1, requestBody, requester,
                                     transactionId, pipelineName, estimatedTokens);
                         }
+                        if (canFailOver) {
+                            return Flux.error(noEligibleProvider(Pipeline.valueOf(pipelineName.toUpperCase()),
+                                    error instanceof Exception ex ? ex : new Exception(error)));
+                        }
                         return Flux.error(error);
                     });
         });
