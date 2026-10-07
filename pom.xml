@@ -84,7 +84,12 @@
             <artifactId>logstash-logback-encoder</artifactId>
             <version>8.0</version>
         </dependency>
-            <!-- Micrometer Tracing for W3C Trace Context -->
+            <!-- Actuator for Tracing Auto-Configuration -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Micrometer Tracing for W3C Trace Context -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-tracing-bridge-brave</artifactId>
@@ -106,6 +111,7 @@
         </plugins>
     </build>
 </project>
+
 
 
 
