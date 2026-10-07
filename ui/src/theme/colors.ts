@@ -3,14 +3,60 @@
 // Provides semantic tokens, graph-specific palettes, and category colors
 // All colors are WCAG AA compliant and color-blind safe
 
+// 24 highly distinct, high-contrast categorical colors
+// Alternating hues and tones across color space to maximize perceptual distinction
 const categoricalLight = [
-  '#007AFF', '#FF9F0A', '#34C759', '#AF52DE', '#FF3B30',
-  '#5856D6', '#FF2D92', '#00C7BE', '#FFCC00', '#8E8E93',
+  '#0284C7', // 0: Sky Blue
+  '#EA580C', // 1: Vivid Orange
+  '#059669', // 2: Emerald Green
+  '#7C3AED', // 3: Purple / Violet
+  '#DC2626', // 4: Crimson Red
+  '#D97706', // 5: Amber Gold
+  '#DB2777', // 6: Hot Pink
+  '#0891B2', // 7: Cyan / Aqua
+  '#65A30D', // 8: Lime Green
+  '#4F46E5', // 9: Indigo Blue
+  '#E11D48', // 10: Rose Red
+  '#0D9488', // 11: Teal
+  '#C026D3', // 12: Fuchsia / Magenta
+  '#2563EB', // 13: Cobalt Blue
+  '#CA8A04', // 14: Bright Lemon
+  '#16A34A', // 15: Bright Green
+  '#9333EA', // 16: Soft Lavender
+  '#C2410C', // 17: Warm Tangerine
+  '#0F766E', // 18: Mint Aqua
+  '#BE123C', // 19: Deep Rose
+  '#4D7C0F', // 20: Bright Chartreuse
+  '#4338CA', // 21: Periwinkle
+  '#9D174D', // 22: Soft Carnation
+  '#475569', // 23: Cool Slate
 ] as const;
 
 const categoricalDark = [
-  '#0A84FF', '#FF9F0A', '#30D158', '#BF5AF2', '#FF453A',
-  '#5E5CE6', '#FF375F', '#64D2FF', '#FFD60A', '#98989D',
+  '#38BDF8', // 0: Sky Blue
+  '#F97316', // 1: Vivid Orange
+  '#10B981', // 2: Emerald Green
+  '#A855F7', // 3: Purple / Violet
+  '#EF4444', // 4: Crimson Red
+  '#FBBF24', // 5: Amber Gold
+  '#EC4899', // 6: Hot Pink
+  '#06B6D4', // 7: Cyan / Aqua
+  '#84CC16', // 8: Lime Green
+  '#6366F1', // 9: Indigo Blue
+  '#F43F5E', // 10: Rose Red
+  '#14B8A6', // 11: Teal
+  '#D946EF', // 12: Fuchsia / Magenta
+  '#3B82F6', // 13: Cobalt Blue
+  '#EAB308', // 14: Bright Lemon
+  '#22C55E', // 15: Bright Green
+  '#C084FC', // 16: Soft Lavender
+  '#FB923C', // 17: Warm Tangerine
+  '#2DD4BF', // 18: Mint Aqua
+  '#FDA4AF', // 19: Light Peach Rose
+  '#A3E635', // 20: Bright Chartreuse
+  '#818CF8', // 21: Periwinkle
+  '#F472B6', // 22: Soft Carnation
+  '#94A3B8', // 23: Cool Slate
 ] as const;
 
 const graphElements = {
@@ -146,3 +192,60 @@ export const getColor = (
   // Fallback
   return variant === 'dark' ? '#3b82f6' : '#2563eb';
 };
+
+/**
+ * Simple string hash for deterministic fallback color selection.
+ */
+export function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Creates a deterministic, alphabetically sorted model-to-color mapping.
+ * Ensures every model gets a unique, consistent color across all dashboard cards.
+ */
+export function buildModelColorMap(modelIds: string[], isDark: boolean): Record<string, string> {
+  const palette = isDark ? categoricalDark : categoricalLight;
+  const uniqueIds = Array.from(new Set(modelIds.filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const colorMap: Record<string, string> = {};
+
+  uniqueIds.forEach((id, index) => {
+    const color = palette[index % palette.length];
+    colorMap[id] = color;
+    // Also map short name so lookups by simple name or full path match identically
+    const shortName = id.split('/').pop() || id;
+    if (!colorMap[shortName]) {
+      colorMap[shortName] = color;
+    }
+  });
+
+  return colorMap;
+}
+
+/**
+ * Resolves a model color deterministically using the color map or a hash into the 24-color palette.
+ */
+export function getModelColor(
+  modelId: string,
+  isDark: boolean,
+  colorMap?: Record<string, string>
+): string {
+  if (!modelId || modelId === 'No Traffic in Period') {
+    return isDark ? '#64748b' : '#94a3b8';
+  }
+  if (colorMap && colorMap[modelId]) {
+    return colorMap[modelId];
+  }
+  const shortName = modelId.split('/').pop() || modelId;
+  if (colorMap && colorMap[shortName]) {
+    return colorMap[shortName];
+  }
+  const palette = isDark ? categoricalDark : categoricalLight;
+  return palette[hashString(modelId) % palette.length];
+}
+

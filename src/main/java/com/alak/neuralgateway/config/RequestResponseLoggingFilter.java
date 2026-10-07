@@ -1,4 +1,4 @@
-﻿package com.alak.neuralgateway.config;
+package com.alak.neuralgateway.config;
 
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;

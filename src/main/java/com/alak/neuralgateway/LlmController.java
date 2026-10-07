@@ -1,4 +1,4 @@
-﻿package com.alak.neuralgateway;
+package com.alak.neuralgateway;
 
 import com.alak.neuralgateway.domain.health.HealthCheckResult;
 import com.alak.neuralgateway.domain.ModelStatus;

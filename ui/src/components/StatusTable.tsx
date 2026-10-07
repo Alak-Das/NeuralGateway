@@ -2,6 +2,7 @@ import { useState, useMemo, useContext } from 'react';
 import { ModelStatus } from '../types';
 import { formatNumber, formatTimeAgo, formatTimeOnly, formatShort } from '../utils/formatters';
 import { ThemeContext } from '../theme/ThemeContext';
+import { buildModelColorMap, getModelColor } from '../theme/colors';
 
 interface StatusTableProps {
   data: ModelStatus[];
@@ -17,6 +18,10 @@ export default function StatusTable({ data }: StatusTableProps) {
   const [editPipelines, setEditPipelines] = useState('');
   const theme = useContext(ThemeContext);
   const isDark = theme === 'dark';
+
+  const modelColorMap = useMemo(() => {
+    return buildModelColorMap(data.map(d => d.model), isDark);
+  }, [data, isDark]);
 
   const handleEdit = (model: ModelStatus) => {
     setEditingModel(model);
@@ -228,6 +233,16 @@ export default function StatusTable({ data }: StatusTableProps) {
                 <tr key={d.model} className={isDisabled(d) ? 'row-disabled' : ''}>
                   <td className="py-3 px-4">
                     <div className="d-flex align-items-center gap-2 flex-wrap">
+                      <span 
+                        className="rounded-circle flex-shrink-0 shadow-sm" 
+                        style={{ 
+                          width: '10px', 
+                          height: '10px', 
+                          backgroundColor: getModelColor(d.model, isDark, modelColorMap),
+                          display: 'inline-block' 
+                        }} 
+                        title={`Color: ${d.model}`}
+                      />
                       <span className="model-name fw-bold" title={d.model}>{d.model}</span>
                       {d.provider && (
                         <span className="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 fw-medium" style={{ fontSize: '0.65rem' }}>

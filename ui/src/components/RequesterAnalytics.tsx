@@ -130,7 +130,7 @@ const theme = useContext(ThemeContext);
         <h5 className="mb-0 fw-bold"><i className="bi bi-graph-up text-primary me-2"></i>Requester Analytics</h5>
         
         <select 
-          className="${isDark ? 'bg-dark text-light border-secondary' : 'bg-light text-dark border-secondary'} form-select form-select-sm w-auto"
+          className={`${isDark ? 'bg-dark text-light border-secondary' : 'bg-light text-dark border-secondary'} form-select form-select-sm w-auto`}
           value={selectedRequester} 
           onChange={e => setSelectedRequester(e.target.value)}
         >

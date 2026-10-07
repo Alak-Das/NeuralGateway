@@ -13,7 +13,7 @@ import {
   ArcElement
 } from 'chart.js';
 import { Line, Doughnut } from 'react-chartjs-2';
-import { themeColors } from '../theme/colors';
+import { buildModelColorMap, getModelColor } from '../theme/colors';
 
 ChartJS.register(
   CategoryScale,
@@ -43,10 +43,6 @@ export default function Charts({ data }: ChartsProps) {
   const theme = useContext(ThemeContext);
   const isDark = theme === 'dark';
 
-  // Get theme-aware categorical colors for model series
-  const getModelColors = (count: number) => 
-    themeColors.chartHelpers.getCategoricalColors(count, isDark);
-
   // Get semantic colors for specific metrics
   const hasLatencyMeasurement = (historyEntry: ModelStatus['history'][number]) =>
     Number.isFinite(historyEntry.latencyMs) && historyEntry.latencyMs > 0;
@@ -69,10 +65,8 @@ export default function Charts({ data }: ChartsProps) {
   };
 
   const { latencyData, latencyOptions, latencyDatasetsCount, usageData, usageOptions, errorData, errorOptions, totalRequests, displayData, bgColors, activeModels } = useMemo(() => {
-    // Model Color Map - using new categorical palette
-    const modelColorMap: Record<string, string> = {};
-    const modelColors = getModelColors(data.length);
-    data.forEach((d, i) => { modelColorMap[d.model] = modelColors[i]; });
+    // Model Color Map - deterministic, sorted alphabetically across all known models
+    const modelColorMap = buildModelColorMap(data.map(d => d.model), isDark);
 
     // 1. Latency History Chart - Only models that are UP, in seconds
     const isModelUp = (m: ModelStatus) => ((m as any).up !== undefined ? (m as any).up : m.isUp);
@@ -108,7 +102,7 @@ export default function Charts({ data }: ChartsProps) {
         const time = new Date(h.timestamp).getTime();
         return !isNaN(time) && time >= latencyCutoffTime;
       }))
-      .map((d, i) => {
+      .map((d) => {
         const latencyMap: Record<number, number> = {};
         if (d.history && Array.isArray(d.history)) {
           d.history.forEach(h => {
@@ -123,13 +117,15 @@ export default function Charts({ data }: ChartsProps) {
         }
         
         const alignedData = sortedTimestamps.map(ts => latencyMap[ts] !== undefined ? latencyMap[ts] : null);
-        const myColor = modelColorMap[d.model] || getModelColors(data.length)[i];
+        const myColor = getModelColor(d.model, isDark, modelColorMap);
       
         return {
           label: d.model.split('/').pop() || d.model,
           data: alignedData,
           borderColor: myColor,
           backgroundColor: myColor + '20',
+          pointBackgroundColor: myColor,
+          pointBorderColor: myColor,
           fill: false,
           tension: 0.3,
           pointRadius: 3,
@@ -203,7 +199,7 @@ export default function Charts({ data }: ChartsProps) {
       .filter(d => d.history && Array.isArray(d.history) && d.history.some(h => {
         return h.timestamp && new Date(h.timestamp).getTime() >= successCutoffTime && !h.isBackgroundProbe;
       }))
-      .map((d, i) => {
+      .map((d) => {
         const successStats: Record<number, { total: number, errors: number }> = {};
         if (d.history && Array.isArray(d.history)) {
           d.history.forEach(h => {
@@ -226,13 +222,15 @@ export default function Charts({ data }: ChartsProps) {
            }
            return null;
         });
-        const myColor = modelColorMap[d.model] || getModelColors(data.length)[i];
+        const myColor = getModelColor(d.model, isDark, modelColorMap);
       
         return {
           label: d.model.split("/").pop() || d.model,
           data: alignedData,
           borderColor: myColor,
           backgroundColor: myColor + "20",
+          pointBackgroundColor: myColor,
+          pointBorderColor: myColor,
           fill: false,
           tension: 0.3,
           pointRadius: 3,
@@ -286,7 +284,7 @@ export default function Charts({ data }: ChartsProps) {
     const fallbackData = [{ model: 'No Traffic in Period', uses: 1 }];
     const displayDataList = activeModelsList.length > 0 ? activeModelsList : (data.length > 0 ? fallbackData : []);
     // Get colors for usage distribution legend (synced with chart colors)
-    const bgColors = displayDataList.map(d => modelColorMap[d.model]);
+    const bgColors = displayDataList.map(d => getModelColor(d.model, isDark, modelColorMap));
     const modelNames = displayDataList.map(d => d.model.split('/').pop() || d.model);
     const usageValues = displayDataList.map(d => d.uses);
     const totalRequestsVal = activeModelsList.length > 0 ? activeModelsList.reduce((sum, d) => sum + d.uses, 0) : 0;
@@ -294,7 +292,8 @@ export default function Charts({ data }: ChartsProps) {
     const usageDatasets = [{
       data: usageValues,
       backgroundColor: bgColors,
-      borderWidth: 0,
+      borderColor: isDark ? '#1e293b' : '#ffffff',
+      borderWidth: 2,
       hoverOffset: 4
     }];
 
@@ -339,7 +338,7 @@ export default function Charts({ data }: ChartsProps) {
       bgColors: bgColors,
       activeModels: activeModelsList
     };
-  }, [data, latencyRangeMins, usageRangeMins, successRangeMins]);
+  }, [data, latencyRangeMins, usageRangeMins, successRangeMins, isDark]);
 
   return (
     <div className="row g-4 mb-4">
