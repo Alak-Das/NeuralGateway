@@ -1,4 +1,4 @@
-package com.alak.neuralgateway.config;
+﻿package com.alak.neuralgateway.config;
 
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,11 +33,7 @@ public class RequestResponseLoggingFilter implements Filter {
         HttpServletResponse httpResponse = (HttpServletResponse) response;
 
         // Generate or extract transaction ID
-        String txId = httpRequest.getHeader("X-Transaction-Id");
-        if (txId == null || txId.isBlank()) {
-            txId = UUID.randomUUID().toString();
-        }
-        httpResponse.setHeader("X-Transaction-Id", txId);
+        
 
         // Extract requester
         String requester = httpRequest.getHeader("X-Requester");
@@ -46,7 +42,7 @@ public class RequestResponseLoggingFilter implements Filter {
         }
 
         // Set MDC context for this request
-        MDC.put("txId", txId);
+        
         MDC.put("requester", requester);
 
         long startTime = System.currentTimeMillis();

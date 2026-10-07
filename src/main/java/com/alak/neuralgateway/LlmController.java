@@ -1,4 +1,4 @@
-package com.alak.neuralgateway;
+﻿package com.alak.neuralgateway;
 
 import com.alak.neuralgateway.domain.health.HealthCheckResult;
 import com.alak.neuralgateway.domain.ModelStatus;
@@ -249,6 +249,7 @@ public class LlmController {
         httpResponse.setHeader("Cache-Control", "no-cache");
         httpResponse.setHeader("X-Trace-Id", transactionId);
         return outputStream -> {
+            org.slf4j.MDC.put("traceId", transactionId);
             org.slf4j.MDC.put("requester", requester);
             try {
                 log.info("Received OpenAI-compatible {} proxy request to '{}' [Resolution: {}]",
@@ -307,7 +308,6 @@ public class LlmController {
     private void writeStreamingResponse(OutputStream outputStream,
                                         Flux<String> upstreamEvents,
                                         String requester) throws IOException {
-        org.slf4j.MDC.put("requester", requester);
         AtomicBoolean doneSent = new AtomicBoolean(false);
         try {
             upstreamEvents
@@ -379,7 +379,7 @@ public class LlmController {
 
     @ExceptionHandler(org.springframework.web.context.request.async.AsyncRequestTimeoutException.class)
     public ResponseEntity<?> handleAsyncTimeout(org.springframework.web.context.request.async.AsyncRequestTimeoutException e) {
-        log.warn("Async request timed out — upstream LLM provider did not respond in time");
+        log.warn("Async request timed out â€” upstream LLM provider did not respond in time");
         Map<String, Object> error = Map.of(
             "message", "Upstream LLM provider did not respond in time. The request may have been too large or the model is warming up. Please retry.",
             "type", "upstream_error",
@@ -451,3 +451,4 @@ public class LlmController {
         return isTimeout(t.getCause());
     }
 }
+
