@@ -15,7 +15,7 @@ Organizations face challenges when integrating multiple LLM providers:
 ## Solution Overview
 Neural Gateway solves these challenges by providing:
 - Intelligent pipeline-based routing (Coding, Reasoning, Vision)
-- Dynamic load balancing with EMA latency scoring and connection penalties
+- Dynamic load balancing with priority-weighted latency scoring and connection penalties
 - Redis-based provider cooldowns for fault tolerance and graceful degradation
 - Context-aware model selection based on payload size
 - Real-time health monitoring with distributed scheduling
@@ -38,9 +38,9 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 - **Auto Pipeline** (`model: "auto"`): Automatically resolves target pipeline using request structure, multimodal content, and caller headers
 
 ### 2. Low-Latency Load Balancing & Telemetry
-- **In-Memory O(1) Routing Score**: Combines an Exponential Moving Average (EMA) latency calculation with an active-connection penalty (`score = emaLatency + (activeConnections * 300ms)`)
-- **Zero-Latency Request Path**: Health ping results update EMA in-memory, avoiding synchronous database queries during request routing
-- **Context-Aware Window Validation**: Automatically filters out models whose context windows cannot accommodate the estimated payload tokens
+- **In-Memory O(1) Routing Score**: Combines a latency calculation with an active-connection penalty and model priority (`score = (latency + activeConnections * 300ms) / priority`). Lower score = better; lower priority number = higher priority.
+- **Zero-Latency Request Path**: Health ping results update latency in-memory, avoiding synchronous database queries during request routing
+- **Context-Aware Window Validation**: Automatically filters out models whose context windows cannot accommodate the estimated payload tokens. Disabled by default; enable via `llm.routing.context-window-validation-enabled=true`
 
 ### 3. High Availability & Fault Tolerance
 - **Redis-Based Provider Cooldown & Error Tracking**: Models returning consecutive server errors (5xx, timeouts) or rate-limit responses (429) trigger provider-specific cooldowns tracked in Redis, preventing traffic to failing providers while allowing recovery
@@ -54,7 +54,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 ### 4. Resilient Distributed Health Checker
 - **ShedLock Distributed Scheduling**: Prevents redundant health check sweeps across horizontally scaled gateway instances by utilizing a Redis-backed distributed lock
 - **3-Minute Sweep Frequency**: Automated health check sweeps run every 3 minutes, refreshing model statuses without placing continuous load on upstream providers
-- **Prioritized Ping Ordering**: Models are sorted by historical EMA latency
+- **Prioritized Ping Ordering**: Models are sorted by priority
 - **Staggered Ping Timing**: Each model ping is staggered by 500ms to pace requests and avoid thundering herd problems
 - **Parallel Execution**: Health checks execute concurrently using a thread pool to avoid blocking the scheduler thread
 - **Independent Recovery Sweep**: A dedicated low-cost sweep (default every 5s, max 2 models/sweep) probes only models flagged unhealthy by routed failures, honouring per-model exponential backoff so recovery starts in seconds instead of waiting for the next full sweep

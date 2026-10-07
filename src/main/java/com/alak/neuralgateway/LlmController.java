@@ -63,7 +63,7 @@ public class LlmController {
         description = "Standard OpenAI-compatible chat completions endpoint (`/v1/chat/completions`). " +
                       "Intelligently routes requests to the optimal model based on virtual model alias (coding, reasoning, vision, auto), " +
                       "multimodal image payload, IDE/coding tool definitions, or caller identification (Cline, Cursor, etc.). " +
-                      "Supports SSE streaming, tool calls normalization, automatic failover, and EMA latency routing.",
+                      "Supports SSE streaming, tool calls normalization, automatic failover, and priority-weighted latency routing (score = (latency + connectionPenalty * activeConnections) / priority).",
         tags = {"OpenAI API"}
     )
     @PostMapping("/v1/chat/completions")
@@ -138,7 +138,7 @@ public class LlmController {
 
     @Operation(
         summary = "Get all model statuses",
-        description = "Returns current operational status, EMA latency, active connections, total requests, and circuit breaker state across all registered models.",
+        description = "Returns current operational status, latency, active connections, total requests, and circuit breaker state across all registered models.",
         tags = {"Fleet Health & Diagnostics"}
     )
     @GetMapping("/api/models/status")

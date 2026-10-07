@@ -14,9 +14,9 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 - **Dynamic Auto-Detection (`model: "auto"`)**: Multi-tier capability resolution inspects message structure (multimodal images, IDE tool calls, code blocks) to automatically dispatch to the optimal pipeline.
 
 ### 2. Low-Latency Load Balancing & Telemetry
-- **In-Memory O(1) Routing Score**: Combines an Exponential Moving Average (EMA) latency calculation with an active-connection penalty (`score = emaLatency + (activeConnections * 300ms)`).
-- **Zero-Latency Request Path**: Health ping results update EMA in-memory, avoiding synchronous database queries during request routing.
-- **Context-Aware Window Validation**: Automatically filters out models whose context windows cannot accommodate the estimated payload tokens (preventing truncation and 400 Bad Request errors).
+- **In-Memory O(1) Routing Score**: Combines a latency calculation with an active-connection penalty and model priority (`score = (latency + activeConnections * 300ms) / priority`). Lower score = better; lower priority number = higher priority.
+- **Zero-Latency Request Path**: Health ping results update latency in-memory, avoiding synchronous database queries during request routing.
+- **Context-Aware Window Validation**: Automatically filters out models whose context windows cannot accommodate the estimated payload tokens (preventing truncation and 400 Bad Request errors). Disabled by default; enable via `llm.routing.context-window-validation-enabled=true`.
 
 ### 3. High Availability & Resilience
 - **Redis-Based Provider Cooldown & Error Tracking**: Models returning consecutive server errors (5xx, timeouts) or rate-limit responses (429) trigger provider-specific cooldowns tracked in Redis, preventing traffic to failing providers while allowing recovery. Circuit breaker functionality has been replaced with this lighter-weight, Redis-driven approach.
@@ -28,13 +28,13 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 - **Auto-Recovery**: Provider cooldowns automatically expire after their configured duration, restoring the provider to active rotation without manual intervention.
 - **Smart Model Recovery Backoff**: Models marked unhealthy by a transient routed failure are re-probed by a dedicated recovery sweep with exponential backoff (30s → 120s cap, ±20% jitter) that is shared across gateway replicas via Redis. A single successful probe clears the backoff and restores the model immediately — no need to wait for the full health-check cycle. Provider-wide outages (upstream `401`/`403`/`404`, quota errors, rate limits) never falsely flag an individual model as DOWN, so failover and the dashboard stay accurate.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
-- **Resilient Fallback Routing**: During cold-starts or temporary upstream outages, candidate models are sorted by lowest historical EMA score and tried with up to 3 fallback attempts.
+- **Resilient Fallback Routing**: During cold-starts or temporary upstream outages, candidate models are sorted by lowest historical routing score (priority-weighted latency) and tried with up to 3 fallback attempts.
 - **Fail-Fast Failover**: Transparently retries candidate models on server-side failures with strict attempt caps to eliminate cascading delays.
 
 ### 4. Resilient Distributed Health Checker
 - **ShedLock Distributed Scheduling**: Prevents redundant health check sweeps across horizontally scaled gateway instances by utilizing a Redis-backed distributed lock.
 - **4-Minute Sweep Frequency**: Automated health check sweeps run every 4 minutes (`fixedDelay = 240000ms`, configurable via `llm.health-check.intervalMs`), refreshing model statuses without placing continuous load on upstream providers. Increase this value (or the initial delay) while testing to minimise upstream token consumption.
-- **Prioritized Ping Ordering**: Models are sorted by historical EMA latency (fastest first), ensuring the most responsive models are verified earliest during each sweep.
+- **Prioritized Ping Ordering**: Models are sorted by priority (highest priority first), ensuring the most responsive models are verified earliest during each sweep.
 - **Jittered Concurrency**: Each sweep pings up to 10 models in parallel with configurable jitter (`±5s`) to prevent thundering herd patterns against providers.
 - **Redis State Persistence**: Health results (UP/DOWN, latency, failure counts, circuit state) are persisted to Redis and published via Pub/Sub for real-time dashboard updates.
 - **Per-Model Keys with Configurable Data TTL**: All telemetry is stored under individual per-model Redis keys (`gateway:<type>:<modelId>`) instead of monolithic hash keys, allowing each key to expire independently. The retention period is fully configurable via `LLM_DATA_RETENTION_TTL_HOURS` (default: 24 hours) and `LLM_DATA_RETENTION_CLEANUP_INTERVAL_MINUTES` (default: 60 minutes), preventing memory bloat and ensuring the system never relies on stale data.
@@ -90,7 +90,7 @@ Used by the React monitoring dashboard and operations tooling:
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/models/status` | Current operational status, EMA latency, active connections, and provider cooldown states across all models. |
+| `GET` | `/api/models/status` | Current operational status, latency, active connections, and provider cooldown states across all models. |
 | `GET` | `/api/models/status/stream` | Real-time Server-Sent Events (SSE) feed emitting status updates as health check sweeps complete. |
 | `POST` | `/api/models/ping?model={name}` | On-demand synchronous health ping to verify a specific model's latency and availability. |
 | `POST` | `/api/models/circuit-reset?model={name}` | Manually reset provider cooldown, recorded errors, and latency for a model to immediately restore model traffic. |

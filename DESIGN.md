@@ -106,22 +106,22 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 #### RoutingService
 **Responsibilities:**
 - Calculate intelligent routing scores based on latency and connection counts
-- Maintain in-memory telemetry for active connections and EMA latency
+- Maintain in-memory telemetry for active connections
 - Select optimal models for a given pipeline based on health, score, and context
 - Implement fallback model selection logic
 - Provide emergency degraded mode when all primary models are unavailable
 - Track TPS (transactions per second) metrics per model
 
 **Key Algorithms:**
-- **Routing Score Calculation**: `score = emaLatency + (activeConnections * connectionPenaltyMs)`
-- **EMA (Exponential Moving Average)**: `newEma = α * latency + (1-α) * currentEma` where α = 0.1
+- **Routing Score Calculation**: `score = (latencyMs + activeConnections * connectionPenaltyMs) / priority` — lower is better; lower priority number = higher priority
+- **Latency Tracking**: Raw latency from successful requests is stored per-model in Redis (no EMA smoothing currently implemented)
 - **Model Selection**: Sort by routing score (ascending), filter by health and context window
 - **Fallback Selection**: Healthy models first, then models not in provider cooldown
 - **Emergency Mode**: If no candidates available, return top models by score as canary probes
 
 **Telemetry Structures:**
 - `Map<String, AtomicInteger> activeConnectionsMap` - Thread-safe connection counting
-- `Map<String, Double> emaLatencyMap` - EMA latency storage per model
+- (Removed: EMA latency storage per model - not implemented in current routing logic)
 
 #### ProviderCooldownManager
 **Responsibilities:**
@@ -168,11 +168,11 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - Recovery sweep ShedLock: `recovery-lock-at-least-for: 1s`, `recovery-lock-at-most-for: 6m`
 
 **Health Check Process:**
-1. Retrieve prioritized model list (sorted by EMA latency if enabled)
+1. Retrieve prioritized model list (sorted by priority)
 2. For each model, schedule async ping with staggered delay (500ms intervals)
 3. Execute actual ping call to LLM API with minimal request (max_tokens=pingMaxTokens, default 16)
 4. Measure latency and determine success/failure
-5. Update routing service EMA latency on success
+5. Update routing service telemetry on success (no EMA smoothing)
 6. Record success/failure in provider cooldown manager
 7. Persist result to Redis via RedisPersistenceService
 8. Update in-memory model status via ModelStatusUpdater (triggers SSE broadcast)
@@ -418,7 +418,7 @@ data: {"timestamp":"2026-09-27T10:30:05Z","instanceId":"neural-gateway-1"}
 - Provides the calculated score used for comparison
 
 **Attributes:**
-- `emaLatency`: Exponential moving average latency (milliseconds)
+- `emaLatencyMs`: Last observed latency from successful requests (milliseconds) — not an exponential moving average
 - `activeConnections`: Current number of active requests
 - `connectionPenaltyMs`: Penalty per active connection (configurable)
 - `priority`: Model priority level (lower = higher priority)
@@ -478,7 +478,6 @@ health-check:
   thread-pool-size: 10
   ping-timeout-ms: 5000
   ping-max-tokens: 16
-  prioritize-by-ema: true
 
 provider-cooldown:
   max-consecutive-errors: 3
@@ -552,7 +551,7 @@ provider-cooldown:
       ii. Acquire API key from provider's pool
       iii. Increment active connections counter
       iv. Execute LLM provider call with timing
-      v. On success: update EMA latency, decrement connections, record success
+      v. On success: update latency telemetry, decrement connections, record success
       vi. On failure: decrement connections, record failure, try next candidate
    ↓
 4. On successful response:
@@ -571,7 +570,7 @@ provider-cooldown:
    ↓
 2. HealthCheckService:
    a. Check if health checks are enabled
-   b. Get prioritized model list (by EMA latency if configured)
+   b. Get prioritized model list (by priority)
    c. For each model with staggered delay:
       ↓
    d. PerformActualPing():
@@ -580,7 +579,7 @@ provider-cooldown:
       iii. Measure latency and capture result/exception
       ↓
    e. UpdateModelStatusFromResult():
-      i. If success: update EMA latency in RoutingService, record success in ProviderCooldownManager, then call markHealthy() to clear any active provider cooldown and sync healthy state to Redis
+      i. If success: update latency telemetry in Redis, record success in ProviderCooldownManager, then call markHealthy() to clear any active provider cooldown and sync healthy state to Redis
       ii. If failure: record failure in ProviderCooldownManager
       iii. Persist result to Redis via RedisPersistenceService
       iv. Update in-memory status via ModelStatusUpdater (triggers SSE broadcast)
@@ -698,7 +697,7 @@ provider-cooldown:
 
 ### Memory Usage
 - **Base Footprint**: ~50-100MB JVM heap
-- **Per-Model Telemetry**: ~1-2KB for active connections + EMA latency
+- **Per-Model Telemetry**: ~1-2KB for active connections
 - **Health Check History**: Configurable, default ~10KB per model for 100 results
 - **Requester Telemetry**: Scales with unique requesters, ~1KB per active requester
 - **Circuit Breaker State**: Minimal, ~100 bytes per model
@@ -1225,7 +1224,7 @@ data: [DONE]
 ## Appendices
 
 ### Appendix A: Glossary of Terms
-- **EMA**: Exponential Moving Average - weighting recent data more heavily
+- **EMA**: Exponential Moving Average - weighting recent data more heavily (not used in current routing implementation; raw latency is used instead)
 - **TPS**: Transactions Per Second - measure of request throughput
 - **SSE**: Server-Sent Events - server-to-client streaming protocol
 - **Circuit Breaker**: Pattern for detecting failures and preventing cascading issues
@@ -1250,8 +1249,8 @@ data: [DONE]
 
 **Routing Settings**
 - `routing.connection-penalty-ms`: Penalty per active connection (default: 300ms)
-- `routing.context-window-validation-enabled`: Enable context window checks (default: true)
-- `routing.max-fallback-attempts`: Number of fallback models to try (default: 3)
+- `routing.context-window-validation-enabled`: Enable context window checks (default: false)
+- `routing.max-fallback-attempts`: Number of fallback models to try (default: 20)
 
 **Health Check Settings**
 - `health-check.enabled`: Enable/disable health checks (default: true)
@@ -1260,7 +1259,6 @@ data: [DONE]
 - `health-check.ping-timeout-ms`: Timeout per individual ping (default: 120000)
 - `health-check.ping-max-tokens`: Tokens for health check request (default: 1)
 - `health-check.min-ping-gap-ms`: Minimum gap between consecutive pings (default: 5000)
-- `health-check.prioritize-by-ema`: Sort models by EMA latency (default: true)
 - `health-check.recovery-initial-delay-ms`: Initial delay before first recovery sweep (default: 15000)
 - `health-check.recovery-interval-ms`: Delay between independent recovery sweeps (default: 5000)
 - `health-check.recovery-max-models-per-sweep`: Max due unhealthy models probed per recovery sweep (default: 2)
