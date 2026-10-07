@@ -218,4 +218,31 @@ class LlmGatewayFacadeTest {
         // calculatedScore = (200 + (2 * 300)) / 10 = 800 / 10 = 80.0
         assertEquals(80.0, score.getCalculatedScore(), 0.001);
     }
+
+    @Test
+    void processChatCompletion_formatRejectionFailsOverWithoutProviderCooldown() {
+        when(routingService.selectModels(eq(Pipeline.CODING), anyInt())).thenReturn(List.of(modelA, modelB));
+        when(redisPersistenceService.getProviderUnavailableReason("provider-alpha")).thenReturn(null);
+        when(redisPersistenceService.getProviderUnavailableReason("provider-beta")).thenReturn(null);
+
+        // modelA rejects format (e.g. multimodal or unsupported parameter)
+        when(llmProviderClient.call(eq("model-a"), any()))
+                .thenThrow(new IllegalArgumentException("multimodal not supported"));
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", "chatcmpl-fallback");
+        response.put("choices", List.of());
+        when(llmProviderClient.call(eq("model-b"), any())).thenReturn(response);
+
+        Map<String, Object> request = new HashMap<>();
+        request.put("messages", List.of(Map.of("role", "user", "content", "image payload")));
+
+        Map<String, Object> result = facade.processChatCompletion(request, "test-user", "tx-fmt", "CODING");
+
+        assertNotNull(result);
+        verify(llmProviderClient).call(eq("model-a"), any());
+        verify(llmProviderClient).call(eq("model-b"), any());
+        // Verify provider-alpha was NOT penalized with consecutive errors
+        verify(redisPersistenceService, never()).incrementProviderConsecutiveErrors("provider-alpha");
+    }
 }

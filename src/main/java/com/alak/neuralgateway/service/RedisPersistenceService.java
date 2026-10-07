@@ -193,6 +193,7 @@ public class RedisPersistenceService {
     }
 
     public int getConsecutiveErrors(String modelId) {
+        if (modelId == null || modelId.isBlank()) return 0;
         String key = CONSECUTIVE_ERRORS_KEY_PREFIX + modelId;
         String value = redisTemplate.opsForValue().get(key);
         if (value == null) {
@@ -202,6 +203,20 @@ public class RedisPersistenceService {
             return Integer.parseInt(value);
         } catch (NumberFormatException e) {
             return 0;
+        }
+    }
+
+    public int incrementConsecutiveErrors(String modelId) {
+        if (modelId == null || modelId.isBlank()) return 0;
+        String key = CONSECUTIVE_ERRORS_KEY_PREFIX + modelId;
+        Long count = redisTemplate.opsForValue().increment(key);
+        setTtlIfNeeded(key);
+        return count != null ? count.intValue() : 0;
+    }
+
+    public void resetConsecutiveErrors(String modelId) {
+        if (modelId != null && !modelId.isBlank()) {
+            redisTemplate.delete(CONSECUTIVE_ERRORS_KEY_PREFIX + modelId);
         }
     }
 

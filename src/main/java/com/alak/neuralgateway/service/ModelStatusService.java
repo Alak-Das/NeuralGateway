@@ -62,14 +62,9 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
         }
     }
 
-    /**
-     * Initialize a single model's status from Redis.
-     */
-    public void initializeModel(String modelId) {
-                List<HealthCheckResult> history = redisPersistence.getHealthCheckHistory(modelId);
+    public ModelStatus buildInitialModelStatus(String modelId) {
+        List<HealthCheckResult> history = redisPersistence.getHealthCheckHistory(modelId);
         long usage = redisPersistence.getUsage(modelId);
-        boolean circuitOpen = false;
-        double emaLatency = redisPersistence.getEmaLatency(modelId, 0.0);
         int consecutiveErrors = redisPersistence.getConsecutiveErrors(modelId);
 
         // Determine initial status from history
@@ -87,13 +82,14 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 errorMessage = lastPing.getErrorMessage();
             }
         }
+        boolean circuitOpen = !isUp || consecutiveErrors >= 3;
 
         Model model = modelRegistry.getModel(modelId).orElse(null);
         List<String> categories = model != null 
                 ? model.getPipelines().stream().map(Enum::name).collect(java.util.stream.Collectors.toList()) 
                 : List.of("Unknown");
 
-        ModelStatus status = new ModelStatus(
+        return new ModelStatus(
                 modelId,
                 categories,
                 isUp,
@@ -109,7 +105,13 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
                 model != null ? model.getPriority() : 0,
                 model != null && model.isEnabled()
         );
+    }
 
+    /**
+     * Initialize a single model's status from Redis.
+     */
+    public void initializeModel(String modelId) {
+        ModelStatus status = buildInitialModelStatus(modelId);
         statusCache.put(modelId, status);
         
         // Publish event to trigger SSE broadcast
@@ -120,20 +122,63 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
 
     @Override
     public void updateStatus(String modelId, HealthCheckResult result) {
-        log.debug("Persisting model status history: modelId={}, up={}, latencyMs={}",
-                modelId, result.isUp(), result.getLatencyMs());
-        redisPersistence.saveHealthCheckResult(modelId, result);
+        log.debug("Persisting model status history: modelId={}, up={}, latencyMs={}, probe={}",
+                modelId, result.isUp(), result.getLatencyMs(), result.isBackgroundProbe());
+
+        boolean effectiveIsUp;
+        boolean effectiveCircuitOpen;
+        String effectiveErrorMessage;
+
+        if (result.isUp()) {
+            redisPersistence.resetConsecutiveErrors(modelId);
+            effectiveIsUp = true;
+            effectiveCircuitOpen = false;
+            effectiveErrorMessage = null;
+        } else {
+            if (result.isBackgroundProbe()) {
+                // Background synthetic probe failed: genuine health check failure
+                effectiveIsUp = false;
+                effectiveCircuitOpen = true;
+                effectiveErrorMessage = result.getErrorMessage();
+            } else {
+                // Real request error: apply 3-consecutive-errors anti-flapping threshold
+                int consecutive = redisPersistence.incrementConsecutiveErrors(modelId);
+                if (consecutive >= 3) {
+                    effectiveIsUp = false;
+                    effectiveCircuitOpen = true;
+                    effectiveErrorMessage = result.getErrorMessage();
+                    log.warn("Model '{}' marked DOWN after {} consecutive request errors: {}",
+                            modelId, consecutive, result.getErrorMessage());
+                } else {
+                    ModelStatus existing = statusCache.get(modelId);
+                    effectiveIsUp = existing != null ? existing.isUp() : true;
+                    effectiveCircuitOpen = existing != null ? existing.circuitOpen() : false;
+                    effectiveErrorMessage = effectiveIsUp ? null : result.getErrorMessage();
+                    log.info("Model '{}' recorded error ({}/3 consecutive errors) - remaining UP: {}",
+                            modelId, consecutive, result.getErrorMessage());
+                }
+            }
+        }
+
+        HealthCheckResult savedResult = new HealthCheckResult(
+                modelId,
+                effectiveIsUp,
+                result.getLatencyMs(),
+                result.getTimestamp(),
+                effectiveErrorMessage,
+                result.isBackgroundProbe()
+        );
+        redisPersistence.saveHealthCheckResult(modelId, savedResult);
 
         ModelStatus updated = statusCache.compute(modelId, (k, existing) -> {
             if (existing == null) {
-                initializeModel(modelId);
-                existing = statusCache.get(modelId);
+                existing = buildInitialModelStatus(modelId);
             }
 
             List<HealthCheckResult> updatedHistory = (existing != null && existing.history() != null)
                     ? new ArrayList<>(existing.history())
                     : new ArrayList<>();
-            updatedHistory.add(result);
+            updatedHistory.add(savedResult);
 
             if (updatedHistory.size() > 1440) {
                 updatedHistory = updatedHistory.subList(updatedHistory.size() - 1440, updatedHistory.size());
@@ -144,15 +189,15 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
             return new ModelStatus(
                     modelId,
                     categories,
-                    result.isUp(),
+                    effectiveIsUp,
                     result.getLatencyMs(),
                     result.getTimestamp(),
-                    result.isUp() ? null : result.getErrorMessage(),
+                    effectiveErrorMessage,
                     updatedHistory,
                     redisPersistence.getUsage(modelId),
                     routingService.getActiveConnections(modelId),
                     routingService.getTps(modelId),
-                    false,
+                    effectiveCircuitOpen,
                     existing != null ? existing.provider() : "unknown",
                     modelRegistry.getModel(modelId).map(com.alak.neuralgateway.domain.model.Model::getPriority).orElse(existing != null ? existing.priority() : 0),
                     modelRegistry.getModel(modelId).map(com.alak.neuralgateway.domain.model.Model::isEnabled).orElse(existing != null ? existing.enabled() : true)

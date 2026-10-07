@@ -13,6 +13,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.codec.ServerSentEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -23,6 +25,8 @@ import java.util.Map;
  */
 @Service
 public class OpenAiCompatibleLlmClient implements LlmProviderClient {
+
+    private static final Logger log = LoggerFactory.getLogger(OpenAiCompatibleLlmClient.class);
 
     private final WebClient webClient;
     private final ModelRegistry modelRegistry;
@@ -67,14 +71,14 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
         Model model = modelRegistry.getModel(modelId).orElseThrow(() -> new IllegalArgumentException("Unknown model: " + modelId));
         String baseUrl = getBaseUrlForModel(model);
         ApiKeyPool pool = modelRegistry.getApiKeyPool(model.getProviderId());
-        int attemptsRemaining = 1;
+        int maxAttempts = 2;
 
         request.put("model", modelId);
         request.put("stream", false);
         request.remove("stream_options");
 
         ProviderFailureException lastAuthenticationFailure = null;
-        for (int attempt = 0; attempt < attemptsRemaining; attempt++) {
+        for (int attempt = 0; attempt < maxAttempts; attempt++) {
             String apiKey = getApiKeyForModel(model);
                         try {
                 reactor.core.publisher.Mono<Map> mono = webClient.post()
@@ -103,7 +107,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                     // A 429 normally applies to this key. Let ApiKeyPool exclude it and try
                     // another configured key before exposing a provider-wide rate limit.
                     if (failure.getFailureType() == ProviderFailureType.RATE_LIMIT
-                            && attempt + 1 < attemptsRemaining) {
+                            && attempt + 1 < maxAttempts) {
                         continue;
                     }
                 }
@@ -113,7 +117,14 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                 if (cause instanceof io.netty.handler.timeout.ReadTimeoutException) {
                     throw new UpstreamServiceException("Upstream read timed out for model: " + modelId, 504);
                 }
-                if (cause instanceof reactor.netty.http.client.PrematureCloseException) {
+                if (cause instanceof reactor.netty.http.client.PrematureCloseException
+                        || (cause instanceof java.io.IOException && cause.getMessage() != null && cause.getMessage().contains("Connection reset"))) {
+                    if (attempt + 1 < maxAttempts) {
+                        log.warn("Premature connection close for model '{}' on non-streaming call (attempt {}/{}). Retrying on fresh connection...",
+                                modelId, attempt + 1, maxAttempts);
+                        try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+                        continue;
+                    }
                     throw new UpstreamServiceException("Upstream connection prematurely closed for model: " + modelId, 503);
                 }
                 String msg = (e.getMessage() != null && !e.getMessage().isBlank()) ? e.getMessage() : "Network communication error";
@@ -138,7 +149,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
 
         return Flux.defer(() -> {
             ApiKeyPool pool = modelRegistry.getApiKeyPool(model.getProviderId());
-            int attemptsRemaining = 1;
+            int attemptsRemaining = 2;
             return callStreamWithKey(model, modelId, request, pool, getBaseUrlForModel(model), attemptsRemaining);
         });
     }
@@ -183,16 +194,21 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                             e -> new UpstreamServiceException("Upstream read timed out for model: " + modelId, 504))
                     .doOnComplete(() -> {
                                             })
-                    .onErrorResume(ProviderFailureException.class, failure -> {
-                        boolean retryAnotherKey = failure.getFailureType() == ProviderFailureType.AUTHENTICATION
-                                || failure.getFailureType() == ProviderFailureType.RATE_LIMIT;
-                        if (!retryAnotherKey || pool == null || emittedData.get()) {
-                            return Flux.error(failure);
+                    .onErrorResume(error -> {
+                        if (!emittedData.get() && isPrematureClose(error) && attemptsRemaining > 1) {
+                            log.warn("Premature connection close for model '{}' before data received (attempts remaining: {}). Retrying on fresh connection...",
+                                    modelId, attemptsRemaining - 1);
+                            return Flux.defer(() -> callStreamWithKey(model, modelId, request, pool, baseUrl, attemptsRemaining - 1))
+                                    .delaySubscription(Duration.ofMillis(100));
                         }
-                        if (failure.getFailureType() == ProviderFailureType.AUTHENTICATION) {
-                                                    }
-                        if (attemptsRemaining <= 1) return Flux.error(failure);
-                        return callStreamWithKey(model, modelId, request, pool, baseUrl, attemptsRemaining - 1);
+                        if (error instanceof ProviderFailureException failure) {
+                            boolean retryAnotherKey = failure.getFailureType() == ProviderFailureType.AUTHENTICATION
+                                    || failure.getFailureType() == ProviderFailureType.RATE_LIMIT;
+                            if (retryAnotherKey && pool != null && !emittedData.get() && attemptsRemaining > 1) {
+                                return callStreamWithKey(model, modelId, request, pool, baseUrl, attemptsRemaining - 1);
+                            }
+                        }
+                        return Flux.error(error);
                     })
                     .doFinally(signal -> {
                                             });
@@ -210,6 +226,23 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
         }
         String msg = (e.getMessage() != null && !e.getMessage().isBlank()) ? e.getMessage() : "Network communication error";
         return new UpstreamServiceException("Upstream connection error for model " + modelId + ": " + msg, 503);
+    }
+
+    private boolean isPrematureClose(Throwable t) {
+        if (t == null) return false;
+        if (t instanceof reactor.netty.http.client.PrematureCloseException) return true;
+        if (t instanceof UpstreamServiceException && t.getMessage() != null
+                && t.getMessage().contains("Upstream connection prematurely closed")) {
+            return true;
+        }
+        String msg = t.getMessage();
+        if (msg != null && (msg.contains("Connection reset") || msg.contains("Broken pipe") || msg.contains("prematurely closed"))) {
+            return true;
+        }
+        if (t.getCause() != null && t.getCause() != t) {
+            return isPrematureClose(t.getCause());
+        }
+        return false;
     }
 
     private RuntimeException mapWebClientException(WebClientResponseException e, String providerId, String apiKey, String modelId) {

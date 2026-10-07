@@ -25,6 +25,7 @@ public class HealthCheckService {
 
     private static final Logger log = LoggerFactory.getLogger(HealthCheckService.class);
     private static final long HEALTH_CHECK_INTERVAL_MS = 60_000;
+    private static final long FAST_RECOVERY_INTERVAL_MS = 15_000;
     private static final long STAGGER_DELAY_MS = 15_000;
 
     private final HealthCheckProperties properties;
@@ -76,15 +77,21 @@ public class HealthCheckService {
 
                 try {
                     while (running && !Thread.currentThread().isInterrupted()) {
+                        long nextInterval = HEALTH_CHECK_INTERVAL_MS;
                         try {
                             HealthCheckResult result = performActualPing(model.getId());
                             modelStatusUpdater.updateStatus(model.getId(), result);
                             log.debug("Health check for '{}': {} ({}ms)", model.getId(), result.isUp() ? "UP" : "DOWN", result.getLatencyMs());
+                            if (!result.isUp()) {
+                                nextInterval = FAST_RECOVERY_INTERVAL_MS;
+                                log.debug("Model '{}' is DOWN; scheduling fast-recovery probe in {}ms", model.getId(), FAST_RECOVERY_INTERVAL_MS);
+                            }
                         } catch (Exception e) {
                             log.error("Unexpected error in health check thread for '{}'", model.getId(), e);
+                            nextInterval = FAST_RECOVERY_INTERVAL_MS;
                         }
                         try {
-                            Thread.sleep(HEALTH_CHECK_INTERVAL_MS);
+                            Thread.sleep(nextInterval);
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                             break;

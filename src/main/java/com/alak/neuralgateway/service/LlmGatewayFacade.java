@@ -220,7 +220,8 @@ public class LlmGatewayFacade {
                         (e.getMessage().contains("wrong_api_format") || e.getMessage().contains("unsupported") || e.getMessage().contains("validation_error") || e.getMessage().contains("multimodal"))) {
                     log.warn("[TxID: {}] Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...",
                             transactionId, model.getId(), latency, e.getMessage());
-                    CompletableFuture.runAsync(() -> recordProviderFailure(model));
+                    // Format rejections are client payload format issues, not provider health failures.
+                    // Failover immediately without penalizing the provider.
                     continue;
                 }
                 // Genuine client 4xx errors - don't failover, return immediately
