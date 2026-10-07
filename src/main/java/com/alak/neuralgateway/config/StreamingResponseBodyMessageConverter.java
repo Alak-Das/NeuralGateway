@@ -31,14 +31,14 @@ public class StreamingResponseBodyMessageConverter implements WebMvcConfigurer {
     }
 
     /**
-     * Increase the async request timeout to match the upstream WebClient timeout (120s)
-     * plus a generous buffer. Without this, Spring MVC defaults to 30 seconds, which
-     * causes AsyncRequestTimeoutException for slow LLM providers (cold starts, large models).
-     * The interrupted thread cascades into RedisCommandInterruptedException in Redis operations.
+     * Increase the async request timeout to match the upstream WebClient timeout (300s)
+     * plus a generous buffer for multi-model failover chains and complex reasoning models. Without this,
+     * Spring MVC defaults to 30 seconds, which causes AsyncRequestTimeoutException for slow LLM providers.
+     * The interrupted thread cascades into InterruptedException and RedisCommandInterruptedException.
      */
     @Override
     public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
-        configurer.setDefaultTimeout(180_000); // 3 minutes — exceeds WebClient's 120s responseTimeout
+        configurer.setDefaultTimeout(600_000); // 10 minutes — exceeds WebClient's 300s responseTimeout & failovers
     }
 
     private static final class StreamingBodyConverter extends AbstractHttpMessageConverter<StreamingResponseBody> {

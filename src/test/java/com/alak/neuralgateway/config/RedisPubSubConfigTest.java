@@ -10,6 +10,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -21,6 +22,7 @@ class RedisPubSubConfigTest {
 
     private SseNotificationService sseNotificationService;
     private ModelStatusService modelStatusService;
+    private com.alak.neuralgateway.service.RedisPersistenceService redisPersistenceService;
     private ObjectMapper objectMapper;
     private RedisPubSubConfig.SseMessageSubscriber subscriber;
 
@@ -28,9 +30,10 @@ class RedisPubSubConfigTest {
     void setUp() {
         sseNotificationService = mock(SseNotificationService.class);
         modelStatusService = mock(ModelStatusService.class);
+        redisPersistenceService = mock(com.alak.neuralgateway.service.RedisPersistenceService.class);
         objectMapper = new ObjectMapper().findAndRegisterModules();
         subscriber = new RedisPubSubConfig.SseMessageSubscriber(
-                sseNotificationService, modelStatusService, objectMapper);
+                sseNotificationService, modelStatusService, redisPersistenceService, objectMapper);
     }
 
     @Test
@@ -53,6 +56,7 @@ class RedisPubSubConfigTest {
         );
         String messageJson = objectMapper.writeValueAsString(status);
         when(modelStatusService.getAllStatuses()).thenReturn(List.of(status));
+        when(redisPersistenceService.getRequesterTelemetryDetailed()).thenReturn(List.of());
 
         subscriber.onMessage(messageJson, RedisPubSubConfig.SSE_STATUS_CHANNEL);
 
@@ -62,7 +66,10 @@ class RedisPubSubConfigTest {
         assertTrue(captor.getValue().isUp());
         assertEquals(150L, captor.getValue().latencyMs());
 
-        verify(sseNotificationService, times(1)).broadcast(List.of(status));
+        verify(sseNotificationService, times(1)).broadcast(Map.of(
+                "models", List.of(status),
+                "requesters", List.of()
+        ));
     }
 
     @Test

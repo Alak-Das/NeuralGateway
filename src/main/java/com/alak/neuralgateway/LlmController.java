@@ -268,12 +268,27 @@ public class LlmController {
                     log.debug("Client connection disconnected prematurely: {}", e.getMessage());
                     return;
                 }
-                log.error("Gateway error: {}", e.getMessage(), e);
-                httpResponse.setStatus(e instanceof IllegalArgumentException ? 400 : 503);
+                boolean interrupted = isInterrupted(e);
+                if (interrupted) {
+                    log.warn("Gateway request interrupted or timed out: {}", e.getMessage());
+                } else {
+                    log.error("Gateway error: {}", e.getMessage(), e);
+                }
+                int status = interrupted ? 504 : (e instanceof IllegalArgumentException ? 400 : 503);
+                httpResponse.setStatus(status);
+                String errorMsg = interrupted
+                        ? "Gateway timeout: Upstream LLM provider did not respond in time. Please retry."
+                        : (e.getMessage() != null ? e.getMessage() : "Gateway error");
+                String errorCode = interrupted
+                        ? "gateway_timeout"
+                        : (e instanceof IllegalArgumentException ? "invalid_request" : "pipeline_exhausted");
+                String errorType = interrupted
+                        ? "upstream_error"
+                        : (e instanceof IllegalArgumentException ? "invalid_request_error" : "server_error");
                 Map<String, Object> error = Map.of(
-                        "message", e.getMessage() != null ? e.getMessage() : "Gateway error",
-                        "type", e instanceof IllegalArgumentException ? "invalid_request_error" : "server_error",
-                        "code", e instanceof IllegalArgumentException ? "invalid_request" : "pipeline_exhausted");
+                        "message", errorMsg,
+                        "type", errorType,
+                        "code", errorCode);
                 if (streaming) {
                     writeSseData(outputStream, STREAM_MAPPER.writeValueAsString(Map.of("error", error)));
                     writeSseData(outputStream, "[DONE]");
@@ -308,13 +323,27 @@ public class LlmController {
 
             if (!doneSent.get()) writeSseData(outputStream, "[DONE]");
         } catch (Exception e) {
-            log.error("Streaming response failed: {}", e.getMessage(), e);
+            if (isClientDisconnect(e)) {
+                log.debug("Client connection disconnected prematurely: {}", e.getMessage());
+                return;
+            }
+            boolean interrupted = isInterrupted(e);
+            if (interrupted) {
+                log.warn("Streaming response interrupted or timed out for requester '{}': {}", requester, e.getMessage());
+            } else {
+                log.error("Streaming response failed: {}", e.getMessage(), e);
+            }
             if (!doneSent.get()) {
                 try {
+                    String errorMsg = interrupted
+                            ? "Gateway timeout: Upstream LLM provider did not respond in time. Please retry."
+                            : (e.getMessage() != null ? e.getMessage() : "Streaming upstream error");
+                    String errorCode = interrupted ? "gateway_timeout" : "pipeline_exhausted";
+                    String errorType = interrupted ? "upstream_error" : "server_error";
                     Map<String, Object> error = Map.of("error", Map.of(
-                            "message", e.getMessage() != null ? e.getMessage() : "Streaming upstream error",
-                            "type", "server_error",
-                            "code", "pipeline_exhausted"));
+                            "message", errorMsg,
+                            "type", errorType,
+                            "code", errorCode));
                     writeSseData(outputStream, STREAM_MAPPER.writeValueAsString(error));
                     writeSseData(outputStream, "[DONE]");
                 } catch (Exception writeError) {
@@ -390,7 +419,8 @@ public class LlmController {
     private boolean isClientDisconnect(Throwable t) {
         if (t == null) return false;
         String msg = t.getMessage();
-        if (msg != null && (msg.contains("Broken pipe") || msg.contains("Connection reset by peer"))) {
+        if (msg != null && (msg.contains("Broken pipe") || msg.contains("Connection reset by peer")
+                || msg.contains("Response not usable") || msg.contains("Stream closed"))) {
             return true;
         }
         String className = t.getClass().getSimpleName();
@@ -398,5 +428,13 @@ public class LlmController {
             return true;
         }
         return isClientDisconnect(t.getCause());
+    }
+
+    private boolean isInterrupted(Throwable t) {
+        if (t == null) return false;
+        if (t instanceof InterruptedException) return true;
+        String msg = t.getMessage();
+        if (msg != null && msg.contains("InterruptedException")) return true;
+        return isInterrupted(t.getCause());
     }
 }

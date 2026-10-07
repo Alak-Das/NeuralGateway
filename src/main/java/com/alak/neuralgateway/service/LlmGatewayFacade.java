@@ -454,7 +454,7 @@ public class LlmGatewayFacade {
         Integer minTokens = model.getMinTokens();
         if (minTokens != null && minTokens > 0) {
             Object currentMaxTokens = requestBody.get("max_tokens");
-            if (currentMaxTokens instanceof Integer currentMax && currentMax < minTokens) {
+            if (currentMaxTokens instanceof Number n && n.intValue() < minTokens) {
                 requestBody.put("max_tokens", minTokens);
             }
         }
@@ -491,13 +491,81 @@ public class LlmGatewayFacade {
 
     // ==================== Internal Helper Methods ====================
 
-    private void sanitizeRequest(Map<String, Object> requestBody) {
-        // Remove parameters that might cause issues with upstream providers
+    /**
+     * Sanitizes incoming requests to prevent 400 Bad Request errors from non-standard parameters.
+     * Clients like Cline, Roo Code, or Cursor often send non-standard fields (e.g. 'thinking_effort',
+     * Anthropic-style 'thinking' maps, or 'reasoning_effort' set to 'xhigh' or 'max').
+     * Upstream OpenAI-compatible providers strictly allow only 'none', 'low', 'medium', or 'high'
+     * for 'reasoning_effort', and reject unknown fields like 'thinking_effort' or 'thinking' with 400.
+     */
+    void sanitizeRequest(Map<String, Object> requestBody) {
+        if (requestBody == null) return;
+
+        // 1. Remove parameters that might cause issues with upstream providers
         requestBody.remove("stream_options");
         requestBody.remove("frequency_penalty");
         requestBody.remove("presence_penalty");
         requestBody.remove("logit_bias");
         requestBody.remove("user");
+
+        // 2. Convert non-standard 'thinking_effort' to 'reasoning_effort'
+        if (requestBody.containsKey("thinking_effort")) {
+            Object te = requestBody.remove("thinking_effort");
+            if (!requestBody.containsKey("reasoning_effort") && te != null) {
+                requestBody.put("reasoning_effort", te);
+            }
+        }
+
+        // 3. Convert Anthropic-style 'thinking' parameter to 'reasoning_effort'
+        if (requestBody.containsKey("thinking")) {
+            Object thinking = requestBody.remove("thinking");
+            if (!requestBody.containsKey("reasoning_effort") && thinking instanceof Map<?, ?> tMap) {
+                Object budget = tMap.get("budget_tokens");
+                if (budget instanceof Number n) {
+                    if (n.intValue() > 8000) {
+                        requestBody.put("reasoning_effort", "high");
+                    } else if (n.intValue() > 2000) {
+                        requestBody.put("reasoning_effort", "medium");
+                    } else if (n.intValue() > 0) {
+                        requestBody.put("reasoning_effort", "low");
+                    }
+                }
+            }
+        }
+
+        // 4. Strictly normalize 'reasoning_effort' to OpenAI standard values ('none', 'low', 'medium', 'high')
+        if (requestBody.containsKey("reasoning_effort")) {
+            Object effortObj = requestBody.get("reasoning_effort");
+            if (effortObj == null) {
+                requestBody.remove("reasoning_effort");
+            } else {
+                String effort = effortObj.toString().trim().toLowerCase(java.util.Locale.ROOT);
+                switch (effort) {
+                    case "xhigh", "max", "maximum", "very_high", "very-high", "extra_high", "extra-high", "high" ->
+                            requestBody.put("reasoning_effort", "high");
+                    case "medium", "med", "mid", "moderate" ->
+                            requestBody.put("reasoning_effort", "medium");
+                    case "low", "min", "minimum", "minimal" ->
+                            requestBody.put("reasoning_effort", "low");
+                    case "none", "off", "false", "disabled", "0" ->
+                            requestBody.put("reasoning_effort", "none");
+                    default -> {
+                        if (effort.contains("hi") || effort.contains("max")) {
+                            requestBody.put("reasoning_effort", "high");
+                        } else if (effort.contains("med") || effort.contains("mid")) {
+                            requestBody.put("reasoning_effort", "medium");
+                        } else if (effort.contains("low") || effort.contains("min")) {
+                            requestBody.put("reasoning_effort", "low");
+                        } else if (effort.contains("no") || effort.contains("off") || effort.contains("dis")) {
+                            requestBody.put("reasoning_effort", "none");
+                        } else {
+                            // Unsupported value - remove to prevent 400 Bad Request
+                            requestBody.remove("reasoning_effort");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private int estimateTokens(Map<String, Object> requestBody) {
