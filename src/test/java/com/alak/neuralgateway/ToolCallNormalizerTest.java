@@ -160,7 +160,7 @@ public class ToolCallNormalizerTest {
         Map<String, Object> response = new HashMap<>();
         response.put("choices", List.of(choice));
 
-        normalizer.normalizeToolCalls(response, request, "test-tx-1");
+        normalizer.normalizeToolCalls(response, request);
 
         assertEquals("tool_calls", choice.get("finish_reason"));
         String argsJson = (String) function.get("arguments");

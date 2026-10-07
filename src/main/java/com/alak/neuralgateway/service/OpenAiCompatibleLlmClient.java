@@ -17,7 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -248,7 +247,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
     private RuntimeException mapWebClientException(WebClientResponseException e, String providerId, String apiKey, String modelId) {
         int status = e.getStatusCode().value();
         String responseBody = e.getResponseBodyAsString();
-        return mapUpstreamError(status, responseBody, parseRetryAfter(e), providerId, apiKey, modelId);
+        return mapUpstreamError(status, responseBody, providerId, apiKey, modelId);
     }
 
     private RuntimeException mapEmbeddedStreamError(String responseBody, String providerId, String apiKey, String modelId) {
@@ -294,7 +293,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                 status = 500;
             }
         }
-        return mapUpstreamError(status, responseBody, null, providerId, apiKey, modelId);
+        return mapUpstreamError(status, responseBody, providerId, apiKey, modelId);
     }
 
     private static int parseHttpStatus(Object code) {
@@ -313,7 +312,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
         return -1;
     }
 
-    private RuntimeException mapUpstreamError(int status, String responseBody, Duration retryAfter,
+    private RuntimeException mapUpstreamError(int status, String responseBody, 
                                               String providerId, String apiKey, String modelId) {
         String lowerBody = responseBody == null ? "" : responseBody.toLowerCase(java.util.Locale.ROOT);
         String upstreamCode = extractUpstreamErrorCode(responseBody);
@@ -334,12 +333,11 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                             }
             ProviderFailureType type = quotaExhausted ? ProviderFailureType.QUOTA_EXHAUSTED
                     : providerOverloaded ? ProviderFailureType.PROVIDER_OVERLOAD : ProviderFailureType.RATE_LIMIT;
-            return new ProviderFailureException(responseBody, status, providerId, type, retryAfter);
+            return new ProviderFailureException(responseBody, status, providerId, type);
         }
 
         if (status == 410) {
-            return new ProviderFailureException("Model deprecated (410): " + responseBody, status, providerId,
-                    ProviderFailureType.MODEL_UNAVAILABLE, null);
+            return new ProviderFailureException("Model deprecated (410): " + responseBody, status, providerId, ProviderFailureType.MODEL_UNAVAILABLE);
         }
 
         if (status == 401 || status == 403 || status == 404) {
@@ -347,15 +345,13 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
             if (type == ProviderFailureType.AUTHENTICATION) {
                 ApiKeyPool pool = modelRegistry.getApiKeyPool(providerId);
                             }
-            return new ProviderFailureException("Upstream provider error (" + status + "): " + responseBody, status,
-                    providerId, type, null);
+            return new ProviderFailureException("Upstream provider error (" + status + "): " + responseBody, status, providerId, type);
         }
 
         if (status >= 400 && status < 500) {
             return new IllegalArgumentException(responseBody); // 400 Bad Request, 422
         } else {
-            return new ProviderFailureException(responseBody, status, providerId,
-                    ProviderFailureType.TRANSIENT_UPSTREAM, null);
+            return new ProviderFailureException(responseBody, status, providerId, ProviderFailureType.TRANSIENT_UPSTREAM);
         }
     }
 
@@ -404,17 +400,4 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                 || (lowerBody.contains("billing") && lowerBody.contains("limit"));
     }
 
-    private Duration parseRetryAfter(WebClientResponseException e) {
-        String value = e.getHeaders().getFirst(HttpHeaders.RETRY_AFTER);
-        if (value == null || value.isBlank()) return null;
-        try {
-            return Duration.ofSeconds(Long.parseLong(value.trim()));
-        } catch (NumberFormatException ignored) {
-            try {
-                return Duration.between(Instant.now(), java.time.ZonedDateTime.parse(value).toInstant());
-            } catch (Exception ignoredAgain) {
-                return null;
-            }
-        }
     }
-}

@@ -146,18 +146,6 @@ public class RedisPersistenceService {
 
     // ==================== Circuit Breaker State ====================
 
-    public void setCircuitOpen(String modelId, boolean open) {
-        String key = CIRCUIT_KEY_PREFIX + modelId;
-        redisTemplate.opsForValue().set(key, String.valueOf(open));
-        setTtlIfNeeded(key);
-    }
-
-    public boolean isCircuitOpen(String modelId) {
-        String key = CIRCUIT_KEY_PREFIX + modelId;
-        String value = redisTemplate.opsForValue().get(key);
-        return Boolean.parseBoolean(value);
-    }
-
     public void resetCircuit(String modelId) {
         String key = CIRCUIT_KEY_PREFIX + modelId;
         redisTemplate.delete(key);
@@ -185,12 +173,6 @@ public class RedisPersistenceService {
     }
 
     // ==================== Consecutive Errors ====================
-
-    public void saveConsecutiveErrors(String modelId, int count) {
-        String key = CONSECUTIVE_ERRORS_KEY_PREFIX + modelId;
-        redisTemplate.opsForValue().set(key, String.valueOf(count));
-        setTtlIfNeeded(key);
-    }
 
     public int getConsecutiveErrors(String modelId) {
         if (modelId == null || modelId.isBlank()) return 0;
@@ -286,27 +268,7 @@ public class RedisPersistenceService {
 
     // ==================== Bulk Operations ====================
 
-    public void initializeModelIfAbsent(String modelId) {
-        String usageKey = USAGE_KEY_PREFIX + modelId;
-        String circuitKey = CIRCUIT_KEY_PREFIX + modelId;
-        String emaKey = EMA_LATENCY_KEY_PREFIX + modelId;
-        String errorsKey = CONSECUTIVE_ERRORS_KEY_PREFIX + modelId;
-        String tpsKey = TPS_KEY_PREFIX + modelId;
-
-        redisTemplate.opsForValue().setIfAbsent(usageKey, "0");
-        redisTemplate.opsForValue().setIfAbsent(circuitKey, "false");
-        redisTemplate.opsForValue().setIfAbsent(emaKey, "0");
-        redisTemplate.opsForValue().setIfAbsent(errorsKey, "0");
-        redisTemplate.opsForValue().setIfAbsent(tpsKey, "0.0");
-
-        setTtlIfNeeded(usageKey);
-        setTtlIfNeeded(circuitKey);
-        setTtlIfNeeded(emaKey);
-        setTtlIfNeeded(errorsKey);
-        setTtlIfNeeded(tpsKey);
-    }
-
-    // ==================== Requester Usage Tracking ====================
+// ==================== Requester Usage Tracking ====================
 
     private static final String REQUESTERS_SET_KEY = "gateway:requesters";
     private static final String REQUESTER_METRICS_KEY_PREFIX = "gateway:requester:metrics:";

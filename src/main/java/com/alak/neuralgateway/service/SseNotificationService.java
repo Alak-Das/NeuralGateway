@@ -3,9 +3,7 @@ package com.alak.neuralgateway.service;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -72,15 +70,5 @@ public class SseNotificationService {
      */
     public int getConnectedCount() {
         return emitters.size();
-    }
-
-    /**
-     * Close all emitters (e.g., on shutdown).
-     */
-    public void closeAll() {
-        for (SseEmitter emitter : emitters) {
-            emitter.complete();
-        }
-        emitters.clear();
     }
 }

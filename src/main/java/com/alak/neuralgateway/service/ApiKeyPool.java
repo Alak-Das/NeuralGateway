@@ -25,10 +25,6 @@ public class ApiKeyPool {
         return providerId;
     }
 
-    public boolean hasKeys() {
-        return !keys.isEmpty();
-    }
-
     public String getNextKey() {
         if (keys.isEmpty()) {
             return null;

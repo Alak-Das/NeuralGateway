@@ -1,8 +1,5 @@
 package com.alak.neuralgateway.service;
 
-import com.alak.neuralgateway.domain.model.Model;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -15,17 +12,12 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class TpsCalculationTask {
 
-    private static final Logger log = LoggerFactory.getLogger(TpsCalculationTask.class);
-
     private final ModelRegistry modelRegistry;
     private final RedisPersistenceService redisPersistence;
     private final ModelStatusService modelStatusService;
 
     // Tracks the usage count from the previous calculation window
     private final Map<String, Long> previousUsageMap = new ConcurrentHashMap<>();
-
-    // Calculate TPS over a 5-second window
-    private static final long WINDOW_SECONDS = 5;
 
     public TpsCalculationTask(
             ModelRegistry modelRegistry,

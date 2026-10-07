@@ -91,7 +91,7 @@ class LlmGatewayFacadeTest {
         Map<String, Object> request = new HashMap<>();
         request.put("messages", List.of(Map.of("role", "user", "content", "hello")));
 
-        Map<String, Object> result = facade.processChatCompletion(request, "test-user", "tx-1", "CODING");
+        Map<String, Object> result = facade.processChatCompletion(request, "test-user", "CODING");
 
         assertNotNull(result);
         verify(routingService).incrementActiveConnections("model-a");
@@ -113,7 +113,7 @@ class LlmGatewayFacadeTest {
         Map<String, Object> request = new HashMap<>();
         request.put("messages", List.of(Map.of("role", "user", "content", "hello")));
 
-        Map<String, Object> result = facade.processChatCompletion(request, "test-user", "tx-2", "CODING");
+        Map<String, Object> result = facade.processChatCompletion(request, "test-user", "CODING");
 
         assertNotNull(result);
         verify(llmProviderClient, never()).call(eq("model-a"), any());
@@ -132,7 +132,7 @@ class LlmGatewayFacadeTest {
         Map<String, Object> request = new HashMap<>();
         request.put("messages", List.of(Map.of("role", "user", "content", "stream test")));
 
-        Flux<String> flux = facade.processStreamingChatCompletion(request, "test-user", "tx-stream-1", "CODING");
+        Flux<String> flux = facade.processStreamingChatCompletion(request, "test-user", "CODING");
         List<String> results = flux.collectList().block(Duration.ofSeconds(2));
 
         assertNotNull(results);
@@ -152,7 +152,7 @@ class LlmGatewayFacadeTest {
         Map<String, Object> request = new HashMap<>();
         request.put("messages", List.of(Map.of("role", "user", "content", "cancel test")));
 
-        Flux<String> flux = facade.processStreamingChatCompletion(request, "test-user", "tx-stream-2", "CODING");
+        Flux<String> flux = facade.processStreamingChatCompletion(request, "test-user", "CODING");
 
         Disposable disposable = flux.subscribe();
         verify(routingService, times(1)).incrementActiveConnections("model-a");
@@ -174,7 +174,7 @@ class LlmGatewayFacadeTest {
         Map<String, Object> request = new HashMap<>();
         request.put("messages", List.of(Map.of("role", "user", "content", "failover test")));
 
-        Flux<String> flux = facade.processStreamingChatCompletion(request, "test-user", "tx-stream-3", "CODING");
+        Flux<String> flux = facade.processStreamingChatCompletion(request, "test-user", "CODING");
         List<String> results = flux.collectList().block(Duration.ofSeconds(2));
 
         assertNotNull(results);
@@ -195,7 +195,7 @@ class LlmGatewayFacadeTest {
         request.put("messages", List.of(Map.of("role", "user", "content", "exhaustion test")));
 
         IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
-                facade.processChatCompletion(request, "user", "tx-exhaust", "CODING"));
+                facade.processChatCompletion(request, "user", "CODING"));
 
         assertTrue(ex.getMessage().contains("exhausted or unavailable"));
         assertTrue(ex.getMessage().contains("provider-alpha"));
@@ -237,7 +237,7 @@ class LlmGatewayFacadeTest {
         Map<String, Object> request = new HashMap<>();
         request.put("messages", List.of(Map.of("role", "user", "content", "image payload")));
 
-        Map<String, Object> result = facade.processChatCompletion(request, "test-user", "tx-fmt", "CODING");
+        Map<String, Object> result = facade.processChatCompletion(request, "test-user", "CODING");
 
         assertNotNull(result);
         verify(llmProviderClient).call(eq("model-a"), any());
