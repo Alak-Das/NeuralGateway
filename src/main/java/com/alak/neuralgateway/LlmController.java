@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import io.micrometer.tracing.Tracer;
 
 @Slf4j
 @RestController
@@ -40,12 +41,14 @@ public class LlmController {
     private final PipelineResolverService pipelineResolver;
     private final com.alak.neuralgateway.service.ModelRegistry modelRegistry;
     private final com.alak.neuralgateway.service.TelemetryTraceService telemetryTraceService;
+    private final Tracer tracer;
 
-    public LlmController(LlmGatewayFacade gatewayFacade, 
+    public LlmController(LlmGatewayFacade gatewayFacade, Tracer tracer,
                          PipelineResolverService pipelineResolver, 
                          com.alak.neuralgateway.service.ModelRegistry modelRegistry,
                          com.alak.neuralgateway.service.TelemetryTraceService telemetryTraceService) {
         this.gatewayFacade = gatewayFacade;
+        this.tracer = tracer;
         this.pipelineResolver = pipelineResolver;
         this.modelRegistry = modelRegistry;
         this.telemetryTraceService = telemetryTraceService;
@@ -239,14 +242,13 @@ public class LlmController {
             String requester,
             String pipeline,
             String resolutionReason) {
-        String transactionId = UUID.randomUUID().toString();
+        String transactionId = tracer.currentSpan() != null ? tracer.currentSpan().context().traceId() : UUID.randomUUID().toString();
         
         boolean streaming = Boolean.TRUE.equals(request.get("stream"));
         httpResponse.setContentType(streaming ? MediaType.TEXT_EVENT_STREAM_VALUE : MediaType.APPLICATION_JSON_VALUE);
         httpResponse.setHeader("Cache-Control", "no-cache");
-        httpResponse.setHeader("X-Transaction-Id", transactionId);
+        httpResponse.setHeader("X-Trace-Id", transactionId);
         return outputStream -> {
-            org.slf4j.MDC.put("txId", transactionId);
             org.slf4j.MDC.put("requester", requester);
             try {
                 log.info("Received OpenAI-compatible {} proxy request to '{}' [Resolution: {}]",
@@ -254,13 +256,13 @@ public class LlmController {
 
                 if (streaming) {
                 Flux<String> upstreamEvents = gatewayFacade.processStreamingChatCompletion(
-                        request, requester, transactionId, pipeline);
-                    writeStreamingResponse(outputStream, upstreamEvents, requester, transactionId);
+                        request, requester, pipeline);
+                    writeStreamingResponse(outputStream, upstreamEvents, requester);
                     return;
                 }
 
                 long start = System.currentTimeMillis();
-                Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, transactionId, pipeline);
+                Map<String, Object> response = gatewayFacade.processChatCompletion(request, requester, pipeline);
                 log.info("{} proxy request completed in {}ms", pipeline, (System.currentTimeMillis() - start));
                 STREAM_MAPPER.writeValue(outputStream, response);
             } catch (Exception e) {
@@ -304,9 +306,7 @@ public class LlmController {
 
     private void writeStreamingResponse(OutputStream outputStream,
                                         Flux<String> upstreamEvents,
-                                        String requester,
-                                        String transactionId) throws IOException {
-        org.slf4j.MDC.put("txId", transactionId);
+                                        String requester) throws IOException {
         org.slf4j.MDC.put("requester", requester);
         AtomicBoolean doneSent = new AtomicBoolean(false);
         try {

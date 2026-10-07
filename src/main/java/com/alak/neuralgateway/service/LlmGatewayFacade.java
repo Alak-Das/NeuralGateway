@@ -82,22 +82,18 @@ public class LlmGatewayFacade {
      *
      * @param requestBody   the OpenAI-compatible chat completion payload
      * @param requester     the client or agent identifier (e.g. "cline", "cursor")
-     * @param transactionId unique transaction tracking ID
      * @param pipelineName  name of target pipeline (e.g. "CODING", "REASONING", "VISION")
      * @return the normalized upstream LLM response
      * @throws IllegalStateException if all candidate models and providers are unavailable
      */
-    public Map<String, Object> processChatCompletion(Map<String, Object> requestBody,
-                                                     String requester,
-                                                     String transactionId,
-                                                     String pipelineName) {
+    public Map<String, Object> processChatCompletion(Map<String, Object> requestBody, String requester, String pipelineName) {
         Pipeline pipeline = Pipeline.valueOf(pipelineName.toUpperCase());
         sanitizeRequest(requestBody);
 
         if (payloadTelemetryService != null) {
             String payloadSummary = payloadTelemetryService.summarizeRequest(requestBody);
             if (payloadSummary != null) {
-                log.info("[TxID: {}] Request payload: {}", transactionId, payloadSummary);
+                log.info("Request payload: {}", payloadSummary);
             }
         }
 
@@ -118,7 +114,7 @@ public class LlmGatewayFacade {
                 if (candidates.get(i).getId().equalsIgnoreCase(requestedModel)) {
                     Model targeted = candidates.remove(i);
                     candidates.add(0, targeted);
-                    log.info("[TxID: {}] Prioritized targeted model '{}' as primary candidate", transactionId, requestedModel);
+                    log.info("Prioritized targeted model '{}' as primary candidate", requestedModel);
                     break;
                 }
             }
@@ -129,7 +125,7 @@ public class LlmGatewayFacade {
         for (int i = 0; i < candidates.size(); i++) {
             Model model = candidates.get(i);
             if (!isProviderAvailable(model)) {
-                log.info("[TxID: {}] Skipping model '{}' because provider '{}' is in cooldown", transactionId,
+                log.info("Skipping model '{}' because provider '{}' is in cooldown",
                         model.getId(), model.getProviderId());
                 continue;
             }
@@ -138,8 +134,7 @@ public class LlmGatewayFacade {
             String providerId = model.getProviderId();
             if (providerId != null && !providerId.isBlank() && 
                 redisPersistenceService.getProviderUnavailableReason(providerId) != null) {
-                log.info("[TxID: {}] Skipping model '{}' because provider '{}' is marked as unavailable", 
-                        transactionId, model.getId(), providerId);
+                log.info("Skipping model '{}' because provider '{}' is marked as unavailable", model.getId(), providerId);
                 continue;
             }
 
@@ -184,7 +179,7 @@ public class LlmGatewayFacade {
                 });
 
                 // Normalize tool calls
-                toolCallNormalizer.normalizeToolCalls(response, requestBody, transactionId);
+                toolCallNormalizer.normalizeToolCalls(response, requestBody);
 
                 if (requestedModelObj instanceof String requestedModelAlias) {
                     response.put("model", requestedModelAlias);
@@ -195,8 +190,7 @@ public class LlmGatewayFacade {
                 // 5xx errors - failover to next model
                 long latency = System.currentTimeMillis() - startTime;
                 lastException = e;
-                log.warn("[TxID: {}] Upstream failure for model '{}' ({}ms): {}. Failing over to next candidate...",
-                        transactionId, model.getId(), latency, e.getMessage());
+                log.warn("Upstream failure for model '{}' ({}ms): {}. Failing over to next candidate...", model.getId(), latency, e.getMessage());
                 
                 CompletableFuture.runAsync(() -> {
                     recordProviderFailure(model);
@@ -218,8 +212,7 @@ public class LlmGatewayFacade {
                 lastException = e;
                 if (i < candidates.size() - 1 && e.getMessage() != null && 
                         (e.getMessage().contains("wrong_api_format") || e.getMessage().contains("unsupported") || e.getMessage().contains("validation_error") || e.getMessage().contains("multimodal"))) {
-                    log.warn("[TxID: {}] Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...",
-                            transactionId, model.getId(), latency, e.getMessage());
+                    log.warn("Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...", model.getId(), latency, e.getMessage());
                     // Format rejections are client payload format issues, not provider health failures.
                     // Failover immediately without penalizing the provider.
                     continue;
@@ -230,8 +223,7 @@ public class LlmGatewayFacade {
                 // Other errors - failover
                 long latency = System.currentTimeMillis() - startTime;
                 lastException = e;
-                log.warn("[TxID: {}] Unexpected error for model '{}' ({}ms): {}. Failing over to next candidate...",
-                        transactionId, model.getId(), latency, e.getMessage());
+                log.warn("Unexpected error for model '{}' ({}ms): {}. Failing over to next candidate...", model.getId(), latency, e.getMessage());
                 CompletableFuture.runAsync(() -> {
                     recordProviderFailure(model);
                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
@@ -260,21 +252,17 @@ public class LlmGatewayFacade {
      *
      * @param requestBody  the OpenAI-compatible chat completion payload with stream=true
      * @param requester    the client or agent identifier (e.g. "cline", "cursor")
-     * @param transactionId unique transaction tracking ID
      * @param pipelineName  name of target pipeline (e.g. "CODING", "REASONING", "VISION")
      * @return a Flux of raw SSE chunk strings emitted by the upstream provider
      */
-    public Flux<String> processStreamingChatCompletion(Map<String, Object> requestBody,
-                                                       String requester,
-                                                       String transactionId,
-                                                       String pipelineName) {
+    public Flux<String> processStreamingChatCompletion(Map<String, Object> requestBody, String requester, String pipelineName) {
         Pipeline pipeline = Pipeline.valueOf(pipelineName.toUpperCase());
         sanitizeRequest(requestBody);
 
         if (payloadTelemetryService != null) {
             String payloadSummary = payloadTelemetryService.summarizeRequest(requestBody);
             if (payloadSummary != null) {
-                log.info("[TxID: {}] Streaming request payload: {}", transactionId, payloadSummary);
+                log.info("Streaming request payload: {}", payloadSummary);
             }
         }
 
@@ -297,16 +285,10 @@ public class LlmGatewayFacade {
             }
         }
 
-        return streamCandidate(candidates, 0, requestBody, requester, transactionId, pipelineName, estimatedTokens);
+        return streamCandidate(candidates, 0, requestBody, requester, pipelineName, estimatedTokens);
     }
 
-    private Flux<String> streamCandidate(List<Model> candidates,
-                                         int candidateIndex,
-                                         Map<String, Object> requestBody,
-                                         String requester,
-                                         String transactionId,
-                                         String pipelineName,
-                                         int estimatedTokens) {
+    private Flux<String> streamCandidate(List<Model> candidates, int candidateIndex, Map<String, Object> requestBody, String requester, String pipelineName, int estimatedTokens) {
         if (candidateIndex >= candidates.size()) {
             return Flux.error(noEligibleProvider(Pipeline.valueOf(pipelineName.toUpperCase()), null));
         }
@@ -314,10 +296,9 @@ public class LlmGatewayFacade {
         Model model = candidates.get(candidateIndex);
         return Flux.defer(() -> {
             if (!isProviderAvailable(model)) {
-                log.info("[TxID: {}] Skipping model '{}' because provider '{}' is in cooldown", transactionId,
+                log.info("Skipping model '{}' because provider '{}' is in cooldown",
                         model.getId(), model.getProviderId());
-                return streamCandidate(candidates, candidateIndex + 1, requestBody, requester,
-                        transactionId, pipelineName, estimatedTokens);
+                return streamCandidate(candidates, candidateIndex + 1, requestBody, requester, pipelineName, estimatedTokens);
             }
             modelStatusService.incrementUsage(model.getId());
             routingService.incrementActiveConnections(model.getId());
@@ -395,10 +376,8 @@ public class LlmGatewayFacade {
                     .onErrorResume(error -> {
                         boolean canFailOver = !emittedAnyData.get();
                         if (canFailOver && candidateIndex + 1 < candidates.size()) {
-                            log.warn("[TxID: {}] Streaming error for model '{}' ({}ms): {}. Failing over to next candidate...",
-                                    transactionId, model.getId(), (System.currentTimeMillis() - startTime), error.getMessage());
-                            return streamCandidate(candidates, candidateIndex + 1, requestBody, requester,
-                                    transactionId, pipelineName, estimatedTokens);
+                            log.warn("Streaming error for model '{}' ({}ms): {}. Failing over to next candidate...", model.getId(), (System.currentTimeMillis() - startTime), error.getMessage());
+                            return streamCandidate(candidates, candidateIndex + 1, requestBody, requester, pipelineName, estimatedTokens);
                         }
                         if (canFailOver) {
                             return Flux.error(noEligibleProvider(Pipeline.valueOf(pipelineName.toUpperCase()),
@@ -732,3 +711,4 @@ public class LlmGatewayFacade {
     }
 
 }
+

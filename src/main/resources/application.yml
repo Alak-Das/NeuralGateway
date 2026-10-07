@@ -1,4 +1,4 @@
-server:
+﻿server:
   port: 8080
 logging:
   level:
@@ -99,3 +99,9 @@ llm:
       models:
         - { id: "antseed",                                        enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }
 
+
+management:
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0

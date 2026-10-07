@@ -84,6 +84,17 @@
             <artifactId>logstash-logback-encoder</artifactId>
             <version>8.0</version>
         </dependency>
+            <!-- Micrometer Tracing for W3C Trace Context -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
+        </dependency>
+        <!-- Automatic Context Propagation for WebFlux/Reactor -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
+            
+        </dependency>
     </dependencies>
 
     <build>
@@ -95,4 +106,10 @@
         </plugins>
     </build>
 </project>
+
+
+
+
+
+
 

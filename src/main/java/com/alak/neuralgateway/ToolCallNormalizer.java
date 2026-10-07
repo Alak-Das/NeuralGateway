@@ -30,7 +30,7 @@ public class ToolCallNormalizer {
         this.payloadTelemetryService = payloadTelemetryService != null ? payloadTelemetryService : new PayloadTelemetryService("SUMMARY", 120);
     }
 
-    public void normalizeToolCalls(Map<String, Object> response, Map<String, Object> request, String transactionId) {
+    public void normalizeToolCalls(Map<String, Object> response, Map<String, Object> request) {
         if (response == null || !response.containsKey("choices")) {
             return;
         }
@@ -58,14 +58,14 @@ public class ToolCallNormalizer {
                 for (Object tcObj : rawToolCalls) {
                     if (tcObj instanceof Map<?, ?> rawTc) {
                         Map<String, Object> tc = (Map<String, Object>) rawTc;
-                        normalizeSingleToolCall(tc, toolSchemaMap, workingDirectory, transactionId);
+                        normalizeSingleToolCall(tc, toolSchemaMap, workingDirectory);
                     }
                 }
             }
         }
     }
 
-    public void normalizeSingleToolCall(Map<String, Object> tc, Map<String, Map<String, Object>> toolSchemaMap, String workingDirectory, String transactionId) {
+    public void normalizeSingleToolCall(Map<String, Object> tc, Map<String, Map<String, Object>> toolSchemaMap, String workingDirectory) {
         Object fnObj = tc.get("function");
         if (!(fnObj instanceof Map<?, ?> rawFn)) return;
         Map<String, Object> function = (Map<String, Object>) rawFn;
@@ -97,9 +97,9 @@ public class ToolCallNormalizer {
         try {
             String jsonStr = mapper.writeValueAsString(normalized);
             function.put("arguments", jsonStr);
-            log.info("[TxID: {}] Normalized tool call '{}': {}", transactionId, toolName, payloadTelemetryService.summarizeToolCallArgs(normalized));
+            log.info("Normalized tool call '{}': {}", toolName, payloadTelemetryService.summarizeToolCallArgs(normalized));
         } catch (Exception e) {
-            log.warn("[TxID: {}] Failed to serialize normalized arguments for tool '{}': {}", transactionId, toolName, e.getMessage());
+            log.warn("Failed to serialize normalized arguments for tool '{}': {}", toolName, e.getMessage());
         }
     }
 
@@ -406,3 +406,4 @@ public class ToolCallNormalizer {
         }
     }
 }
+
