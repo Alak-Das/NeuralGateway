@@ -64,6 +64,16 @@ class ModelStatusServiceTest {
         assertTrue(modelStatusService.isModelUp("test-model"), "Model should remain UP after 1 transient error");
         assertFalse(modelStatusService.getStatus("test-model").circuitOpen());
         verify(redisPersistence, never()).resetConsecutiveErrors("test-model");
+
+        // But the historical health check result must truthfully record failure
+        org.mockito.ArgumentCaptor<HealthCheckResult> captor = org.mockito.ArgumentCaptor.forClass(HealthCheckResult.class);
+        verify(redisPersistence).saveHealthCheckResult(eq("test-model"), captor.capture());
+        assertFalse(captor.getValue().isUp(), "History result must accurately record isUp=false for failed request");
+        assertEquals("Connection reset", captor.getValue().getErrorMessage());
+
+        List<HealthCheckResult> history = modelStatusService.getStatus("test-model").history();
+        assertFalse(history.get(history.size() - 1).isUp(), "Last entry in modelStatus history must have isUp=false");
+        assertEquals("Connection reset", history.get(history.size() - 1).getErrorMessage());
     }
 
     @Test

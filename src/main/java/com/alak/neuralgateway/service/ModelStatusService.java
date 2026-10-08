@@ -162,10 +162,10 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
 
         HealthCheckResult savedResult = new HealthCheckResult(
                 modelId,
-                effectiveIsUp,
+                result.isUp(),
                 result.getLatencyMs(),
                 result.getTimestamp(),
-                effectiveErrorMessage,
+                result.getErrorMessage(),
                 result.isBackgroundProbe()
         );
         redisPersistence.saveHealthCheckResult(modelId, savedResult);

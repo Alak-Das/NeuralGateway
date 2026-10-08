@@ -64,7 +64,7 @@ export default function Charts({ data }: ChartsProps) {
     }).length;
   };
 
-  const { latencyData, latencyOptions, latencyDatasetsCount, usageData, usageOptions, errorData, errorOptions, totalRequests, displayData, bgColors, activeModels } = useMemo(() => {
+  const { latencyData, latencyOptions, latencyDatasetsCount, usageData, usageOptions, errorData, errorOptions, successDatasetsCount, totalRequests, displayData, bgColors, activeModels } = useMemo(() => {
     // Model Color Map - deterministic, sorted alphabetically across all known models
     const modelColorMap = buildModelColorMap(data.map(d => d.model), isDark);
 
@@ -179,9 +179,9 @@ export default function Charts({ data }: ChartsProps) {
     data.forEach(d => {
       if (d.history && Array.isArray(d.history)) {
         d.history.forEach(h => {
-          if (!h.timestamp) return;
+          if (!h.timestamp || h.isBackgroundProbe) return;
           const time = new Date(h.timestamp).getTime();
-          if (!isNaN(time) && time >= successCutoffTime) {
+          if (!isNaN(time) && (successCutoffTime === 0 || time >= successCutoffTime)) {
             const bucketedTime = Math.floor(time / 60000) * 60000;
             successTimestamps.add(bucketedTime);
           }
@@ -197,20 +197,25 @@ export default function Charts({ data }: ChartsProps) {
 
     const successDatasets = data
       .filter(d => d.history && Array.isArray(d.history) && d.history.some(h => {
-        return h.timestamp && new Date(h.timestamp).getTime() >= successCutoffTime && !h.isBackgroundProbe;
+        if (!h.timestamp || h.isBackgroundProbe) return false;
+        const time = new Date(h.timestamp).getTime();
+        return !isNaN(time) && (successCutoffTime === 0 || time >= successCutoffTime);
       }))
       .map((d) => {
         const successStats: Record<number, { total: number, errors: number }> = {};
         if (d.history && Array.isArray(d.history)) {
           d.history.forEach(h => {
-            const isUp = h.up !== undefined ? h.up : h.isUp;
             if (h.timestamp && !h.isBackgroundProbe) {
               const time = new Date(h.timestamp).getTime();
-              if (!isNaN(time) && time >= successCutoffTime) {
+              if (!isNaN(time) && (successCutoffTime === 0 || time >= successCutoffTime)) {
                 const bucketedTime = Math.floor(time / 60000) * 60000;
                 if (!successStats[bucketedTime]) successStats[bucketedTime] = { total: 0, errors: 0 };
                 successStats[bucketedTime].total++;
-                if (!isUp) successStats[bucketedTime].errors++;
+                const isUp = (h as any).up !== undefined ? (h as any).up : h.isUp;
+                const hasError = Boolean(h.errorMessage && h.errorMessage.trim().length > 0);
+                if (!isUp || hasError) {
+                  successStats[bucketedTime].errors++;
+                }
               }
             }
           });
@@ -218,7 +223,7 @@ export default function Charts({ data }: ChartsProps) {
         
         const alignedData = sortedSuccessTimestamps.map(ts => {
            if (successStats[ts] && successStats[ts].total > 0) {
-               return ((successStats[ts].total - successStats[ts].errors) / successStats[ts].total) * 100;
+               return Math.round(((successStats[ts].total - successStats[ts].errors) / successStats[ts].total) * 1000) / 10;
            }
            return null;
         });
@@ -233,8 +238,8 @@ export default function Charts({ data }: ChartsProps) {
           pointBorderColor: myColor,
           fill: false,
           tension: 0.3,
-          pointRadius: 3,
-          pointHoverRadius: 5,
+          pointRadius: 4,
+          pointHoverRadius: 6,
           spanGaps: true
         };
       });
@@ -246,6 +251,9 @@ export default function Charts({ data }: ChartsProps) {
       plugins: {
         legend: { position: "bottom" as const, labels: { usePointStyle: true, boxWidth: 6, color: isDark ? '#94a3b8' : '#64748b' } },
         tooltip: {
+          filter: function(tooltipItem: any) {
+            return tooltipItem.parsed.y !== null && !isNaN(tooltipItem.parsed.y);
+          },
           callbacks: {
             label: function(context: any) {
               let label = context.dataset.label || "";
@@ -333,6 +341,7 @@ export default function Charts({ data }: ChartsProps) {
       usageOptions: usageOptionsObj,
       errorData: { labels: successLabels, datasets: successDatasets },
       errorOptions: successOptionsObj,
+      successDatasetsCount: successDatasets.length,
       totalRequests: totalRequestsVal,
       displayData: displayDataList,
       bgColors: bgColors,
@@ -382,10 +391,18 @@ export default function Charts({ data }: ChartsProps) {
               <option value={60}>Last 1 Hour</option>
               <option value={360}>Last 6 Hours</option>
               <option value={1440}>Last 24 Hours</option>
+              <option value={0}>Retained History</option>
             </select>
           </div>
           <div className="chart-container" style={{ position: "relative", height: "300px", width: "100%" }}>
-            <Line data={errorData} options={errorOptions} />
+            {successDatasetsCount === 0 ? (
+              <div className="d-flex flex-column align-items-center justify-content-center h-100 text-muted opacity-75 small">
+                <i className="bi bi-info-circle mb-2" style={{ fontSize: '1.5rem' }}></i>
+                <span>No request traffic in this window</span>
+              </div>
+            ) : (
+              <Line data={errorData} options={errorOptions} />
+            )}
           </div>
         </div>
       </div>
