@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,8 +26,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 @Service
 public class ModelRegistry {
 
-    private final Map<String, Model> modelCatalog = new HashMap<>();
-    private final Map<String, ApiKeyPool> apiKeyPools = new HashMap<>();
+    private final Map<String, Model> modelCatalog = new ConcurrentHashMap<>();
+    private final Map<String, ApiKeyPool> apiKeyPools = new ConcurrentHashMap<>();
     private final LlmProvidersProperties properties;
     private final RedisPersistenceService redisPersistenceService;
     private final ObjectMapper objectMapper;

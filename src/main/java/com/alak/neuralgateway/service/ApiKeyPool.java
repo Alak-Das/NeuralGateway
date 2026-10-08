@@ -33,8 +33,11 @@ public class ApiKeyPool {
             return keys.get(0);
         }
         
-        // Strict Round-Robin
-        int index = currentKeyIndex.getAndUpdate(i -> (i + 1) % keys.size());
+        // Strict Round-Robin (overflow-safe)
+        int index = currentKeyIndex.getAndUpdate(i -> (i + 1 >= keys.size() || i < 0) ? 0 : i + 1);
+        if (index < 0 || index >= keys.size()) {
+            index = 0;
+        }
         return keys.get(index);
     }
 }

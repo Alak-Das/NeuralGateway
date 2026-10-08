@@ -52,7 +52,7 @@ public class HealthCheckService {
             return;
         }
 
-        List<Model> models = getAllEnabledModelsSortedByPriority();
+        List<Model> models = getAllModelsSortedByPriority();
         log.info("Starting virtual threads for {} models (stagger: {}ms, interval: {}ms)",
                 models.size(), STAGGER_DELAY_MS, HEALTH_CHECK_INTERVAL_MS);
 
@@ -73,10 +73,21 @@ public class HealthCheckService {
                     return; 
                 }
                 
-                 log.info("Background health check loop started for model: {}", model.getId());
+                log.info("Background health check loop started for model: {}", model.getId());
 
                 try {
                     while (running && !Thread.currentThread().isInterrupted()) {
+                        boolean isEnabled = modelRegistry.getModel(model.getId()).map(Model::isEnabled).orElse(false);
+                        if (!isEnabled) {
+                            try {
+                                Thread.sleep(HEALTH_CHECK_INTERVAL_MS);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                            continue;
+                        }
+
                         long nextInterval = HEALTH_CHECK_INTERVAL_MS;
                         try {
                             HealthCheckResult result = performActualPing(model.getId());
@@ -104,11 +115,10 @@ public class HealthCheckService {
         }
     }
 
-    private List<Model> getAllEnabledModelsSortedByPriority() {
+    private List<Model> getAllModelsSortedByPriority() {
         return modelRegistry.getAllModelIds().stream()
                 .map(modelRegistry::getModel)
                 .flatMap(Optional::stream)
-                .filter(Model::isEnabled)
                 .distinct()
                 .sorted(Comparator.comparingInt((Model m) -> m.getPriority()).reversed().thenComparing(Model::getId))
                 .collect(Collectors.toList());

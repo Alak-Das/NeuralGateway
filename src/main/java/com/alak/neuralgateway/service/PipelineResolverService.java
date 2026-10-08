@@ -239,6 +239,15 @@ public class PipelineResolverService {
                 Object contentObj = msg.get("content");
                 if (contentObj instanceof String text) {
                     return CODE_INDICATOR_PATTERN.matcher(text).find();
+                } else if (contentObj instanceof List<?> parts) {
+                    for (Object partObj : parts) {
+                        if (partObj instanceof Map<?, ?> part) {
+                            Object textVal = part.get("text");
+                            if (textVal instanceof String text && CODE_INDICATOR_PATTERN.matcher(text).find()) {
+                                return true;
+                            }
+                        }
+                    }
                 }
                 break;
             }

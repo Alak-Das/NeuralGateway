@@ -16,6 +16,10 @@ public class AuditLogService {
 
     private static final Logger log = LoggerFactory.getLogger(AuditLogService.class);
 
+    private static String safeStr(String str) {
+        return str != null ? str : "";
+    }
+
     /**
      * Log a routing decision for traceability.
      */
@@ -23,11 +27,11 @@ public class AuditLogService {
                                     String selectedModel, String reason, int candidatesTried) {
         Map<String, Object> audit = Map.of(
             "event", "ROUTING_DECISION",
-            "txId", txId,
-            "requester", requester,
-            "virtualModel", virtualModel,
-            "selectedModel", selectedModel,
-            "reason", reason,
+            "txId", safeStr(txId),
+            "requester", safeStr(requester),
+            "virtualModel", safeStr(virtualModel),
+            "selectedModel", safeStr(selectedModel),
+            "reason", safeStr(reason),
             "candidatesTried", candidatesTried,
             "timestamp", Instant.now().toString()
         );
@@ -40,10 +44,10 @@ public class AuditLogService {
     public void logFailover(String txId, String fromModel, String toModel, String error) {
         Map<String, Object> audit = Map.of(
             "event", "FAILOVER",
-            "txId", txId,
-            "fromModel", fromModel,
-            "toModel", toModel,
-            "error", error,
+            "txId", safeStr(txId),
+            "fromModel", safeStr(fromModel),
+            "toModel", safeStr(toModel),
+            "error", safeStr(error),
             "timestamp", Instant.now().toString()
         );
         log.warn("AUDIT: {}", audit);
@@ -55,9 +59,9 @@ public class AuditLogService {
     public void logCircuitBreakerEvent(String modelId, String event, String state) {
         Map<String, Object> audit = Map.of(
             "event", "CIRCUIT_BREAKER",
-            "modelId", modelId,
-            "action", event,
-            "newState", state,
+            "modelId", safeStr(modelId),
+            "action", safeStr(event),
+            "newState", safeStr(state),
             "timestamp", Instant.now().toString()
         );
         log.warn("AUDIT: {}", audit);
@@ -69,10 +73,10 @@ public class AuditLogService {
     public void logModelStatusChange(String modelId, boolean isUp, long latencyMs, String errorMessage) {
         Map<String, Object> audit = Map.of(
             "event", "MODEL_STATUS_CHANGE",
-            "modelId", modelId,
+            "modelId", safeStr(modelId),
             "status", isUp ? "UP" : "DOWN",
             "latencyMs", latencyMs,
-            "error", errorMessage,
+            "error", safeStr(errorMessage),
             "timestamp", Instant.now().toString()
         );
         log.info("AUDIT: {}", audit);
@@ -84,9 +88,9 @@ public class AuditLogService {
     public void logRateLimitEvent(String providerId, String modelId, String keyId, int remainingRequests) {
         Map<String, Object> audit = Map.of(
             "event", "RATE_LIMIT",
-            "providerId", providerId,
-            "modelId", modelId,
-            "keyId", keyId,
+            "providerId", safeStr(providerId),
+            "modelId", safeStr(modelId),
+            "keyId", safeStr(keyId),
             "remainingRequests", remainingRequests,
             "timestamp", Instant.now().toString()
         );
@@ -99,10 +103,10 @@ public class AuditLogService {
     public void logAuthFailure(String providerId, String modelId, int statusCode, String errorMessage) {
         Map<String, Object> audit = Map.of(
             "event", "AUTH_FAILURE",
-            "providerId", providerId,
-            "modelId", modelId,
+            "providerId", safeStr(providerId),
+            "modelId", safeStr(modelId),
             "statusCode", statusCode,
-            "error", errorMessage,
+            "error", safeStr(errorMessage),
             "timestamp", Instant.now().toString()
         );
         log.warn("AUDIT: {}", audit);

@@ -368,7 +368,7 @@ public class RedisPersistenceService {
             result.add(reqData);
         }
 
-        result.sort((a, b) -> ((Long) b.get("count")).compareTo((Long) a.get("count")));
+        result.sort((a, b) -> Long.compare(parseLongSafe(b.get("count")), parseLongSafe(a.get("count"))));
         return result;
     }
 

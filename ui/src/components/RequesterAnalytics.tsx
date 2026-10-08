@@ -40,10 +40,10 @@ const theme = useContext(ThemeContext);
     const fetchHistory = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/requesters/${selectedRequester}/history?days=14`);
+        const res = await fetch(`/api/requesters/${encodeURIComponent(selectedRequester)}/history?days=14`);
         if (res.ok) {
           const data = await res.json();
-          if (!disposed) setHistory(data.reverse()); // reverse so chronological order
+          if (!disposed) setHistory(Array.isArray(data) ? data : []);
         }
       } catch (e) {
         console.error('Failed to fetch history', e);

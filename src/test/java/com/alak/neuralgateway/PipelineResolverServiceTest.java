@@ -143,4 +143,22 @@ class PipelineResolverServiceTest {
         assertEquals(Pipeline.VISION, result.pipeline());
         assertTrue(result.reason().contains("Single-capability model"));
     }
+
+    @Test
+    @DisplayName("Structured multimodal content parts with code indicators resolves to CODING pipeline")
+    void testStructuredContentPartsWithCode() {
+        Map<String, Object> textPart = Map.of(
+                "type", "text",
+                "text", "Please inspect this code:\n```java\npublic class Solution {}\n```"
+        );
+        Map<String, Object> message = Map.of(
+                "role", "user",
+                "content", List.of(textPart)
+        );
+        Map<String, Object> request = Map.of("messages", List.of(message));
+
+        var result = resolver.resolve(request, null, "GenericUser", null);
+        assertEquals(Pipeline.CODING, result.pipeline());
+        assertTrue(result.reason().contains("Code blocks or programming keywords"));
+    }
 }

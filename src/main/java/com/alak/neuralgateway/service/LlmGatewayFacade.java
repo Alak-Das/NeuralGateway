@@ -199,12 +199,6 @@ public class LlmGatewayFacade {
                     if (requester != null && !requester.isEmpty()) {
                         redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
                     }
-                    // Increment consecutive errors and check if provider should be marked as unavailable
-                    redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
-                    // If error threshold exceeded, mark provider as unavailable for 60 seconds
-                    if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
-                        redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-                    }
                 });
                 continue;
             } catch (IllegalArgumentException e) {
@@ -230,10 +224,6 @@ public class LlmGatewayFacade {
                     telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, 500, "/v1/chat/completions");
                     if (requester != null && !requester.isEmpty()) {
                         redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
-                    }
-                    redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
-                    if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
-                        redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
                     }
                 });
                 continue;
@@ -324,7 +314,7 @@ public class LlmGatewayFacade {
                         .map(chunk -> {
                             Object requestedModelObj = requestBody.get("model");
                             if (requestedModelObj instanceof String requestedModelAlias && chunk.startsWith("{")) {
-                                return chunk.replaceAll("\\\"model\\\"\\\\s*:\\\\s*\\\"[^\\\"]+\\\"", "\\\"model\\\":\\\"\" + requestedModelAlias + \"\\\"\"");
+                                return chunk.replaceAll("\"model\"\\s*:\\s*\"[^\"]+\"", java.util.regex.Matcher.quoteReplacement("\"model\":\"" + requestedModelAlias + "\""));
                             }
                             return chunk;
                         })
@@ -427,6 +417,9 @@ public class LlmGatewayFacade {
         String providerId = model.getProviderId();
         if (providerId != null && !providerId.isBlank()) {
             redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
+            if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
+                redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
+            }
         }
     }
 
