@@ -19,17 +19,17 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 - **Context-Aware Window Validation**: Automatically filters out models whose context windows cannot accommodate the estimated payload tokens (preventing truncation and 400 Bad Request errors). Disabled by default; enable via `llm.routing.context-window-validation-enabled=true`.
 
 ### 3. High Availability & Resilience
-- **Redis-Based Provider Cooldown & Error Tracking**: Models returning consecutive server errors (5xx, timeouts) or rate-limit responses (429) trigger provider-specific cooldowns tracked in Redis, preventing traffic to failing providers while allowing recovery. Circuit breaker functionality has been replaced with this lighter-weight, Redis-driven approach.
-- **Dynamic API Key Cooldown**: When an upstream provider responds with HTTP 429 Too Many Requests, the offending API key is immediately isolated with a configurable cooldown (default 30 seconds), rotating traffic instantly to healthy keys.
-- **Emergency Degraded Mode**: If all models in a pipeline are unavailable due to cooldowns or errors, the gateway automatically falls back to highest-priority models ordered by lowest latency, eliminating 100% gateway blackouts and enabling traffic-driven self-healing.
-- **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trigger provider cooldowns.
-- **Multi-Provider Failover**: Requests are routed across **all configured providers** (NVIDIA NIM, Experiential Labs, Antseed, etc.) as a single logical fleet. Provider-specific failures — including upstream `401`/`403`/`404` responses and quota errors such as `token_quota_exceeded` — trigger transparent failover to the next candidate model, which may live on a different provider entirely.
+- **Model-Level Fault Isolation**: Failures are strictly isolated to individual models. There is NO concept of provider-level cooldown—one model of a provider going down (e.g. `nvidia/nemotron-3-ultra-550b-a55b`) never impacts or locks out other healthy models from that same provider (`z-ai/glm-5.3`, `nemotron-super-120b`, etc.).
+- **Independent Priority Failover**: When a model is down or encounters an upstream failure (5xx, timeout, connection drop), the gateway instantly fails over to the next highest-priority candidate model in the pipeline, regardless of whether it shares the same provider or not.
+- **Per-Model Anti-Flapping Threshold**: Real-request errors apply a 3-consecutive-error anti-flapping threshold in Redis: a single transient failure leaves the model UP, while 3 consecutive failures mark only that specific model DOWN.
+- **Dynamic API Key Pool Rotation**: When an upstream provider responds with HTTP 429 Too Many Requests or authentication issues, `ApiKeyPool` rotates immediately to another healthy key within the provider's key pool before surfacing any error.
+- **Emergency Degraded Mode**: If all models in a pipeline are marked down, the gateway automatically attempts the highest-priority enabled models rather than completely blocking traffic, enabling instant self-healing when upstream service resumes.
+- **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) and format rejections are handled gracefully without false health penalties.
+- **Multi-Provider Failover**: Requests are routed across all configured providers (NVIDIA NIM, Experiential Labs, Antseed, etc.) as a single logical fleet. Transparent failover tries candidate models strictly in priority order.
 - **Request Sanitization for Cross-Provider Compatibility**: Non-standard client fields are normalised before dispatch — `thinking_effort` and Anthropic-style `thinking` blocks are translated to `reasoning_effort`, and `reasoning_effort` is coerced to the OpenAI-standard set (`none`, `low`, `medium`, `high`). This prevents `400 wrong_api_format` rejections from stricter providers and lets the gateway fail over instead of surfacing a spurious client error.
-- **Auto-Recovery**: Provider cooldowns automatically expire after their configured duration, restoring the provider to active rotation without manual intervention.
-- **Smart Model Recovery Backoff**: Models marked unhealthy by a transient routed failure are re-probed by a dedicated recovery sweep with exponential backoff (30s → 120s cap, ±20% jitter) that is shared across gateway replicas via Redis. A single successful probe clears the backoff and restores the model immediately — no need to wait for the full health-check cycle. Provider-wide outages (upstream `401`/`403`/`404`, quota errors, rate limits) never falsely flag an individual model as DOWN, so failover and the dashboard stay accurate.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
-- **Resilient Fallback Routing**: During cold-starts or temporary upstream outages, candidate models are sorted by lowest historical routing score (priority-weighted latency) and tried with up to 3 fallback attempts.
-- **Fail-Fast Failover**: Transparently retries candidate models on server-side failures with strict attempt caps to eliminate cascading delays.
+- **Resilient Fallback Routing**: Candidate models are sorted strictly by priority (highest priority first) and tried with failover on error.
+- **Fail-Fast Failover**: Transparently retries candidate models on server-side failures with connection cleanup to eliminate cascading delays.
 
 ### 4. Resilient Distributed Health Checker
 - **ShedLock Distributed Scheduling**: Prevents redundant health check sweeps across horizontally scaled gateway instances by utilizing a Redis-backed distributed lock.
@@ -64,7 +64,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 
 - **Framework**: Spring Boot 3.3.4 (Java 21 with Virtual Threads)
 - **Reactive Engine**: Spring WebFlux (`WebClient`) with Connection Pooling & Keep-Alive
-- **Resilience & Fault Tolerance**: Redis-Based Provider Cooldowns & Error Tracking, ShedLock Distributed Locking
+- **Resilience & Fault Tolerance**: Model-Level Fault Isolation, Anti-Flapping Circuit Breakers, ShedLock Distributed Locking
 - **Data & Telemetry**: Redis 7 Alpine (persistent volume, Pub/Sub SSE)
 - **Frontend**: React 19, TypeScript, Vite, Chart.js, Bootstrap Icons
 - **UI Integration**: Open WebUI (ghcr.io/open-webui/open-webui:main)
@@ -90,10 +90,10 @@ Used by the React monitoring dashboard and operations tooling:
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/models/status` | Current operational status, latency, active connections, and provider cooldown states across all models. |
+| `GET` | `/api/models/status` | Current operational status (UP/DOWN), latency, active connections, and error history across all models. |
 | `GET` | `/api/models/status/stream` | Real-time Server-Sent Events (SSE) feed emitting status updates as health check sweeps complete. |
 | `POST` | `/api/models/ping?model={name}` | On-demand synchronous health ping to verify a specific model's latency and availability. |
-| `POST` | `/api/models/circuit-reset?model={name}` | Manually reset provider cooldown, recorded errors, and latency for a model to immediately restore model traffic. |
+| `POST` | `/api/models/circuit-reset?model={name}` | Manually reset recorded errors and circuit breaker state for a model to immediately restore model traffic. |
 | `GET` | `/api/requesters/status` | Request volume and token usage metrics grouped by calling client (`X-Requester`). |
 | `GET` | `/api/telemetry/traces` | Live request traces for monitoring and debugging. |
 | `GET` | `/swagger-ui.html` | Interactive Swagger/OpenAPI documentation and API explorer. |

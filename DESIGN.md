@@ -39,8 +39,8 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
       +-----------------+------------------+                           |
                         |                                            |
       +-----------------v------------------+       +------------------v------------------+
-      |    ProviderCooldownManager           |       |   HealthCheckService               |
-      |   (Redis-based cooldowns & tracking)|       | (Periodic + recovery sweeps, ShedLock)|
+      |    ModelStatusService              |       |   HealthCheckService               |
+      | (Model health & circuit breaker)   |       | (Periodic + recovery sweeps, ShedLock)|
       +-----------------+------------------+       +------------------+------------------+
                         |                                |
       +-----------------v------------------+       +------v--------+     +--------------v-----------+
@@ -79,7 +79,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - `GET /api/models/status/stream` - SSE stream of model status updates
 - `GET /api/requesters/status` - Requester telemetry/usage statistics
 - `POST /api/models/ping?model={name}` - Manual health check trigger
-- `POST /api/models/cooldown-reset?model={name}` - Manual provider cooldown reset
+- `POST /api/models/circuit-reset?model={name}` - Manual model circuit breaker reset
 
 ### 2. Service Layer
 
@@ -100,7 +100,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 - `sanitizeRequest(requestBody)` - Normalize provider-specific parameters (e.g., thinking_effort)
 - `getRoutingScore(modelId)` - Retrieve current routing score for a model
 - `recordRoutedFailure(modelId, throwable)` / `recordRoutedSuccess(modelId)` - Notify the recovery tracker of routed outcomes
-- `noEligibleProvider(pipeline, cause)` - Builds the error message when no candidate is available. Filters `getModelsByPipeline()` with `.filter(Model::isEnabled)` so that only providers with at least one **enabled** model contribute their availability state to the error message. This prevents stale `QUOTA_EXHAUSTED` state from a disabled model from polluting the error.
+- `noEligibleProvider(pipeline, cause)` - Builds the error message when no candidate is available.
 - Various getter methods for telemetry and status information
 
 #### RoutingService
@@ -115,32 +115,21 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 **Key Algorithms:**
 - **Routing Score Calculation**: `score = (latencyMs + activeConnections * connectionPenaltyMs) / priority` — lower is better; lower priority number = higher priority
 - **Latency Tracking**: Raw latency from successful requests is stored per-model in Redis (no EMA smoothing currently implemented)
-- **Model Selection**: Sort by routing score (ascending), filter by health and context window
-- **Fallback Selection**: Healthy models first, then models not in provider cooldown
-- **Emergency Mode**: If no candidates available, return top models by score as canary probes
+- **Model Selection**: Sort strictly by priority (highest priority first), filter by health (`isModelUp`) and context window
+- **Fallback Selection**: If a model fails, immediately fail over to the next highest-priority candidate in the pipeline
+- **Emergency Mode**: If all models are marked down, attempt top models by priority as degraded probes
 
 **Telemetry Structures:**
 - `Map<String, AtomicInteger> activeConnectionsMap` - Thread-safe connection counting
-- (Removed: EMA latency storage per model - not implemented in current routing logic)
 
-#### ProviderCooldownManager
+#### ModelStatusService & Model-Level Failure Isolation
 **Responsibilities:**
-- Track provider health and errors using Redis-based cooldowns (no Resilience4j circuit breaker)
-- Isolate failing providers to prevent cascading failures by recording consecutive errors in Redis
-- Manage provider cooldown state: active (healthy) or cooling down (after consecutive 5xx/429 errors)
-- Persist cooldown state to Redis for consistency across gateway instances
-- Provide automatic recovery: cooldowns expire after configured timeout, restoring traffic to healthy providers
-- Execute protected calls with automatic success/failure recording and cooldown management
-
-**Configuration (from ProviderCooldownProperties):**
-- `maxConsecutiveErrors`: 3 consecutive server errors (5xx) or rate limits (429) to trigger cooldown
-- `cooldownDurationMs`: 30000ms (30 seconds) default cooldown period
-- `enabled`: true (provider cooldown tracking enabled by default)
-
-**State Persistence:**
-- Provider cooldown state stored in Redis with TTL
-- Consecutive error counts persisted for recovery tracking
-- State automatically expires based on cooldown duration
+- Track individual model health and anti-flapping circuit breaker state in Redis
+- Enforce the 3-consecutive-error anti-flapping threshold for real-request errors (transient single errors leave the model UP; 3 consecutive errors mark only that model DOWN)
+- Immediate failure marking for background synthetic health check probes
+- Isolate failures completely to individual models (no concept of provider-level cooldown): a failing model on a provider never impacts or blocks other models from that same provider
+- Persist health history (up to 1,440 data points) to Redis for observability and time-series charting
+- Provide manual circuit breaker reset per model via `POST /api/models/circuit-reset?model={name}`
 
 #### HealthCheckService
 **Responsibilities:**
@@ -593,23 +582,21 @@ provider-cooldown:
    b. Format: event: model-status-update + data: JSON model status
 ```
 
-### Provider Cooldown Flow
+### Model Failover & Circuit Breaker Flow
 ```
-1. Request Attempt → ProviderCooldownManager.isProviderAvailable()
+1. Request Attempt → RoutingService.selectModels(pipeline)
    ↓
-2. If provider is not in cooldown:
-   a. Execute request via LlmProviderClient
-   b. On success: ProviderCooldownManager.recordSuccess()
-      i. Reset consecutive error count in Redis
-      ii. Clear any active cooldown for the provider
-   c. On failure (5xx, timeout, 429): ProviderCooldownManager.recordFailure()
-      i. Increment consecutive error count in Redis
-      ii. If threshold reached: activate cooldown with TTL in Redis
+2. Filter candidates by isModelUp(modelId) and sort strictly by priority
    ↓
-3. Cooldown State Handling:
-   a. Active → Cooling Down: After maxConsecutiveErrors threshold reached
-   b. Cooling Down → Active: After cooldownDurationMs expires (TTL)
-   c. Any state change: Persisted to Redis with automatic TTL expiration
+3. Attempt highest-priority candidate via LlmProviderClient:
+   a. On success:
+      i. Update model status UP
+      ii. Reset model consecutive error count
+      iii. Record telemetry and token usage
+   b. On failure (5xx, timeout, connection drop):
+      i. Increment model consecutive error count
+      ii. If 3 consecutive errors reached: mark that model DOWN (circuit open)
+      iii. Immediately fail over to next highest-priority candidate in pipeline
 ```
 
 ### Recovery Sweep Flow

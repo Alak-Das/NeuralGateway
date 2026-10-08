@@ -43,12 +43,11 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 - **Context-Aware Window Validation**: Automatically filters out models whose context windows cannot accommodate the estimated payload tokens. Disabled by default; enable via `llm.routing.context-window-validation-enabled=true`
 
 ### 3. High Availability & Fault Tolerance
-- **Redis-Based Provider Cooldown & Error Tracking**: Models returning consecutive server errors (5xx, timeouts) or rate-limit responses (429) trigger provider-specific cooldowns tracked in Redis, preventing traffic to failing providers while allowing recovery
-- **Dynamic API Key Cooldown**: When an upstream provider responds with HTTP 429 Too Many Requests, the offending API key is immediately isolated with a configurable cooldown (default 30 seconds), rotating traffic instantly to healthy keys
-- **Emergency Degraded Mode**: If all models in a pipeline are unavailable due to cooldowns or errors, the gateway automatically falls back to highest-priority models ordered by lowest latency, eliminating 100% gateway blackouts and enabling traffic-driven self-healing
-- **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) are immediately returned to the client and never falsely trigger provider cooldowns
-- **Auto-Recovery**: Provider cooldowns automatically expire based on configured timeouts, restoring traffic to healthy providers
-- **Smart Model Recovery Backoff**: Models flagged unhealthy by transient routed failures are re-probed by a dedicated recovery sweep with exponential backoff (30s → 120s cap, ±20% jitter) shared across replicas via Redis; a single successful probe restores the model immediately, and provider-wide outages never flag individual models DOWN
+- **Model-Level Fault Isolation & Anti-Flapping**: Models operate independently; there is NO provider-level cooldown. One model failing never affects other models from the same provider. Real-request errors apply a 3-consecutive-error anti-flapping threshold in Redis.
+- **Independent Priority Failover**: When any model is DOWN or fails during execution, the gateway immediately fails over to the next highest-priority candidate in the pipeline.
+- **Dynamic API Key Pool Rotation**: Upstream 429 rate limits or authentication errors rotate across the provider's API key pool (`ApiKeyPool`) before exposing an error.
+- **Emergency Degraded Mode**: If all models in a pipeline are marked down, the gateway attempts the highest-priority enabled models rather than blacking out completely.
+- **Safe 4xx Handling**: Client payload mistakes (400 Bad Request, 422 Unprocessable Entity) and format rejections are handled gracefully without false health penalties.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup
 
 ### 4. Resilient Distributed Health Checker
