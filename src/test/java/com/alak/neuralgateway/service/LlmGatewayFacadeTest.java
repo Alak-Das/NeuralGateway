@@ -245,4 +245,45 @@ class LlmGatewayFacadeTest {
         // Verify provider-alpha was NOT penalized with consecutive errors
         verify(redisPersistenceService, never()).incrementProviderConsecutiveErrors("provider-alpha");
     }
+
+    @Test
+    void processChatCompletion_allProvidersInCooldown_emergencyDegradedModeAttemptsCandidate() {
+        when(routingService.selectModels(eq(Pipeline.CODING), anyInt())).thenReturn(List.of(modelA));
+        when(redisPersistenceService.getProviderUnavailableReason("provider-alpha")).thenReturn("Too many consecutive errors");
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", "chatcmpl-degraded");
+        when(llmProviderClient.call(eq("model-a"), any())).thenReturn(response);
+
+        Map<String, Object> request = new HashMap<>();
+        request.put("messages", List.of(Map.of("role", "user", "content", "degraded test")));
+
+        Map<String, Object> result = facade.processChatCompletion(request, "cline", "CODING");
+
+        assertNotNull(result);
+        assertEquals("chatcmpl-degraded", result.get("id"));
+        verify(llmProviderClient).call(eq("model-a"), any());
+        verify(redisPersistenceService).clearProviderUnavailable("provider-alpha");
+        verify(redisPersistenceService).resetProviderConsecutiveErrors("provider-alpha");
+    }
+
+    @Test
+    void processStreamingChatCompletion_allProvidersInCooldown_emergencyDegradedModeAttemptsCandidate() {
+        when(routingService.selectModels(eq(Pipeline.CODING), anyInt())).thenReturn(List.of(modelA));
+        when(redisPersistenceService.getProviderUnavailableReason("provider-alpha")).thenReturn("Too many consecutive errors");
+        when(llmProviderClient.callStream(eq("model-a"), any()))
+                .thenReturn(Flux.just("data: {\"model\":\"model-a\"}", "data: [DONE]"));
+
+        Map<String, Object> request = new HashMap<>();
+        request.put("messages", List.of(Map.of("role", "user", "content", "streaming degraded test")));
+
+        Flux<String> flux = facade.processStreamingChatCompletion(request, "cline", "CODING");
+        List<String> results = flux.collectList().block(Duration.ofSeconds(2));
+
+        assertNotNull(results);
+        assertEquals(2, results.size());
+        verify(llmProviderClient).callStream(eq("model-a"), any());
+        verify(redisPersistenceService).clearProviderUnavailable("provider-alpha");
+        verify(redisPersistenceService).resetProviderConsecutiveErrors("provider-alpha");
+    }
 }

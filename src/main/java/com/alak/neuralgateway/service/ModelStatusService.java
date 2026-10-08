@@ -213,7 +213,15 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
     @Override
     public boolean isModelUp(String modelId) {
         ModelStatus status = statusCache.get(modelId);
-        return status != null && status.isUp();
+        if (status == null || !status.isUp()) {
+            return false;
+        }
+        if (status.provider() != null && !status.provider().isBlank()) {
+            if (redisPersistence.getProviderUnavailableReason(status.provider()) != null) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
@@ -236,7 +244,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
 
     @Override
     public String getErrorMessage(String modelId) {
-        ModelStatus status = statusCache.get(modelId);
+        ModelStatus status = getStatus(modelId);
         return status != null ? status.errorMessage() : null;
     }
 
@@ -244,7 +252,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      * Get status for a single model.
      */
     public ModelStatus getStatus(String modelId) {
-        return statusCache.get(modelId);
+        return enrichStatus(statusCache.get(modelId));
     }
 
     /**
@@ -252,7 +260,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      */
     public void updateFromRemote(ModelStatus status) {
         if (status != null && status.model() != null) {
-                        statusCache.put(status.model(), status);
+            statusCache.put(status.model(), status);
         }
     }
 
@@ -261,22 +269,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
      */
     public List<ModelStatus> getAllStatuses() {
         return statusCache.values().stream()
-                .map(status -> new ModelStatus(
-                        status.model(),
-                        status.categories(),
-                        status.isUp(),
-                        status.latencyMs(),
-                        status.lastChecked(),
-                        status.errorMessage(),
-                        status.history(),
-                        redisPersistence.getUsage(status.model()),
-                        routingService.getActiveConnections(status.model()),
-                        status.tps(),
-                        status.circuitOpen(),
-                        status.provider(),
-                        status.priority(),
-                        status.enabled()
-                ))
+                .map(this::enrichStatus)
                 .collect(Collectors.toList());
     }
 
@@ -286,7 +279,84 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
     public List<ModelStatus> getStatusesByPipeline(Pipeline pipeline) {
         return statusCache.values().stream()
                 .filter(s -> s.categories().contains(pipeline.name()))
+                .map(this::enrichStatus)
                 .collect(Collectors.toList());
+    }
+
+    private ModelStatus enrichStatus(ModelStatus status) {
+        if (status == null) return null;
+        String providerCooldown = status.provider() != null && !status.provider().isBlank()
+                ? redisPersistence.getProviderUnavailableReason(status.provider())
+                : null;
+        boolean circuitOpen = status.circuitOpen() || providerCooldown != null;
+        String errorMessage = status.errorMessage();
+        if ((errorMessage == null || errorMessage.isBlank()) && providerCooldown != null) {
+            errorMessage = "Provider cooldown: " + providerCooldown;
+        }
+        return new ModelStatus(
+                status.model(),
+                status.categories(),
+                status.isUp(),
+                status.latencyMs(),
+                status.lastChecked(),
+                errorMessage,
+                status.history(),
+                redisPersistence.getUsage(status.model()),
+                routingService.getActiveConnections(status.model()),
+                status.tps(),
+                circuitOpen,
+                status.provider(),
+                status.priority(),
+                status.enabled()
+        );
+    }
+
+    /**
+     * Resets the circuit breaker and error state for a model and its provider models in the cache.
+     */
+    public void resetCircuitBreaker(String modelId) {
+        if (modelId == null || modelId.isBlank()) return;
+        redisPersistence.resetConsecutiveErrors(modelId);
+        redisPersistence.clearModelRecoveryBackoff(modelId);
+
+        List<String> targetModels = new ArrayList<>();
+        if (statusCache.containsKey(modelId)) {
+            targetModels.add(modelId);
+        } else {
+            for (ModelStatus ms : statusCache.values()) {
+                if (modelId.equalsIgnoreCase(ms.provider())) {
+                    targetModels.add(ms.model());
+                }
+            }
+        }
+
+        for (String target : targetModels) {
+            redisPersistence.resetConsecutiveErrors(target);
+            redisPersistence.clearModelRecoveryBackoff(target);
+            ModelStatus existing = statusCache.get(target);
+            if (existing != null) {
+                ModelStatus resetStatus = new ModelStatus(
+                        existing.model(),
+                        existing.categories(),
+                        true,
+                        existing.latencyMs(),
+                        Instant.now(),
+                        null,
+                        existing.history(),
+                        existing.totalUses(),
+                        existing.activeConnections(),
+                        existing.tps(),
+                        false,
+                        existing.provider(),
+                        existing.priority(),
+                        existing.enabled()
+                );
+                statusCache.put(target, resetStatus);
+                if (eventPublisher != null) {
+                    eventPublisher.publishEvent(new ModelStatusChangedEvent(this, resetStatus));
+                }
+            }
+        }
     }
 
     /**

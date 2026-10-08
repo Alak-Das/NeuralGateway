@@ -206,7 +206,7 @@ public class RedisPersistenceService {
         if (providerId == null || providerId.isBlank()) return 0;
         String key = PROVIDER_CONSECUTIVE_ERRORS_KEY_PREFIX + providerId;
         Long count = redisTemplate.opsForValue().increment(key);
-        setTtlIfNeeded(key);
+        redisTemplate.expire(key, 2, TimeUnit.MINUTES);
         return count != null ? count.intValue() : 0;
     }
 
@@ -420,6 +420,7 @@ public class RedisPersistenceService {
         if (providerId == null || providerId.isBlank() || cooldown == null || cooldown.isZero() || cooldown.isNegative())
             return;
         redisTemplate.opsForValue().set(PROVIDER_UNAVAILABLE_KEY_PREFIX + providerId, reason, cooldown);
+        resetProviderConsecutiveErrors(providerId);
     }
 
     public String getProviderUnavailableReason(String providerId) {
@@ -428,8 +429,10 @@ public class RedisPersistenceService {
     }
 
     public void clearProviderUnavailable(String providerId) {
-        if (providerId != null && !providerId.isBlank())
+        if (providerId != null && !providerId.isBlank()) {
             redisTemplate.delete(PROVIDER_UNAVAILABLE_KEY_PREFIX + providerId);
+            resetProviderConsecutiveErrors(providerId);
+        }
     }
 
     /**

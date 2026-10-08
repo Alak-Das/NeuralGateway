@@ -120,23 +120,13 @@ public class LlmGatewayFacade {
             }
         }
 
+        // Partition candidates: available providers first, cooldown providers as emergency degraded fallback
+        List<Model> orderedCandidates = orderCandidatesWithDegradedFallback(candidates, pipelineName);
+
         // Try each candidate with failover
         Exception lastException = null;
-        for (int i = 0; i < candidates.size(); i++) {
-            Model model = candidates.get(i);
-            if (!isProviderAvailable(model)) {
-                log.info("Skipping model '{}' because provider '{}' is in cooldown",
-                        model.getId(), model.getProviderId());
-                continue;
-            }
-            
-            // Check if provider is marked as unavailable in Redis
-            String providerId = model.getProviderId();
-            if (providerId != null && !providerId.isBlank() && 
-                redisPersistenceService.getProviderUnavailableReason(providerId) != null) {
-                log.info("Skipping model '{}' because provider '{}' is marked as unavailable", model.getId(), providerId);
-                continue;
-            }
+        for (int i = 0; i < orderedCandidates.size(); i++) {
+            Model model = orderedCandidates.get(i);
 
             // Increment usage tracking
             modelStatusService.incrementUsage(model.getId());
@@ -275,7 +265,9 @@ public class LlmGatewayFacade {
             }
         }
 
-        return streamCandidate(candidates, 0, requestBody, requester, pipelineName, estimatedTokens);
+        List<Model> orderedCandidates = orderCandidatesWithDegradedFallback(candidates, pipelineName);
+
+        return streamCandidate(orderedCandidates, 0, requestBody, requester, pipelineName, estimatedTokens);
     }
 
     private Flux<String> streamCandidate(List<Model> candidates, int candidateIndex, Map<String, Object> requestBody, String requester, String pipelineName, int estimatedTokens) {
@@ -285,11 +277,6 @@ public class LlmGatewayFacade {
 
         Model model = candidates.get(candidateIndex);
         return Flux.defer(() -> {
-            if (!isProviderAvailable(model)) {
-                log.info("Skipping model '{}' because provider '{}' is in cooldown",
-                        model.getId(), model.getProviderId());
-                return streamCandidate(candidates, candidateIndex + 1, requestBody, requester, pipelineName, estimatedTokens);
-            }
             modelStatusService.incrementUsage(model.getId());
             routingService.incrementActiveConnections(model.getId());
             
@@ -347,15 +334,21 @@ public class LlmGatewayFacade {
                         if (outcomeRecorded.compareAndSet(false, true)) {
                             CompletableFuture.runAsync(() -> {
                                 recordProviderFailure(model);
+                                int statusCode = 500;
+                                String errorMsg = error.getMessage();
+                                if (error instanceof LlmProviderClient.UpstreamServiceException upEx) {
+                                    statusCode = upEx.getStatusCode();
+                                    if (statusCode == 200) {
+                                        statusCode = 503;
+                                        errorMsg = "Premature stream termination (connection dropped)";
+                                    } else {
+                                        errorMsg = statusCode + " error";
+                                    }
+                                }
                                 modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
-                                        model.getId(), false, latency, java.time.Instant.now(), 
-                                        error instanceof LlmProviderClient.UpstreamServiceException ? 
-                                                ((LlmProviderClient.UpstreamServiceException) error).getStatusCode() + " error" : 
-                                                error.getMessage()));
+                                        model.getId(), false, latency, java.time.Instant.now(), errorMsg));
                                 telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, 
-                                        error instanceof LlmProviderClient.UpstreamServiceException ? 
-                                                ((LlmProviderClient.UpstreamServiceException) error).getStatusCode() : 500, 
-                                        "/v1/chat/completions");
+                                        statusCode, "/v1/chat/completions");
                                 if (requester != null && !requester.isEmpty()) {
                                     redisPersistenceService.recordRequesterMetrics(requester, model.getId(), pipelineName, 0, false, latency);
                                 }
@@ -693,14 +686,37 @@ public class LlmGatewayFacade {
      * @param modelId the model ID
      */
     public void resetCircuitBreaker(String modelId) {
+        if (modelId == null || modelId.isBlank()) return;
         modelRegistry.getModel(modelId).ifPresent(model -> {
             String providerId = model.getProviderId();
             if (providerId != null && !providerId.isBlank()) {
-                // Reset consecutive errors and clear unavailability
-                                  recordProviderSuccess(model);
-                redisPersistenceService.clearProviderUnavailable(providerId); // Mark as available immediately
+                redisPersistenceService.clearProviderUnavailable(providerId);
+                redisPersistenceService.resetProviderConsecutiveErrors(providerId);
             }
         });
+        redisPersistenceService.clearProviderUnavailable(modelId);
+        redisPersistenceService.resetProviderConsecutiveErrors(modelId);
+        modelStatusService.resetCircuitBreaker(modelId);
+    }
+
+    private List<Model> orderCandidatesWithDegradedFallback(List<Model> candidates, String pipelineName) {
+        List<Model> availableCandidates = new ArrayList<>();
+        List<Model> cooldownCandidates = new ArrayList<>();
+        for (Model m : candidates) {
+            if (isProviderAvailable(m)) {
+                availableCandidates.add(m);
+            } else {
+                cooldownCandidates.add(m);
+            }
+        }
+
+        if (availableCandidates.isEmpty() && !cooldownCandidates.isEmpty()) {
+            log.warn("All candidate models for pipeline '{}' belong to providers in cooldown. Entering emergency degraded mode.", pipelineName);
+        }
+
+        List<Model> ordered = new ArrayList<>(availableCandidates);
+        ordered.addAll(cooldownCandidates);
+        return ordered;
     }
 
     /**

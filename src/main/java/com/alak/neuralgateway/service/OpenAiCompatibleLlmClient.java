@@ -314,6 +314,9 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
 
     private RuntimeException mapUpstreamError(int status, String responseBody, 
                                               String providerId, String apiKey, String modelId) {
+        if (status == 200) {
+            status = 503;
+        }
         String lowerBody = responseBody == null ? "" : responseBody.toLowerCase(java.util.Locale.ROOT);
         String upstreamCode = extractUpstreamErrorCode(responseBody);
 
