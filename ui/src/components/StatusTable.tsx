@@ -114,8 +114,7 @@ export default function StatusTable({ data, onRefresh }: StatusTableProps) {
   }, [data]);
 
   const isDisabled = (model: ModelStatus) => model.enabled === false;
-  const getStatus = (model: ModelStatus): 'up' | 'down' | 'cooldown' => {
-    if (model.circuitOpen) return 'cooldown';
+  const getStatus = (model: ModelStatus): 'up' | 'down' => {
     const isUp = (model as any).up !== undefined ? (model as any).up : model.isUp;
     return isUp ? 'up' : 'down';
   };
@@ -143,14 +142,12 @@ export default function StatusTable({ data, onRefresh }: StatusTableProps) {
       let statusMatch = true;
       if (statusFilter === 'up') statusMatch = getStatus(d) === 'up';
       else if (statusFilter === 'down') statusMatch = getStatus(d) === 'down';
-      else if (statusFilter === 'cooldown') statusMatch = getStatus(d) === 'cooldown';
       return catMatch && statusMatch;
     }).sort((a, b) => {
       const getScore = (m: ModelStatus) => {
         if (isDisabled(m)) return 0;
         const st = getStatus(m);
-        if (st === 'up') return 3;
-        if (st === 'cooldown') return 2;
+        if (st === 'up') return 2;
         return 1;
       };
       
@@ -215,7 +212,6 @@ export default function StatusTable({ data, onRefresh }: StatusTableProps) {
                <select className={`${isDark ? 'bg-dark text-light border-secondary' : 'bg-light text-dark border-secondary'} form-select border-start-0 ps-0`} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
                 <option value="">All Statuses</option>
                 <option value="up">UP</option>
-                <option value="cooldown">COOLDOWN</option>
                 <option value="down">DOWN</option>
               </select>
             </div>
@@ -292,11 +288,7 @@ export default function StatusTable({ data, onRefresh }: StatusTableProps) {
                     ))}
                   </td>
                   <td className="py-3 px-4">
-                    {getStatus(d) === 'cooldown' ? (
-                      <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 px-3 py-2 fw-bold" style={{ fontSize: '0.85rem' }} title="Provider cooldown active or circuit breaker tripped">
-                        <i className="bi bi-hourglass-split me-1" style={{ fontSize: '0.75rem', verticalAlign: 'middle' }}></i>COOLDOWN
-                      </span>
-                    ) : getStatus(d) === 'up' ? (
+                    {getStatus(d) === 'up' ? (
                       <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-2 fw-bold" style={{ fontSize: '0.85rem' }}>
                         <i className="bi bi-circle-fill me-1" style={{ fontSize: '0.5rem', verticalAlign: 'middle' }}></i>UP
                       </span>
@@ -333,12 +325,12 @@ export default function StatusTable({ data, onRefresh }: StatusTableProps) {
                   </td>
                   <td className="py-3 px-4">
                     <div className="d-flex align-items-center gap-1">
-                      {d.circuitOpen && (
+                      {(d.circuitOpen || !d.isUp) && (
                         <button 
                           className="btn btn-sm btn-outline-warning text-nowrap d-flex align-items-center gap-1" 
                           onClick={() => handleResetCircuit(d.model)}
                           disabled={resettingModel === d.model}
-                          title="Reset provider cooldown and recorded errors"
+                          title="Reset recorded errors and circuit breaker"
                         >
                           <i className={`bi ${resettingModel === d.model ? 'bi-arrow-repeat spin' : 'bi-arrow-counterclockwise'}`}></i>
                           Reset

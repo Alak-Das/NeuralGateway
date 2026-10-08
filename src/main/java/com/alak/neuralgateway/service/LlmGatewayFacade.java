@@ -120,13 +120,10 @@ public class LlmGatewayFacade {
             }
         }
 
-        // Partition candidates: available providers first, cooldown providers as emergency degraded fallback
-        List<Model> orderedCandidates = orderCandidatesWithDegradedFallback(candidates, pipelineName);
-
-        // Try each candidate with failover
+        // Try each candidate in priority order with failover
         Exception lastException = null;
-        for (int i = 0; i < orderedCandidates.size(); i++) {
-            Model model = orderedCandidates.get(i);
+        for (int i = 0; i < candidates.size(); i++) {
+            Model model = candidates.get(i);
 
             // Increment usage tracking
             modelStatusService.incrementUsage(model.getId());
@@ -156,7 +153,6 @@ public class LlmGatewayFacade {
                 // Update telemetry and health status on success asynchronously to reduce response latency
                 final long finalTokensUsed = tokensUsed;
                 CompletableFuture.runAsync(() -> {
-                    recordProviderSuccess(model);
                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), true, latency, java.time.Instant.now(), null));
                     telemetryTraceService.recordTrace(requester, model.getId(), latency, true, pipelineName, finalTokensUsed, 200, "/v1/chat/completions");
 
@@ -183,7 +179,6 @@ public class LlmGatewayFacade {
                 log.warn("Upstream failure for model '{}' ({}ms): {}. Failing over to next candidate...", model.getId(), latency, e.getMessage());
                 
                 CompletableFuture.runAsync(() -> {
-                    recordProviderFailure(model);
                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                     telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, e.getStatusCode(), "/v1/chat/completions");
                     if (requester != null && !requester.isEmpty()) {
@@ -198,7 +193,7 @@ public class LlmGatewayFacade {
                         (e.getMessage().contains("wrong_api_format") || e.getMessage().contains("unsupported") || e.getMessage().contains("validation_error") || e.getMessage().contains("multimodal"))) {
                     log.warn("Model '{}' rejected request format ({}ms): {}. Failing over to next candidate...", model.getId(), latency, e.getMessage());
                     // Format rejections are client payload format issues, not provider health failures.
-                    // Failover immediately without penalizing the provider.
+                    // Failover immediately without penalizing the model.
                     continue;
                 }
                 // Genuine client 4xx errors - don't failover, return immediately
@@ -209,7 +204,6 @@ public class LlmGatewayFacade {
                 lastException = e;
                 log.warn("Unexpected error for model '{}' ({}ms): {}. Failing over to next candidate...", model.getId(), latency, e.getMessage());
                 CompletableFuture.runAsync(() -> {
-                    recordProviderFailure(model);
                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(model.getId(), false, latency, java.time.Instant.now(), e.getMessage()));
                     telemetryTraceService.recordTrace(requester, model.getId(), latency, false, pipelineName, 0, 500, "/v1/chat/completions");
                     if (requester != null && !requester.isEmpty()) {
@@ -265,9 +259,7 @@ public class LlmGatewayFacade {
             }
         }
 
-        List<Model> orderedCandidates = orderCandidatesWithDegradedFallback(candidates, pipelineName);
-
-        return streamCandidate(orderedCandidates, 0, requestBody, requester, pipelineName, estimatedTokens);
+        return streamCandidate(candidates, 0, requestBody, requester, pipelineName, estimatedTokens);
     }
 
     private Flux<String> streamCandidate(List<Model> candidates, int candidateIndex, Map<String, Object> requestBody, String requester, String pipelineName, int estimatedTokens) {
@@ -310,7 +302,6 @@ public class LlmGatewayFacade {
                             long latency = System.currentTimeMillis() - startTime;
                             if (outcomeRecorded.compareAndSet(false, true)) {
                                 CompletableFuture.runAsync(() -> {
-                                    recordProviderSuccess(model);
                                     modelStatusService.updateStatus(model.getId(), new HealthCheckResult(
                                             model.getId(), true, latency, java.time.Instant.now(), null));
                                     // For streaming, we don't have exact token count until the end, so we'll use estimated
@@ -333,7 +324,6 @@ public class LlmGatewayFacade {
                         long latency = System.currentTimeMillis() - startTime;
                         if (outcomeRecorded.compareAndSet(false, true)) {
                             CompletableFuture.runAsync(() -> {
-                                recordProviderFailure(model);
                                 int statusCode = 500;
                                 String errorMsg = error.getMessage();
                                 if (error instanceof LlmProviderClient.UpstreamServiceException upEx) {
@@ -364,7 +354,7 @@ public class LlmGatewayFacade {
                         }
                         if (canFailOver) {
                             return Flux.error(noEligibleProvider(Pipeline.valueOf(pipelineName.toUpperCase()),
-                                    error instanceof Exception ex ? ex : new Exception(error)));
+                                     error instanceof Exception ex ? ex : new Exception(error)));
                         }
                         return Flux.error(error);
                     });
@@ -372,48 +362,9 @@ public class LlmGatewayFacade {
     }
 
     private IllegalStateException noEligibleProvider(Pipeline pipeline, Exception cause) {
-        Set<String> providers = modelRegistry.getModelsByPipeline(pipeline).stream()
-                .filter(Model::isEnabled)
-                .map(Model::getProviderId).collect(Collectors.toSet());
-        Map<String, String> unavailableReasons = new HashMap<>();
-        for (String pId : providers) {
-            String reason = redisPersistenceService.getProviderUnavailableReason(pId);
-            if (reason != null) {
-                unavailableReasons.put(pId, reason);
-            }
-        }
-        String details = unavailableReasons.isEmpty() ? "" : " Provider cooldowns: " + unavailableReasons;
-        String message = String.format("All available models for the '%s' pipeline are currently exhausted or unavailable.%s",
-                pipeline.name().toLowerCase(), details);
+        String message = String.format("All available models for the '%s' pipeline are currently exhausted or unavailable.",
+                pipeline.name().toLowerCase());
         return cause == null ? new IllegalStateException(message) : new IllegalStateException(message, cause);
-    }
-
-    private boolean isProviderAvailable(Model model) {
-        String providerId = model.getProviderId();
-        if (providerId == null || providerId.isBlank()) {
-            return true; // No provider specified, assume available
-        }
-        return redisPersistenceService.getProviderUnavailableReason(providerId) == null;
-    }
-
-    private void recordProviderSuccess(Model model) {
-        // Reset consecutive errors and clear unavailability for this provider on success
-        String providerId = model.getProviderId();
-        if (providerId != null && !providerId.isBlank()) {
-            redisPersistenceService.resetProviderConsecutiveErrors(providerId);
-            redisPersistenceService.clearProviderUnavailable(providerId);
-        }
-    }
-
-    private void recordProviderFailure(Model model) {
-        // Track consecutive errors for this provider
-        String providerId = model.getProviderId();
-        if (providerId != null && !providerId.isBlank()) {
-            redisPersistenceService.incrementProviderConsecutiveErrors(providerId);
-            if (redisPersistenceService.getProviderConsecutiveErrors(providerId) >= 3) {
-                redisPersistenceService.setProviderUnavailable(providerId, "Too many consecutive errors", Duration.ofSeconds(60));
-            }
-        }
     }
 
     private void applyMinMaxTokens(Map<String, Object> requestBody, Model model) {
@@ -633,8 +584,8 @@ public class LlmGatewayFacade {
                 status.put("errorMessage", "No health checks performed");
             }
             
-            // Get circuit breaker state
-            boolean isAvailable = isProviderAvailable(model);
+            // Get model availability state
+            boolean isAvailable = modelStatusService.isModelUp(modelId);
             status.put("available", isAvailable);
             
             // Get EMA latency
@@ -687,36 +638,8 @@ public class LlmGatewayFacade {
      */
     public void resetCircuitBreaker(String modelId) {
         if (modelId == null || modelId.isBlank()) return;
-        modelRegistry.getModel(modelId).ifPresent(model -> {
-            String providerId = model.getProviderId();
-            if (providerId != null && !providerId.isBlank()) {
-                redisPersistenceService.clearProviderUnavailable(providerId);
-                redisPersistenceService.resetProviderConsecutiveErrors(providerId);
-            }
-        });
-        redisPersistenceService.clearProviderUnavailable(modelId);
-        redisPersistenceService.resetProviderConsecutiveErrors(modelId);
+        redisPersistenceService.resetConsecutiveErrors(modelId);
         modelStatusService.resetCircuitBreaker(modelId);
-    }
-
-    private List<Model> orderCandidatesWithDegradedFallback(List<Model> candidates, String pipelineName) {
-        List<Model> availableCandidates = new ArrayList<>();
-        List<Model> cooldownCandidates = new ArrayList<>();
-        for (Model m : candidates) {
-            if (isProviderAvailable(m)) {
-                availableCandidates.add(m);
-            } else {
-                cooldownCandidates.add(m);
-            }
-        }
-
-        if (availableCandidates.isEmpty() && !cooldownCandidates.isEmpty()) {
-            log.warn("All candidate models for pipeline '{}' belong to providers in cooldown. Entering emergency degraded mode.", pipelineName);
-        }
-
-        List<Model> ordered = new ArrayList<>(availableCandidates);
-        ordered.addAll(cooldownCandidates);
-        return ordered;
     }
 
     /**

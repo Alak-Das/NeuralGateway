@@ -213,15 +213,7 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
     @Override
     public boolean isModelUp(String modelId) {
         ModelStatus status = statusCache.get(modelId);
-        if (status == null || !status.isUp()) {
-            return false;
-        }
-        if (status.provider() != null && !status.provider().isBlank()) {
-            if (redisPersistence.getProviderUnavailableReason(status.provider()) != null) {
-                return false;
-            }
-        }
-        return true;
+        return status != null && status.isUp();
     }
 
     @Override
@@ -285,26 +277,18 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
 
     private ModelStatus enrichStatus(ModelStatus status) {
         if (status == null) return null;
-        String providerCooldown = status.provider() != null && !status.provider().isBlank()
-                ? redisPersistence.getProviderUnavailableReason(status.provider())
-                : null;
-        boolean circuitOpen = status.circuitOpen() || providerCooldown != null;
-        String errorMessage = status.errorMessage();
-        if ((errorMessage == null || errorMessage.isBlank()) && providerCooldown != null) {
-            errorMessage = "Provider cooldown: " + providerCooldown;
-        }
         return new ModelStatus(
                 status.model(),
                 status.categories(),
                 status.isUp(),
                 status.latencyMs(),
                 status.lastChecked(),
-                errorMessage,
+                status.errorMessage(),
                 status.history(),
                 redisPersistence.getUsage(status.model()),
                 routingService.getActiveConnections(status.model()),
                 status.tps(),
-                circuitOpen,
+                status.circuitOpen(),
                 status.provider(),
                 status.priority(),
                 status.enabled()
