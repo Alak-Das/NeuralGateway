@@ -185,13 +185,46 @@ public class LlmController {
         description = "Dynamically updates model configuration such as enabled status, priority, and pipelines at runtime.",
         tags = {"Fleet Health & Diagnostics"}
     )
-    @PostMapping("/api/models/{modelId}/config")
+    @PostMapping("/api/models/config")
     public ResponseEntity<Void> updateModelConfig(
-            @Parameter(description = "ID of the model to update")
-            @PathVariable String modelId,
+            @Parameter(description = "ID of the model to update (optional if present in body)")
+            @RequestParam(required = false) String model,
             @RequestBody Map<String, Object> config) {
-        modelRegistry.updateModelConfig(modelId, config);
-        gatewayFacade.pingModel(modelId); // Force immediate UI refresh
+        String targetModel = model;
+        if (targetModel == null || targetModel.isBlank()) {
+            targetModel = (String) config.get("model");
+        }
+        if (targetModel == null || targetModel.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        gatewayFacade.updateModelConfig(targetModel, config);
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(
+        summary = "Update model configuration by path",
+        description = "Dynamically updates model configuration when model ID is included in path (e.g. /api/models/moonshotai/kimi-k3/config).",
+        tags = {"Fleet Health & Diagnostics"}
+    )
+    @PostMapping("/api/models/{*modelPath}")
+    public ResponseEntity<Void> updateModelConfigByPath(
+            @Parameter(description = "Path containing model ID (e.g. moonshotai/kimi-k3/config)")
+            @PathVariable String modelPath,
+            @RequestBody Map<String, Object> config) {
+        String targetModel = modelPath != null ? modelPath.trim() : "";
+        if (targetModel.startsWith("/")) {
+            targetModel = targetModel.substring(1);
+        }
+        if (targetModel.endsWith("/config")) {
+            targetModel = targetModel.substring(0, targetModel.length() - "/config".length());
+        }
+        if (targetModel.isBlank() || "ping".equalsIgnoreCase(targetModel)
+                || "circuit-reset".equalsIgnoreCase(targetModel)
+                || "config".equalsIgnoreCase(targetModel)
+                || "status".equalsIgnoreCase(targetModel)) {
+            return ResponseEntity.notFound().build();
+        }
+        gatewayFacade.updateModelConfig(targetModel, config);
         return ResponseEntity.ok().build();
     }
 

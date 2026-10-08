@@ -34,21 +34,26 @@ export default function StatusTable({ data }: StatusTableProps) {
     if (!editingModel) return;
     const pipelines = editPipelines.split(',').map(s => s.trim()).filter(Boolean);
     try {
-      await fetch(`/api/models/${editingModel.model}/config`, {
+      const response = await fetch('/api/models/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          model: editingModel.model,
           enabled: editEnabled,
           priority: editPriority,
           pipelines
         })
       });
+      if (!response.ok) {
+        throw new Error(`Server returned HTTP ${response.status}`);
+      }
       setEditingModel(null);
       setTimeout(() => {
         document.dispatchEvent(new Event('visibilitychange'));
       }, 300);
     } catch (e) {
       console.error('Failed to save config', e);
+      alert('Failed to save model configuration: ' + (e instanceof Error ? e.message : String(e)));
     }
   };
 

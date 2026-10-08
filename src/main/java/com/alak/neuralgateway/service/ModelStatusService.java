@@ -342,4 +342,43 @@ public class ModelStatusService implements ModelStatusProvider, ModelStatusUpdat
             eventPublisher.publishEvent(new ModelStatusChangedEvent(this, updated));
         }
     }
+
+    /**
+     * Updates in-memory model status cache when dynamic model configuration changes,
+     * and publishes an SSE event so the UI updates immediately.
+     */
+    public void notifyModelConfigUpdated(String modelId) {
+        Model model = modelRegistry.getModel(modelId).orElse(null);
+        if (model == null) return;
+
+        List<String> categories = model.getPipelines() != null
+                ? model.getPipelines().stream().map(Enum::name).collect(Collectors.toList())
+                : List.of("Unknown");
+
+        ModelStatus updated = statusCache.compute(modelId, (k, existing) -> {
+            if (existing == null) {
+                return buildInitialModelStatus(modelId);
+            }
+            return new ModelStatus(
+                    existing.model(),
+                    categories,
+                    existing.isUp(),
+                    existing.latencyMs(),
+                    existing.lastChecked(),
+                    existing.errorMessage(),
+                    existing.history(),
+                    existing.totalUses(),
+                    existing.activeConnections(),
+                    existing.tps(),
+                    existing.circuitOpen(),
+                    model.getProviderId() != null ? model.getProviderId() : existing.provider(),
+                    model.getPriority(),
+                    model.isEnabled()
+            );
+        });
+
+        if (updated != null && eventPublisher != null) {
+            eventPublisher.publishEvent(new ModelStatusChangedEvent(this, updated));
+        }
+    }
 }

@@ -710,5 +710,17 @@ public class LlmGatewayFacade {
         });
     }
 
+    /**
+     * Update dynamic model configuration and immediately sync the status cache.
+     */
+    public void updateModelConfig(String modelId, Map<String, Object> config) {
+        modelRegistry.updateModelConfig(modelId, config);
+        // Find canonical model ID in case relaxed lookup was used
+        String canonicalId = modelRegistry.findModelRelaxed(modelId) != null 
+                ? modelRegistry.findModelRelaxed(modelId).getId() 
+                : modelId;
+        modelStatusService.notifyModelConfigUpdated(canonicalId);
+    }
+
 }
 

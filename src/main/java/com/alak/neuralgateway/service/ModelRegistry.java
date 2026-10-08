@@ -142,7 +142,12 @@ public class ModelRegistry {
     public void updateModelConfig(String modelId, Map<String, Object> config) {
         Model existing = modelCatalog.get(modelId);
         if (existing == null) {
-            throw new IllegalArgumentException("Model not found");
+            existing = findModelRelaxed(modelId);
+            if (existing != null) {
+                modelId = existing.getId();
+            } else {
+                throw new IllegalArgumentException("Model not found: " + modelId);
+            }
         }
         applyOverride(modelId, config);
 
@@ -152,6 +157,17 @@ public class ModelRegistry {
         } catch (Exception e) {
             throw new RuntimeException("Failed to save config to Redis", e);
         }
+    }
+
+    public Model findModelRelaxed(String modelId) {
+        if (modelId == null || modelId.isBlank()) return null;
+        String trimmed = modelId.trim();
+        for (Model m : modelCatalog.values()) {
+            if (m.getId().equalsIgnoreCase(trimmed) || m.getId().endsWith("/" + trimmed)) {
+                return m;
+            }
+        }
+        return null;
     }
 
     private void loadDynamicOverrides() {
@@ -173,13 +189,47 @@ public class ModelRegistry {
         Model existing = modelCatalog.get(modelId);
         if (existing == null) return;
 
-        boolean enabled = config.containsKey("enabled") ? (Boolean) config.get("enabled") : existing.isEnabled();
-        int priority = config.containsKey("priority") ? (Integer) config.get("priority") : existing.getPriority();
+        boolean enabled = existing.isEnabled();
+        if (config.containsKey("enabled")) {
+            Object val = config.get("enabled");
+            if (val instanceof Boolean b) {
+                enabled = b;
+            } else if (val != null) {
+                enabled = Boolean.parseBoolean(String.valueOf(val));
+            }
+        }
+
+        int priority = existing.getPriority();
+        if (config.containsKey("priority")) {
+            Object val = config.get("priority");
+            if (val instanceof Number n) {
+                priority = n.intValue();
+            } else if (val != null) {
+                try {
+                    priority = Integer.parseInt(String.valueOf(val).trim());
+                } catch (NumberFormatException ignored) {}
+            }
+        }
         
         Set<Model.Pipeline> pipelines = existing.getPipelines();
         if (config.containsKey("pipelines")) {
-            List<String> pipelineStrs = (List<String>) config.get("pipelines");
-            pipelines = pipelineStrs.stream().map(p -> Model.Pipeline.valueOf(p.toUpperCase())).collect(Collectors.toSet());
+            Object val = config.get("pipelines");
+            if (val instanceof List<?> pipelineStrs) {
+                pipelines = pipelineStrs.stream()
+                        .map(Object::toString)
+                        .map(String::trim)
+                        .map(String::toUpperCase)
+                        .filter(s -> !s.isEmpty())
+                        .map(s -> {
+                            try {
+                                return Model.Pipeline.valueOf(s);
+                            } catch (IllegalArgumentException e) {
+                                return null;
+                            }
+                        })
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+            }
         }
 
         Model updated = new Model(
