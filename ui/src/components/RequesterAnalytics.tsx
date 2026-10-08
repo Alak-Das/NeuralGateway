@@ -68,8 +68,13 @@ const theme = useContext(ThemeContext);
 
   const historyData = {
     labels: history.map(h => {
-      const d = new Date(h.date);
-      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      if (!h.date) return '';
+      const parts = h.date.split('-');
+      if (parts.length === 3) {
+        const [y, m, d] = parts.map(Number);
+        return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      }
+      return new Date(h.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }),
     datasets: [
       {

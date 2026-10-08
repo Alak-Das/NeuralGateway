@@ -6,9 +6,10 @@ import { buildModelColorMap, getModelColor } from '../theme/colors';
 
 interface StatusTableProps {
   data: ModelStatus[];
+  onRefresh?: () => void;
 }
 
-export default function StatusTable({ data }: StatusTableProps) {
+export default function StatusTable({ data, onRefresh }: StatusTableProps) {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
@@ -32,7 +33,7 @@ export default function StatusTable({ data }: StatusTableProps) {
 
   const handleSaveConfig = async () => {
     if (!editingModel) return;
-    const pipelines = editPipelines.split(',').map(s => s.trim()).filter(Boolean);
+    const pipelines = editPipelines.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
     try {
       const response = await fetch('/api/models/config', {
         method: 'POST',
@@ -48,9 +49,9 @@ export default function StatusTable({ data }: StatusTableProps) {
         throw new Error(`Server returned HTTP ${response.status}`);
       }
       setEditingModel(null);
-      setTimeout(() => {
-        document.dispatchEvent(new Event('visibilitychange'));
-      }, 300);
+      if (onRefresh) {
+        onRefresh();
+      }
     } catch (e) {
       console.error('Failed to save config', e);
       alert('Failed to save model configuration: ' + (e instanceof Error ? e.message : String(e)));

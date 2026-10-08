@@ -40,7 +40,7 @@ export default function RequestersTable({ requesters }: RequestersTableProps) {
               </tr>
             ) : (
               requesters.map((r, i) => (
-                <tr key={i}>
+                <tr key={r.requester || i}>
                   <td className="py-3 px-4">
                     <div className="d-flex align-items-center">
                       <span className="badge bg-primary text-white px-3 py-2 font-monospace" style={{ fontSize: '0.9rem' }}>

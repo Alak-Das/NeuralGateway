@@ -112,12 +112,17 @@ export default function App() {
         if (Array.isArray(parsed)) {
           setData(parsed);
           setLastUpdated(new Date());
-        } else if (parsed && typeof parsed === 'object' && parsed.models && parsed.requesters) {
-          setData(parsed.models);
-          
-          let entries: RequesterStatus[] = [];
+        } else if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.models)) {
+            setData(parsed.models);
+            setLastUpdated(new Date());
+          } else if (parsed.model && typeof parsed.model === 'string') {
+            setData(prev => prev.map(m => m.model === parsed.model ? { ...m, ...parsed } : m));
+            setLastUpdated(new Date());
+          }
+
           if (Array.isArray(parsed.requesters)) {
-            entries = parsed.requesters.map((item: any) => ({
+            let entries: RequesterStatus[] = parsed.requesters.map((item: any) => ({
               requester: item.requester || item.identity || item.name || 'unknown',
               count: Number(item.count ?? item.tokens ?? item.total ?? 0),
               tokenCount: Number(item.tokenCount ?? item.count ?? item.tokens ?? 0),
@@ -127,10 +132,10 @@ export default function App() {
               models: item.models,
               pipelines: item.pipelines
             }));
+            entries.sort((a, b) => (b.tokenCount || b.count) - (a.tokenCount || a.count));
+            setRequesters(entries);
+            setLastUpdated(new Date());
           }
-          entries.sort((a, b) => (b.tokenCount || b.count) - (a.tokenCount || a.count));
-          setRequesters(entries);
-          setLastUpdated(new Date());
         }
       } catch (err) {
         console.error('Error parsing stream data:', err);
@@ -279,7 +284,7 @@ export default function App() {
         </ul>
 
         {activeTab === 'models' ? (
-          <StatusTable data={data} />
+          <StatusTable data={data} onRefresh={manualRefresh} />
         ) : activeTab === 'requesters' ? (
           <>
             <RequestersTable requesters={requesters} />

@@ -116,8 +116,10 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
   sparklineData.forEach(d => {
     const t = d.timestamp;
     let readyCountAtMin = 0;
+    const targetTotal = enabledModels > 0 ? enabledModels : totalModels;
     const bucketEnd = t + 59999;
     data.forEach(m => {
+      if (m.enabled === false) return;
       let latestEvent: any = null;
       if (m.history && Array.isArray(m.history) && m.history.length > 0) {
         for (let i = m.history.length - 1; i >= 0; i--) {
@@ -137,7 +139,7 @@ export default function KpiGrid({ data, lastUpdated }: KpiGridProps) {
       }
     });
 
-    d.health = totalModels > 0 ? (readyCountAtMin / totalModels) * 100 : 0;
+    d.health = targetTotal > 0 ? Math.min(100, (readyCountAtMin / targetTotal) * 100) : 0;
 
     if (usageByMin[t]) {
       d.rpm = usageByMin[t];
