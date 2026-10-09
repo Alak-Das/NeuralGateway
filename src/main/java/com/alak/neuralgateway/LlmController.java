@@ -451,6 +451,7 @@ public class LlmController {
 
     private boolean isClientDisconnect(Throwable t) {
         if (t == null) return false;
+        if (t instanceof java.net.SocketTimeoutException) return true;
         String msg = t.getMessage();
         if (msg != null && (msg.contains("Broken pipe") || msg.contains("Connection reset by peer")
                 || msg.contains("Response not usable") || msg.contains("Stream closed"))) {

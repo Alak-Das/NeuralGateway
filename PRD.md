@@ -198,5 +198,5 @@ Neural Gateway strictly implements the official OpenAI API specification for LLM
 6. **Customer Satisfaction**: Net promoter score from internal users and stakeholders
 
 ---
-*Document Version: 1.1*
-*Last Updated: September 30, 2026*
+*Document Version: 1.2*
+*Last Updated: October 9, 2026*

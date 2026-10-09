@@ -38,7 +38,7 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
 
         ConnectionProvider connectionProvider = ConnectionProvider.builder("llm-pool")
                 .maxConnections(50)
-                .maxIdleTime(Duration.ofSeconds(15))
+                .maxIdleTime(Duration.ofSeconds(5))
                 .maxLifeTime(Duration.ofMinutes(1))
                 .evictInBackground(Duration.ofSeconds(10))
                 .build();

@@ -29,7 +29,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 - **Request Sanitization for Cross-Provider Compatibility**: Non-standard client fields are normalised before dispatch — `thinking_effort` and Anthropic-style `thinking` blocks are translated to `reasoning_effort`, and `reasoning_effort` is coerced to the OpenAI-standard set (`none`, `low`, `medium`, `high`). This prevents `400 wrong_api_format` rejections from stricter providers and lets the gateway fail over instead of surfacing a spurious client error.
 - **Zero Cold-Start Lag (Redis Bootstrapping)**: Restores previous health states, latencies, circuit status, and token usage from Redis on startup so the gateway immediately routes to proven healthy models without waiting for health checks.
 - **Resilient Fallback Routing**: Candidate models are sorted strictly by priority (highest priority first) and tried with failover on error.
-- **Fail-Fast Failover**: Transparently retries candidate models on server-side failures with connection cleanup to eliminate cascading delays.
+- **Fail-Fast Failover**: Transparently retries candidate models on server-side failures, timeouts, or premature connection drops (even during initial stream establishment) with connection cleanup to eliminate cascading delays.
 
 ### 4. Resilient Distributed Health Checker
 - **ShedLock Distributed Scheduling**: Prevents redundant health check sweeps across horizontally scaled gateway instances by utilizing a Redis-backed distributed lock.
@@ -63,7 +63,7 @@ Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessib
 ## 🛠️ Tech Stack
 
 - **Framework**: Spring Boot 3.3.4 (Java 21 with Virtual Threads)
-- **Reactive Engine**: Spring WebFlux (`WebClient`) with Connection Pooling & Keep-Alive
+- **Reactive Engine**: Spring WebFlux (`WebClient`) with aggressive Connection Pooling & Keep-Alive tuning (5s max idle time) to gracefully handle upstream load balancers
 - **Resilience & Fault Tolerance**: Model-Level Fault Isolation, Anti-Flapping Circuit Breakers, ShedLock Distributed Locking
 - **Data & Telemetry**: Redis 7 Alpine (persistent volume, Pub/Sub SSE)
 - **Frontend**: React 19, TypeScript, Vite, Chart.js, Bootstrap Icons
