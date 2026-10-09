@@ -183,7 +183,13 @@ public class OpenAiCompatibleLlmClient implements LlmProviderClient {
                         RuntimeException embeddedFailure = mapEmbeddedStreamError(
                                 data, model.getProviderId(), apiKey, modelId);
                         if (embeddedFailure != null) throw embeddedFailure;
-                        emittedData.set(true);
+                        if (data != null && !data.equals("[DONE]")) {
+                            boolean hasContent = data.contains("\"content\":\"") && !data.contains("\"content\":\"\"");
+                            boolean hasToolCalls = data.contains("\"tool_calls\":");
+                            if (hasContent || hasToolCalls) {
+                                emittedData.set(true);
+                            }
+                        }
                     })
                     .onErrorMap(WebClientResponseException.class,
                             e -> mapWebClientException(e, model.getProviderId(), apiKey, modelId))

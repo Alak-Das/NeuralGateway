@@ -297,7 +297,15 @@ public class LlmGatewayFacade {
                             }
                             return chunk;
                         })
-                        .doOnNext(event -> emittedAnyData.set(true))
+                        .doOnNext(event -> {
+                            if (event != null && !event.equals("[DONE]")) {
+                                boolean hasContent = event.contains("\"content\":\"") && !event.contains("\"content\":\"\"");
+                                boolean hasToolCalls = event.contains("\"tool_calls\":");
+                                if (hasContent || hasToolCalls) {
+                                    emittedAnyData.set(true);
+                                }
+                            }
+                        })
                         .doOnComplete(() -> {
                             long latency = System.currentTimeMillis() - startTime;
                             if (outcomeRecorded.compareAndSet(false, true)) {
