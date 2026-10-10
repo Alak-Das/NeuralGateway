@@ -1,13 +1,13 @@
 # Neural Gateway
 
-**Neural Gateway by Alak** is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple AI providers — including NVIDIA NIM, **Experiential Labs**, and **Antseed**.
+**Neural Gateway by Alak** is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple AI providers — including NVIDIA NIM, **Experiential Labs**, **Antseed**, and **Anthropic-compatible API**.
 
 ---
 
 ## 🚀 Key Features
 
 ### 1. Intelligent Pipeline Routing
-Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessible through the standard `/v1/chat/completions` endpoint:
+Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessible through the standard `/v1/chat/completions` endpoint **and the Anthropic-compatible `/v1/messages` endpoint**:
 - **Reasoning Pipeline (`model: "reasoning"`)**: Routes complex multi-step reasoning tasks across frontier reasoning models (e.g., Nemotron-3 Ultra 550B, Kimi K3, GLM-5.3, DeepSeek v4.1).
 - **Coding Pipeline (`model: "coding"`)**: Prioritizes low-latency, code-specialized models (e.g., Nemotron-3 Super 120B, GLM-5.3, antseed).
 - **Vision Pipeline (`model: "vision"`)**: Routes multimodal text + image queries to vision-instruct models (e.g., Kimi K3, DeepSeek v4.1 Flash, GLM-5.3 Flash) with intelligent image token budgeting.
@@ -236,7 +236,60 @@ curl -X POST http://127.0.0.1:9090/v1/chat/completions \
   }'
 ```
 
-### 4. Client IDE Setup (Cline, Cursor, Roo Code, Continue)
+### 4. Anthropic API Compatibility
+Neural Gateway provides a native **Anthropic-compatible `/v1/messages` endpoint** that accepts Anthropic-format requests and translates them to the internal OpenAI-compatible format for processing through the gateway's intelligent routing, load balancing, and failover pipelines. Responses are converted back to Anthropic format (including SSE streaming events).
+
+**Supported features:**
+- **Request translation**: Messages, system prompts, tools, tool_choice, max_tokens, temperature, stream
+- **Response translation**: Text content, tool_use blocks, usage metrics, stop reasons
+- **Streaming (SSE)**: Full Anthropic event stream (message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop)
+- **Pipeline routing**: Use `model: "reasoning"` or `model: "coding"` to select the appropriate pipeline
+- **Default requester**: Requests without `X-Requester` header default to `Claude Code`
+
+**Example Anthropic API request:**
+```bash
+curl -X POST http://127.0.0.1:9090/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "X-Requester: MyClaudeApp" \
+  -d '{
+    "model": "coding",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Write a Python function to calculate fibonacci numbers"}
+    ],
+    "stream": true
+  }'
+```
+
+**Example streaming response (SSE):**
+```
+event: message_start
+data: {"type": "message_start", "message": {"id": "msg_123", "type": "message", "role": "assistant", "model": "z-ai/glm-5.3", "content": [], "stop_reason": null, "stop_sequence": null, "usage": {"input_tokens": 50, "output_tokens": 0}}}
+
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Here"}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " is a Python function..."}}
+
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 150}}
+
+event: message_stop
+data: {"type": "message_stop"}
+```
+
+This enables seamless integration with **Claude Code**, **Anthropic SDKs**, and any tool that speaks the Anthropic Messages API.
+
+---
+
+### 5. Client IDE Setup (Cline, Cursor, Roo Code, Continue)
 Configure your IDE's OpenAI-compatible provider:
 - **API Provider**: `OpenAI Compatible`
 - **Base URL**: `http://127.0.0.1:9090/v1`

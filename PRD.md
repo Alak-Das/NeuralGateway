@@ -1,7 +1,7 @@
 # Neural Gateway Product Requirements Document (PRD)
 
 ## Executive Summary
-Neural Gateway is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple NVIDIA NIM AI models.
+Neural Gateway is an enterprise-grade, high-performance LLM routing gateway built with Spring Boot, Spring WebFlux, and Redis. It provides intelligent load balancing, dynamic failover, context-aware payload routing, tool call normalization, and real-time observability across multiple AI providers — including NVIDIA NIM, Experiential Labs, Antseed, and **Anthropic-compatible API**.
 
 ## Problem Statement
 Organizations face challenges when integrating multiple LLM providers:
@@ -19,7 +19,7 @@ Neural Gateway solves these challenges by providing:
 - Redis-based provider cooldowns for fault tolerance and graceful degradation
 - Context-aware model selection based on payload size
 - Real-time health monitoring with distributed scheduling
-- OpenAI-compatible API endpoints for seamless integration
+- **OpenAI-compatible API endpoints** (`/v1/chat/completions`) **and Anthropic-compatible API endpoints** (`/v1/messages`) **for seamless integration**
 - Comprehensive telemetry and observability features
 
 ## Target Users
@@ -31,7 +31,7 @@ Neural Gateway solves these challenges by providing:
 ## Key Features
 
 ### 1. Intelligent Pipeline Routing
-Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessible through the standard `/v1/chat/completions` endpoint:
+Neural Gateway organizes models into dedicated, purpose-tuned pipelines accessible through the standard `/v1/chat/completions` endpoint **and the Anthropic-compatible `/v1/messages` endpoint**:
 - **Reasoning Pipeline** (`model: "reasoning"`): Routes complex multi-step reasoning tasks across frontier reasoning models
 - **Coding Pipeline** (`model: "coding"`): Prioritizes low-latency, code-specialized models
 - **Vision Pipeline** (`model: "vision"`): Routes multimodal text + image queries to vision-instruct models
@@ -129,7 +129,8 @@ Neural Gateway strictly implements the official OpenAI API specification for LLM
 
 ### Functional Requirements
 1. ✅ Requests to `/api/*/chat/completions` return valid OpenAI-compatible responses
-2. ✅ Provider cooldowns activate after consecutive failures and reset after successful health checks
+2. ✅ **Requests to `/v1/messages` return valid Anthropic Messages API-compatible responses**
+3. ✅ Provider cooldowns activate after consecutive failures and reset after successful health checks
 3. ✅ Health checks run periodically and update model status in real-time
 4. ✅ Context window validation prevents requests that exceed model limits
 5. ✅ SSE endpoint provides real-time status updates to connected clients
@@ -163,6 +164,7 @@ Neural Gateway strictly implements the official OpenAI API specification for LLM
 8. **WebSocket Support**: Full-duplex communication for real-time applications
 9. **GraphQL Adapter**: GraphQL interface alongside REST APIs
 10. **Plugin Architecture**: Extensible system for custom routing logic and telemetry
+11. **Anthropic Vision Pipeline Support**: Extend `/v1/messages` endpoint to support `model: "vision"` for multimodal image+text requests
 
 ## Dependencies
 - Java 21+

@@ -60,6 +60,20 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
             +---------------------+
 ```
 
+**Anthropic Compatibility Components:**
+```
++---------------------+     +------------------v------------------+
+| AnthropicController |     |    AnthropicAdapterService         |
+|   (/v1/messages)    |---->| (Anthropic <-> OpenAI translation) |
++---------------------+     +------------------+------------------+
+                                                    |
+                                            +------------------+
+                                            |  LlmGatewayFacade  |
+                                            +------------------+
+```
+
+
+
 ## Detailed Component Specifications
 
 ### 1. API Layer (`LlmController`)
@@ -75,6 +89,7 @@ Neural Gateway follows a microservices-inspired modular architecture built on Sp
 **Key Endpoints:**
 - `POST /api/{coding|reasoning|vision}/chat/completions` - Main chat completion endpoints
 - `POST /v1/chat/completions`, `/chat/completions` - OpenAI compatibility aliases
+- `POST /v1/messages` - **Anthropic Messages API compatibility endpoint**
 - `GET /api/models/status` - Current status of all models
 - `GET /api/models/status/stream` - SSE stream of model status updates
 - `GET /api/requesters/status` - Requester telemetry/usage statistics
@@ -322,6 +337,32 @@ data: {"type":"CIRCUIT_TRIPPED","modelId":"nvidia/nemotron-3-ultra-550b-a55b","r
 event: heartbeat
 data: {"timestamp":"2026-09-27T10:30:05Z","instanceId":"neural-gateway-1"}
 ```
+
+#### AnthropicAdapterService
+**Responsibilities:**
+- Translate Anthropic Messages API requests (`/v1/messages`) into the internal OpenAI-compatible format
+- Convert OpenAI-format responses back into Anthropic Messages API format (non-streaming)
+- Convert OpenAI SSE streaming chunks into the Anthropic event stream (streaming)
+- Handle tools/tool_choice translation between the two API formats
+- Support system prompt conversion (string or content-block list)
+- Produce `tool_use` content blocks and `input_json_delta` streaming deltas for function calls
+
+**Supported Translations:**
+- **Request**: `model`, `stream`, `max_tokens`, `temperature`, `tools` (name/description/input_schema → function/parameters), `tool_choice` (auto/tool → auto/function), `system` (string or list of text blocks), `messages` (content blocks → OpenAI content, tool_use/tool_result blocks)
+- **Response (non-streaming)**: `id`, `model`, `role`, content blocks (`text`, `tool_use`), `stop_reason` (`end_turn`, `tool_use`), `usage` (input/output tokens)
+- **Response (streaming SSE events)**: `message_start`, `content_block_start`, `content_block_delta` (`text_delta`, `input_json_delta`), `content_block_stop`, `message_delta`, `message_stop`
+
+**Pipeline Selection:**
+- `model: "reasoning"` → REASONING pipeline
+- Any other model value → CODING pipeline
+
+**AnthropicController (`/v1/messages`)**
+- Accepts POST requests in Anthropic Messages API format
+- Defaults requester to `Claude Code` when `X-Requester` header is absent
+- Full SSE streaming support with `StreamingResponseBody`
+- Error handling conforms to the Anthropic error event format (`event: error`)
+- MDC trace context (traceId, requester) propagated through streaming
+
 
 ### 3. Domain Layer
 
