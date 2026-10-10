@@ -315,9 +315,10 @@ public class LlmController {
                 String errorMsg = timeoutOrInterrupted
                         ? "Gateway timeout: Upstream LLM provider did not respond in time. Please retry."
                         : (e.getMessage() != null ? e.getMessage() : "Gateway error");
+                boolean isExhausted = e instanceof IllegalStateException && e.getMessage() != null && e.getMessage().contains("exhausted");
                 String errorCode = timeoutOrInterrupted
                         ? "gateway_timeout"
-                        : (e instanceof IllegalArgumentException ? "invalid_request" : "pipeline_exhausted");
+                        : (e instanceof IllegalArgumentException ? "invalid_request" : (isExhausted ? "pipeline_exhausted" : "server_error"));
                 String errorType = timeoutOrInterrupted
                         ? "upstream_error"
                         : (e instanceof IllegalArgumentException ? "invalid_request_error" : "server_error");
@@ -371,7 +372,8 @@ public class LlmController {
                     String errorMsg = timeoutOrInterrupted
                             ? "Gateway timeout: Upstream LLM provider did not respond in time. Please retry."
                             : (e.getMessage() != null ? e.getMessage() : "Streaming upstream error");
-                    String errorCode = timeoutOrInterrupted ? "gateway_timeout" : "pipeline_exhausted";
+                    boolean isExhausted = e instanceof IllegalStateException && e.getMessage() != null && e.getMessage().contains("exhausted");
+                    String errorCode = timeoutOrInterrupted ? "gateway_timeout" : (isExhausted ? "pipeline_exhausted" : "stream_interrupted");
                     String errorType = timeoutOrInterrupted ? "upstream_error" : "server_error";
                     Map<String, Object> error = Map.of("error", Map.of(
                             "message", errorMsg,

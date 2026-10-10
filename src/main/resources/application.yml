@@ -97,7 +97,7 @@ llm:
       keys:
         - ${ANTSEED_API_KEY:}
       models:
-        - { id: "antseed",                                        enabled: true, priority: 7,   pipelines: [ REASONING, CODING ] }
+        - { id: "antseed",                                        enabled: false, priority: 7,   pipelines: [ REASONING, CODING ] }
 
 
 management:
